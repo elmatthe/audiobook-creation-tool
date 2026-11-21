@@ -51,6 +51,12 @@ from m4b.metadata.m4b_metadata_plan import EditorAction  # noqa: E402
 from test_button_roles import assert_aqua_button_layout  # noqa: E402
 from test_import_coordination import RecordingThreads  # noqa: E402
 from test_importing import make_config  # noqa: E402
+from test_m4b_maker_ui import (  # noqa: E402 - v0.8.2: the two M4B panels' preparation helpers
+    ParkedProcessing,
+    processing_bodies,
+    processing_workers,
+    wait_until_prepared,
+)
 from test_m4b_metadata_processing import (  # noqa: E402,F401 - fixtures by import
     audio_md5, container, png, sha,
 )
@@ -160,6 +166,8 @@ def add_files(panel, *paths: Path):
 
 def run_action(panel, method: str = "save") -> bool:
     started = getattr(panel, method)()
+    # v0.8.2: an accepted action is prepared off the Tk thread; the plan exists once the pump adopted it.
+    wait_until_prepared(panel)
     panel._pump.tick()
     return started
 
@@ -208,13 +216,8 @@ def source_hashes(panel) -> dict[str, str]:
 
 
 def parked_threads():
-    import test_import_coordination as tic
-
-    class Parked(tic.InlineThread):
-        def start(self):
-            pass
-
-    return RecordingThreads(kind=Parked)
+    """Parks the processing worker and any import scan; a preparation (v0.8.2) still runs inline."""
+    return RecordingThreads(kind=ParkedProcessing)
 
 
 # --------------------------------------------------------------------------- #
@@ -647,10 +650,11 @@ def test_auto_number_is_success_only_through_the_shared_allocator(make_panel, co
     # The plan is frozen before the worker runs; break the second Book's staged path.
     original_start = panel._start_attempt
 
-    def start_and_break(begin, label):
+    def start_and_break(run, begin, label, **kwargs):
+        # v0.8.2: the seam is handed the run whose frozen plan it is about to start.
         nonlocal target
-        target = panel.last_plan.books[1].staged
-        original_start(begin, label)
+        target = run.plan.books[1].staged
+        original_start(run, begin, label, **kwargs)
 
     panel._start_attempt = start_and_break
     assert run_action(panel, "save") is True
@@ -723,9 +727,10 @@ def test_retry_failed_reruns_only_the_failed_book_from_the_frozen_run(make_panel
     monkeypatch.setattr(metadata, "write_m4b_tags", broken)
     original_start = panel._start_attempt
 
-    def start_and_break(begin, label):
-        broken_for["path"] = panel.last_plan.books[1].staged
-        original_start(begin, label)
+    def start_and_break(run, begin, label, **kwargs):
+        # v0.8.2: the seam is handed the run whose frozen plan it is about to start.
+        broken_for["path"] = run.plan.books[1].staged
+        original_start(run, begin, label, **kwargs)
 
     panel._start_attempt = start_and_break
     assert run_action(panel, "save") is True
@@ -773,6 +778,7 @@ def test_pause_resume_and_cancel_reach_the_shared_controller(make_panel, contain
     import_folder(panel, library(container, tmp_path / "Library"))
     panel._thread_factory = parked_threads()
     assert panel.save() is True
+    wait_until_prepared(panel)
     assert panel.is_running
     controller = panel.job_controller
     panel.pause()
@@ -782,7 +788,7 @@ def test_pause_resume_and_cancel_reach_the_shared_controller(make_panel, contain
     panel.cancel()
     assert controller.state is JobState.CANCEL_REQUESTED
     assert calls == ["pause", "resume", "cancel"]
-    panel._thread_factory.bodies[0]()
+    processing_bodies(panel)[0]()
     panel._pump.tick()
     result = panel.last_result
     assert result.state is JobState.CANCELLED
@@ -797,6 +803,7 @@ def test_the_ui_locks_through_the_shared_matrix_while_running(make_panel, contai
     import_folder(panel, library(container, tmp_path / "Library"))
     panel._thread_factory = parked_threads()
     assert panel.save() is True
+    wait_until_prepared(panel)
     assert panel.lock_group.last_applied
     for button in (panel.btn_save, panel.btn_clear_tags, panel.btn_remove_numbering,
                    panel.btn_import_folder, panel.btn_add_files, panel.check_auto_number,
@@ -807,7 +814,7 @@ def test_the_ui_locks_through_the_shared_matrix_while_running(make_panel, contai
     assert str(panel.chapter_text.cget("state")) == "disabled"
     panel._pump.tick()      # the run's first events reach the shared bar
     assert panel.jobs.controls.availability()[JobAction.CANCEL] is True
-    panel._thread_factory.bodies[0]()
+    processing_bodies(panel)[0]()
     panel._pump.tick()
     for button in (panel.btn_save, panel.btn_import_folder, panel.btn_add_files):
         assert "disabled" not in button.state(), button
@@ -819,7 +826,8 @@ def test_the_worker_body_reaches_no_tk(make_panel, container, tmp_path, output_b
     import_folder(panel, library(container, tmp_path / "Library"))
     panel._thread_factory = parked_threads()
     assert panel.save() is True
-    body = panel._thread_factory.bodies[0]
+    wait_until_prepared(panel)
+    body = processing_bodies(panel)[0]
     raised: list[BaseException] = []
 
     def run():
@@ -841,11 +849,17 @@ def test_a_second_action_is_refused_while_one_runs(make_panel, container, tmp_pa
     import_folder(panel, library(container, tmp_path / "Library"))
     panel._thread_factory = parked_threads()
     assert panel.save() is True
+    # v0.8.2: refused while the first press is still being prepared, too -- nothing is reserved twice.
+    assert panel.is_preparing
+    assert panel.on_remove_series_numbering() is False
+    assert panel.save() is False
+    wait_until_prepared(panel)
     assert panel.on_remove_series_numbering() is False
     assert panel.save() is False
     assert len(panel.run.attempts) == 1
     assert len(list((output_base / "M4B-Metadata-Outputs").iterdir())) == 1
-    panel._thread_factory.bodies[0]()
+    assert len(processing_workers(panel)) == 1
+    processing_bodies(panel)[0]()
     panel._pump.tick()
 
 

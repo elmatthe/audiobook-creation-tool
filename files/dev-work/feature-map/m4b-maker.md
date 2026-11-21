@@ -127,6 +127,15 @@ Source: the panel is `scripts/m4b/maker/m4b_maker.py` (`M4BMakerUI`), a thin Tk 
 - Output: one .m4b per Book: AAC 128k in an MP4 container, with chapters, tags and optional cover.
 - States: disabled while running; the run ends Succeeded, Completed with failures, Cancelled or Failed.
 
+### Preparing a build
+`ACT.MAKER.PREPARATION`
+
+- Purpose: keep the window responsive between pressing Build M4B(s) and the first Book starting, however many tracks and Books there are (v0.8.2 Checkpoint 2).
+- Behaviour: the press commits a Chapter Titles edit still in the box, checks Silence and Start Part, freezes the workspace, the options, the custom folder as typed and the output Preferences in force, shows "Preparing job…" with Cancel available and Pause disabled, and returns at once. One short-lived background thread then reserves the run folder (or checks the custom folder and makes its owned work area) and plans every Book. It never touches the window, and it waits up to 0.25 s for the window to paint the press first. When the plan is ready the run starts as before.
+- Cancel or closing the tool during preparation starts nothing, keeps the workspace exactly as it was, says "Cancelled — nothing was started", and gives back the empty run folder or owned work-area entry on another background thread. A refused or failed preparation says why and starts nothing; the previous run's Retry Failed and kept staging stay usable, and pressing Build again works.
+- A result that arrives after Cancel, after a newer press, or twice is released and never run. Changing Preferences after the press does not change where the run goes.
+- Measured on HOME-PC: 2,341 tracks in seven Books planned in 0.36 s (4.74 s before); the longest pause of the window's 20 ms heartbeat during preparation was 21-31 ms up to 5,000 tracks.
+
 ### Chapter timing and round trip
 `ACT.MAKER.CHAPTERS`
 

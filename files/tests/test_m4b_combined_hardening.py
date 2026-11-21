@@ -54,6 +54,12 @@ from m4b.metadata import m4b_metadata_batch, m4b_metadata_processing  # noqa: E4
 from m4b.metadata import m4b_metadata_workflow as editor_wf  # noqa: E402
 from m4b.metadata.m4b_metadata_plan import EditorAction  # noqa: E402
 
+from test_m4b_maker_ui import (  # noqa: E402,F401 - v0.8.2: the M4B panels' preparation helpers
+    ParkedProcessing,
+    processing_bodies,
+    processing_workers,
+    wait_until_prepared,
+)
 from test_import_coordination import RecordingThreads  # noqa: E402
 from test_import_traversal import touch  # noqa: E402
 from test_importing import make_config  # noqa: E402
@@ -178,13 +184,8 @@ def add_files(panel, *paths: Path):
 
 
 def parked_threads():
-    import test_import_coordination as tic
-
-    class Parked(tic.InlineThread):
-        def start(self):
-            pass
-
-    return RecordingThreads(kind=Parked)
+    """Parks the processing worker and any import scan; a preparation (v0.8.2) still runs inline."""
+    return RecordingThreads(kind=ParkedProcessing)
 
 
 def editor_library(container: Path, root: Path) -> Path:
@@ -223,10 +224,11 @@ def break_editor_book(monkeypatch, panel, index: int):
     monkeypatch.setattr(metadata, "write_m4b_tags", broken)
     original = panel._start_attempt
 
-    def start_and_break(begin, label):
+    def start_and_break(run, begin, label, **kwargs):
+        # v0.8.2: the seam is handed the run whose frozen plan it is about to start.
         if target["path"] is None and target.get("armed", True):
-            target["path"] = panel.last_plan.books[index].staged
-        original(begin, label)
+            target["path"] = run.plan.books[index].staged
+        original(run, begin, label, **kwargs)
 
     panel._start_attempt = start_and_break
     return target
@@ -327,6 +329,7 @@ def test_maker_run_and_retry_ignore_every_later_live_mutation(panels, tmp_path, 
     maker.choose_book_artwork()
     maker._thread_factory = parked_threads()
     assert maker.build() is True
+    wait_until_prepared(maker)  # v0.8.2: accepted; prepared off Tk
     plan = maker.last_plan
     # Every kind of later mutation the plan names, while the run is parked.
     maker.on_shared_change("album", "Late Album")
@@ -343,7 +346,7 @@ def test_maker_run_and_retry_ignore_every_later_live_mutation(panels, tmp_path, 
     maker.var_fast_first.set(False)
     maker.var_custom_dest.set(True)
     maker.var_custom_path.set(str(tmp_path / "custom"))
-    maker._thread_factory.bodies[0]()
+    processing_bodies(maker)[0]()
     maker._pump.tick()
     assert maker.last_result.state is JobState.COMPLETED_WITH_FAILURES
     alpha = plan.books[0]
@@ -358,7 +361,7 @@ def test_maker_run_and_retry_ignore_every_later_live_mutation(panels, tmp_path, 
     tone(bad)
     maker.on_shared_change("album", "Later Still")
     assert maker.retry_failed() is True
-    maker._thread_factory.bodies[1]()
+    processing_bodies(maker)[1]()
     maker._pump.tick()
     assert maker.last_plan is plan and maker.last_result.state is JobState.SUCCEEDED
     beta = metadata.read_m4b_tags(plan.books[1].published)
@@ -383,6 +386,7 @@ def test_editor_run_and_retry_ignore_every_later_live_mutation(panels, container
     target = break_editor_book(monkeypatch, ed, 1)
     ed._thread_factory = parked_threads()
     assert ed.save() is True
+    wait_until_prepared(ed)  # v0.8.2: accepted; prepared off Tk
     plan = ed.last_plan
     # Every later mutation, while parked.
     ed.surface.set_shared_text("genre", "Late G")
@@ -396,7 +400,7 @@ def test_editor_run_and_retry_ignore_every_later_live_mutation(panels, container
     ed.on_remove(True)
     ed.var_auto_number.set(True)
     ed.var_start_part.set("9")
-    ed._thread_factory.bodies[0]()
+    processing_bodies(ed)[0]()
     ed._pump.tick()
     assert ed.last_result.state is JobState.COMPLETED_WITH_FAILURES
     alpha = metadata.read_m4b_tags(plan.books[0].published)
@@ -412,7 +416,7 @@ def test_editor_run_and_retry_ignore_every_later_live_mutation(panels, container
     target["armed"] = False
     ed.surface.set_shared_text("genre", "Later Still")
     assert ed.retry_failed() is True
-    ed._thread_factory.bodies[1]()
+    processing_bodies(ed)[1]()
     ed._pump.tick()
     assert ed.last_plan is plan and ed.last_result.state is JobState.SUCCEEDED
     beta = metadata.read_m4b_tags(plan.books[1].published)
@@ -535,8 +539,9 @@ def test_a_retry_starts_only_after_the_prior_attempt_is_terminal_and_gets_its_ow
     monkeypatch.setattr(m4b_metadata_processing, "publish_book", gated_publish)
     ed._thread_factory = parked_threads()
     assert ed.save() is True
+    wait_until_prepared(ed)  # v0.8.2: accepted; prepared off Tk
     first_adapter, first_controller = ed.jobs, ed.job_controller
-    body = ed._thread_factory.bodies[0]
+    body = processing_bodies(ed)[0]
     worker = threading.Thread(target=body, name="editor-retry-gate")
     worker.start()
     assert ed.is_running
@@ -555,7 +560,7 @@ def test_a_retry_starts_only_after_the_prior_attempt_is_terminal_and_gets_its_ow
     assert ed.retry_failed() is True
     assert ed.jobs is not first_adapter and ed.job_controller is not first_controller
     assert ed.jobs.run_id == first_adapter.run_id, "a retry is the same run"
-    retry_body = ed._thread_factory.bodies[1]
+    retry_body = processing_bodies(ed)[1]
     worker = threading.Thread(target=retry_body, name="editor-retry-gate-2")
     worker.start()
     worker.join(timeout=60)
@@ -577,10 +582,12 @@ def test_a_stale_runs_event_is_rejected_by_the_panels_adapter_and_never_rendered
         tone(root / "A" / "01.mp3")
         import_folder(panel, root)
         assert panel.build() is True
+        wait_until_prepared(panel)  # v0.8.2: accepted; prepared off Tk
     else:
         panel = panels.editor()
         import_folder(panel, editor_library(container, tmp_path / "Library"))
         assert panel.save() is True
+        wait_until_prepared(panel)  # v0.8.2: accepted; prepared off Tk
     panel._pump.tick()
     assert panel.last_result.state is JobState.SUCCEEDED
     summary_before = tuple(panel.log.summary)
@@ -616,6 +623,7 @@ def test_editor_outputs_survive_unicode_long_and_same_named_sources(panels, cont
     add_files(ed, *sources)
     ed.surface.set_shared_text("comment", "named")
     assert ed.save() is True
+    wait_until_prepared(ed)  # v0.8.2: accepted; prepared off Tk
     ed._pump.tick()
     plan = ed.last_plan
     assert ed.last_result.state is JobState.SUCCEEDED
@@ -641,6 +649,7 @@ def test_maker_output_names_survive_forbidden_reserved_unicode_and_long_titles(
         maker.set_book_field("title", title)
         maker.on_next()
     assert maker.build() is True
+    wait_until_prepared(maker)  # v0.8.2: accepted; prepared off Tk
     plan = maker.last_plan
     names = [entry.filename for entry in plan.books]
     for name in names:
@@ -674,6 +683,7 @@ def test_maker_tags_and_chapter_titles_survive_ffmetadata_special_characters(
     maker.on_shared_change("album", album)
     maker.type_chapter_titles("Part #1" + chr(10) + chapter_two)
     assert maker.build() is True
+    wait_until_prepared(maker)  # v0.8.2: accepted; prepared off Tk
     maker._pump.tick()
     assert maker.last_result.state is JobState.SUCCEEDED, [
         line for line in maker.log.details if "failed" in line]
@@ -701,6 +711,7 @@ def test_editor_artwork_preserve_replace_clear_and_remove_through_the_panel(
     ed._choose_artwork = lambda: str(photo)
     ed.choose_book_artwork()
     assert ed.save() is True
+    wait_until_prepared(ed)  # v0.8.2: accepted; prepared off Tk
     ed._pump.tick()
     saved = ed.last_plan
     assert bytes(covr_of(saved.books[0].published)[0]) == photo.read_bytes()
@@ -710,6 +721,7 @@ def test_editor_artwork_preserve_replace_clear_and_remove_through_the_panel(
     ed._choose_artwork = lambda: str(poster)
     ed.choose_shared_artwork()
     assert ed.on_clear_all_tags() is True
+    wait_until_prepared(ed)  # v0.8.2: accepted; prepared off Tk
     ed._pump.tick()
     cleared = ed.last_plan
     assert all(bytes(covr_of(e.published)[0]) == poster.read_bytes() for e in cleared.books)
@@ -717,6 +729,7 @@ def test_editor_artwork_preserve_replace_clear_and_remove_through_the_panel(
     # Clear All with no replacement: the cover stays removed.
     ed.clear_shared_artwork()
     assert ed.on_clear_all_tags() is True
+    wait_until_prepared(ed)  # v0.8.2: accepted; prepared off Tk
     ed._pump.tick()
     bare = ed.last_plan
     assert all(covr_of(e.published) == [] for e in bare.books)
@@ -724,6 +737,7 @@ def test_editor_artwork_preserve_replace_clear_and_remove_through_the_panel(
     ed._choose_artwork = lambda: str(photo)
     ed.choose_book_artwork()
     assert ed.on_remove_series_numbering() is True
+    wait_until_prepared(ed)  # v0.8.2: accepted; prepared off Tk
     ed._pump.tick()
     kept = ed.last_plan
     assert covr_of(kept.books[0].published) == covr_of(kept.books[0].source)
@@ -744,6 +758,7 @@ def test_a_heic_replacement_is_converted_in_memory_for_the_editor_too(panels, co
     ed.choose_book_artwork()
     assert ed.book_artwork.has_preview
     assert ed.save() is True
+    wait_until_prepared(ed)  # v0.8.2: accepted; prepared off Tk
     ed._pump.tick()
     assert ed.last_result.state is JobState.SUCCEEDED
     covr = covr_of(ed.last_plan.books[0].published)
@@ -796,6 +811,7 @@ def test_maker_a_b_c_success_numbering_and_retry_through_the_panel(panels, tmp_p
     maker.on_select(maker.workspace.books[2].book_id)
     maker.set_book_field("silence", "0.2")
     assert maker.build() is True
+    wait_until_prepared(maker)  # v0.8.2: accepted; prepared off Tk
     maker._pump.tick()
     plan = maker.last_plan
     result = maker.last_result
@@ -842,6 +858,7 @@ def test_editor_chain_runs_in_order_from_panel_to_publication(panels, container,
     ed.choose_book_artwork()
     before = sha(root / "Alpha.m4b")
     assert ed.save() is True
+    wait_until_prepared(ed)  # v0.8.2: accepted; prepared off Tk
     ed._pump.tick()
     assert ed.last_result.state is JobState.SUCCEEDED
     details = list(ed.log.details)

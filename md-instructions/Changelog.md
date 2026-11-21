@@ -15,6 +15,15 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [0.8.2] - unreleased (development branch `0.8.2`; nothing is tagged, merged or published)
 
+**Fixed (Checkpoint 2, M4B Maker and M4B Metadata Editor large jobs)**
+- Build M4B(s), Save Tags, Clear All Tags and Remove Series Numbering no longer freeze the window on large workspaces. The tools planned inside the button press and re-checked each Book's outputs against every source (18 s for 250 one-track Maker Books, 15 s for 250 Editor files, about 4.5 minutes for 1,000, with "Ready" still shown). Planning now checks each output against an index of the job's sources built once and runs on a preparation worker. On HOME-PC, 2,341 tracks in seven Books are planned in 0.36 s and 2,341 Editor files in about 2 s, while the window keeps responding (largest heartbeat gap 31 ms for the Maker and 66 ms for the Editor at 5,000).
+- The job area shows "Preparing job…" with Cancel as soon as the button is pressed (after the Editor's confirmation). Cancel or closing the tool during preparation starts nothing, removes the empty run folder (or the custom build's own temporary work area) in the background, and leaves every Book, setting, title, original and the previous run (including Retry Failed and its kept staging) as it was. A refused preparation shows its error and also leaves them as they were; the next Start works.
+- The output-folder Preferences in force when Start is pressed are used for the whole job, even if they are changed while the job is being prepared.
+- A Chapter Titles change made without a key release (for example a mouse paste) is no longer lost when another field is edited, when the box is redrawn, when moving between Books or when a job starts. Ctrl+Z after moving to another Book no longer brings back the previous Book's titles. Remove Series Numbering still applies no pending metadata edit.
+- If the job area of a new run cannot be set up, or its worker cannot be started, the tool no longer stays locked (as in the MP3 Tool, Checkpoint 1 R1). Clear All Imports builds its fresh job area first; if that fails, nothing is cleared.
+- The previous run's kept staging is removed in the background instead of on the window's thread.
+- Not changed: the Metadata Editor still reads each file's tags when it is imported, on the window's thread.
+
 **Fixed (Checkpoint 1 review remediation R1, MP3 Tool)**
 - Ctrl+Z in the Chapter Titles box can no longer bring the previous Book's titles into the Book you moved to.
 - Pasted Chapter Titles are no longer lost. A paste that was not followed by a keystroke used to be thrown away when a Shared or Book field, artwork, numbering or the track list was changed afterwards, and the run then used the old titles. The titles now stay with the Book they were pasted into through every such change, through moving between Books, duplicating, and both Start buttons.

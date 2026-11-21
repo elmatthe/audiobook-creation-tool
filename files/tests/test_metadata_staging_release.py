@@ -21,6 +21,12 @@ from shared.job_control import JobAction, JobState  # noqa: E402
 from m4b.metadata import m4b_metadata_batch as batch  # noqa: E402
 from m4b.metadata import m4b_metadata_processing as proc  # noqa: E402
 
+from test_m4b_maker_ui import (  # noqa: E402,F401 - v0.8.2: the M4B panels' preparation helpers
+    ParkedProcessing,
+    processing_bodies,
+    processing_workers,
+    wait_until_prepared,
+)
 from test_m4b_metadata_batch import make_run, three_books  # noqa: E402
 from test_m4b_metadata_processing import (  # noqa: E402,F401  (fixtures are collected by name)
     container,
@@ -159,6 +165,7 @@ def test_dropping_the_run_removes_the_kept_candidate(action, make_panel, contain
     import_folder(panel, root)
     refuse_publication(monkeypatch, lambda entry: entry.filename == "Beta.m4b")
     assert panel.save() is True
+    wait_until_prepared(panel)  # v0.8.2: accepted; prepared off Tk
     panel._pump.tick()
     plan = panel.last_plan
     candidate = next(book for book in plan.books if book.filename == "Beta.m4b")
@@ -174,6 +181,7 @@ def test_dropping_the_run_removes_the_kept_candidate(action, make_panel, contain
         assert panel.clear_all_imports() is True
     else:
         assert panel.save() is True
+        wait_until_prepared(panel)  # v0.8.2: accepted; prepared off Tk
         panel._pump.tick()
         assert panel.last_plan is not plan
     assert not candidate.staging_dir.exists() and not plan.work_root.exists(), action
@@ -202,6 +210,7 @@ def test_a_book_a_cancel_stopped_part_way_reads_cancelled_and_one_never_reached_
 
     monkeypatch.setattr(proc, "stage_book", stage)
     assert panel.save() is True
+    wait_until_prepared(panel)  # v0.8.2: accepted; prepared off Tk
     panel._pump.tick()
     statuses = {book.filename: panel.book_status_for(book.book_id) for book in panel.last_plan.books}
     assert statuses == {"Alpha.m4b": editor.STATUS_COMPLETED, "Beta.m4b": editor.STATUS_CANCELLED,

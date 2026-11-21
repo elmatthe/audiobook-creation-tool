@@ -31,6 +31,12 @@ from m4b.maker import m4b_maker_plan as mp  # noqa: E402
 from m4b.maker import m4b_maker_processing as proc  # noqa: E402
 from shared import work_area  # noqa: E402
 
+from test_m4b_maker_ui import (  # noqa: E402,F401 - v0.8.2: the M4B panels' preparation helpers
+    ParkedProcessing,
+    processing_bodies,
+    processing_workers,
+    wait_until_prepared,
+)
 from test_m4b_maker_batch import (  # noqa: E402,F401  (fixtures are collected by name)
     _ffmpeg,
     make_run,
@@ -224,6 +230,7 @@ def build_with_b_refused(panel, monkeypatch):
 
     monkeypatch.setattr(proc, "publish_book", publish)
     assert panel.build() is True
+    wait_until_prepared(panel)  # v0.8.2: accepted; prepared off Tk
     panel._pump.tick()
     plan = panel.last_plan
     candidate = next(book for book in plan.books if book.filename == "B.m4b")
@@ -247,6 +254,7 @@ def test_dropping_the_run_removes_the_kept_candidate(action, make_panel, tmp_pat
         assert panel.clear_all_imports() is True
     else:
         assert panel.build() is True
+        wait_until_prepared(panel)  # v0.8.2: accepted; prepared off Tk
         panel._pump.tick()
         assert panel.last_plan is not plan
     assert not candidate.staging_dir.exists() and not plan.work_root.exists(), action
@@ -298,6 +306,7 @@ def test_a_custom_build_stages_in_an_owned_entry_and_leaves_nothing(
 
     monkeypatch.setattr(proc, "stage_book", stage)
     assert panel.build() is True
+    wait_until_prepared(panel)  # v0.8.2: accepted; prepared off Tk
     panel._pump.tick()
     assert panel.last_result.state is JobState.SUCCEEDED
     (entry, facts), = seen["entries"]
@@ -358,6 +367,7 @@ def test_a_killed_makers_work_area_is_recovered_by_the_next_custom_build_and_not
     chosen.mkdir()
     panel, root = custom_panel(make_panel, tmp_path, chosen)
     assert panel.build() is True
+    wait_until_prepared(panel)  # v0.8.2: accepted; prepared off Tk
     panel._pump.tick()
     assert panel.last_result.state is JobState.SUCCEEDED
     assert not dead_workspace.exists(), "the killed Maker's staging is recovered"
@@ -387,6 +397,7 @@ def test_a_book_a_cancel_stopped_part_way_reads_cancelled_and_one_never_reached_
 
     monkeypatch.setattr(proc, "stage_book", stage)
     assert panel.build() is True
+    wait_until_prepared(panel)  # v0.8.2: accepted; prepared off Tk
     panel._pump.tick()
     a, b, c = panel.workspace.books
     assert [panel.book_status_for(book.book_id) for book in (a, b, c)] == [

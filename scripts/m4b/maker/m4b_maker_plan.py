@@ -49,14 +49,29 @@ Safety
 A standard run may not lie inside a source tree
 (:func:`~shared.output_paths.assert_outside_source_trees`); custom mode is the
 explicit, separately confirmed exception and may write beside the sources — but
-never onto one: every planned output and staged path is checked with
-:func:`~shared.output_paths.assert_not_input`, and the planner keeps every
+never onto one: every planned output and staged path is checked against the
+operation's inputs (the same refusal as
+:func:`~shared.output_paths.assert_not_input`), and the planner keeps every
 output contained in its root.
+
+Off the Tk thread (v0.8.2 Checkpoint 2)
+---------------------------------------
+The panel freezes the workspace and the capture inputs on Tk and calls
+:func:`plan_run` on its preparation worker, with a ``checkpoint`` that raises
+to stop a cancelled preparation and a ``progress`` callback. ``plan_run``
+takes the Plan 6 capture there, synchronously, before any processing worker
+exists: a pure function of immutable values (no disk read; Decisions, v0.8.2
+Checkpoint 2). A caller may pass a capture it took itself
+(:func:`capture_for_run`). Every input is normalised once per plan into an
+:class:`~shared.output_paths.InputIndex`, and each planned path is one lookup;
+it used to resolve every source again for each Book's two paths -- 2·B·N path
+resolutions, 18 s for 250 one-track Books on the Tk thread. A supplied capture
+must be a capture of the workspace being planned (:func:`_require_capture_matches`).
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -68,9 +83,10 @@ from shared.book_workspace import (
     BookRunSnapshot,
     WorkspaceSnapshot,
     capture_workspace_run,
+    effective_run_options,
 )
 from shared.importing import IdFactory, ImportOptions, SupportedTypeCatalog
-from shared.job_control import RunSnapshot
+from shared.job_control import RunSnapshot, freeze_options
 from m4b.maker import m4b_maker_workflow as wf
 
 __all__ = [
@@ -85,6 +101,7 @@ __all__ = [
     "standard_destination",
     "custom_destination",
     "output_filename",
+    "capture_for_run",
     "plan_run",
 ]
 
@@ -281,10 +298,26 @@ def _resolve_name(candidates: Sequence[str]) -> tuple[str, str]:
 # --------------------------------------------------------------------------- #
 
 
+def capture_for_run(workspace: WorkspaceSnapshot, *, catalog: SupportedTypeCatalog,
+                    import_options: ImportOptions, effective_config: Any, id_factory: IdFactory,
+                    created_at: float = 0.0) -> BookRunSnapshot:
+    """The Plan 6 capture one operation is frozen from. Synchronous, on the calling thread (v0.8.2).
+
+    The shared capture is taken on the caller's thread before any processing worker exists; it reads no disk.
+    :func:`plan_run` calls this on the panel's preparation worker; a caller may also take it first and pass it.
+    """
+    return capture_workspace_run(
+        workspace, catalog=catalog, import_options=import_options,
+        effective_config=effective_config, id_factory=id_factory, created_at=created_at)
+
+
 def plan_run(workspace: WorkspaceSnapshot, *, options: MakerRunOptions,
-             destination: MakerDestination, catalog: SupportedTypeCatalog,
-             import_options: ImportOptions, effective_config: Any,
-             id_factory: IdFactory, created_at: float = 0.0) -> RunPlan:
+             destination: MakerDestination, catalog: SupportedTypeCatalog | None = None,
+             import_options: ImportOptions | None = None, effective_config: Any = None,
+             id_factory: IdFactory | None = None, created_at: float = 0.0,
+             capture: BookRunSnapshot | None = None,
+             checkpoint: Callable[[], None] | None = None,
+             progress: Callable[[int, int], None] | None = None) -> RunPlan:
     """Freeze one Maker operation over the whole workspace. Creates nothing on disk.
 
     The destination is the caller's — reserved or validated once, before this
@@ -292,6 +325,13 @@ def plan_run(workspace: WorkspaceSnapshot, *, options: MakerRunOptions,
     unreadable Silence, or an unreadable Start Part with Auto-number on,
     refuses the whole operation up front through the model's own
     ``MakerValueError``, before a single name is planned.
+
+    v0.8.2: the panel plans on a worker, where this takes the capture from the
+    four capture inputs. A caller may pass a *capture* it took itself
+    (:func:`capture_for_run`) instead. Also a *checkpoint*
+    that raises to stop a cancelled preparation (called between inputs and
+    Books) and a *progress* callback told ``(Books planned, Books)``. A
+    supplied capture must describe this workspace (:func:`_require_capture_matches`).
     """
     if not isinstance(workspace, WorkspaceSnapshot):
         raise PlanError(f"workspace must be a WorkspaceSnapshot, got {type(workspace).__name__}")
@@ -300,6 +340,12 @@ def plan_run(workspace: WorkspaceSnapshot, *, options: MakerRunOptions,
     if not isinstance(destination, MakerDestination):
         raise PlanError(
             f"destination must be a MakerDestination, got {type(destination).__name__}")
+    if capture is None:
+        if catalog is None or import_options is None or id_factory is None:
+            raise PlanError("a plan needs either a capture or the catalog, import options and id factory to take one")
+    elif not isinstance(capture, BookRunSnapshot):
+        raise PlanError(f"capture must be a BookRunSnapshot, got {type(capture).__name__}")
+    check = checkpoint if checkpoint is not None else _no_checkpoint
 
     # Every Book's inputs are parsed before a single name is planned.
     start_part = wf.parse_start_part(options.start_part_text) if options.auto_number else 1
@@ -310,15 +356,22 @@ def plan_run(workspace: WorkspaceSnapshot, *, options: MakerRunOptions,
         silences[book.book_id] = wf.effective_silence(workspace.shared, book)
 
     all_sources = [entry.path for book in workspace.books for entry in book.files.files]
+    check()
     if destination.mode is DestinationMode.STANDARD:
         # Custom mode is the explicit exception that may sit beside the sources.
         output_paths.assert_outside_source_trees(
             destination.root, {path.parent for path in all_sources})
 
-    capture = capture_workspace_run(
-        workspace, catalog=catalog, import_options=import_options,
-        effective_config=effective_config, id_factory=id_factory,
-        created_at=created_at)
+    if capture is None:
+        capture = capture_for_run(
+            workspace, catalog=catalog, import_options=import_options,
+            effective_config=effective_config, id_factory=id_factory,
+            created_at=created_at)
+    else:
+        _require_capture_matches(capture, workspace)
+
+    # Every source occurrence of the workspace, normalised once for this plan only (never shared or reused).
+    inputs = output_paths.InputIndex(all_sources, checkpoint=check)
 
     planner = output_paths.DestinationPlanner(destination.root)
     if destination.mode is DestinationMode.STANDARD:
@@ -328,15 +381,51 @@ def plan_run(workspace: WorkspaceSnapshot, *, options: MakerRunOptions,
     positions = {book.book_id: index for index, book in enumerate(workspace.books, start=1)}
     books_by_id = {book.book_id: book for book in workspace.books}
     plans: list[BookPlan] = []
-    for book_id, snapshot in capture.runs:
+    total = len(capture.runs)
+    for done, (book_id, snapshot) in enumerate(capture.runs):
+        check()
+        if progress is not None:
+            progress(done, total)
         book = books_by_id[book_id]
         plans.append(_plan_book(
             book, snapshot, shared=workspace.shared, number=positions[book_id],
             planner=planner, destination=destination, silence=silences[book_id],
-            auto_number=options.auto_number, all_sources=all_sources))
+            auto_number=options.auto_number, inputs=inputs))
+    check()
+    if progress is not None:
+        progress(total, total)
     return RunPlan(destination=destination, capture=capture, books=tuple(plans),
                    auto_number=bool(options.auto_number), start_part=start_part,
                    fast_first=bool(options.fast_first))
+
+
+def _require_capture_matches(capture: BookRunSnapshot, workspace: WorkspaceSnapshot) -> None:
+    """Refuse a capture that is not a capture of *workspace* as it stands (v0.8.2). Linear; reads no disk.
+
+    The plan takes its tracks, titles and values from the workspace and freezes them beside the capture, which the
+    run's result and Retry Failed are settled against, so the two must describe one workspace -- the capture's own
+    contract (``capture_workspace_run``): the same Shared Metadata; the same Books attempted and skipped (empty), in
+    workspace order; and for every attempted Book the same ordered imported files and the same effective run options.
+    """
+    if capture.shared != workspace.shared:
+        raise PlanError("the capture was taken with different Shared settings than this workspace holds")
+    attempted = [book.book_id for book in workspace.books if not book.is_empty]
+    skipped = [book.book_id for book in workspace.books if book.is_empty]
+    if list(capture.attempted_book_ids) != attempted or list(capture.skipped_book_ids) != skipped:
+        raise PlanError("the capture's Books, or their order, differ from this workspace's")
+    books_by_id = {book.book_id: book for book in workspace.books}
+    for book_id, snapshot in capture.runs:
+        book = books_by_id[book_id]
+        if snapshot.files is not book.files and snapshot.files != book.files:
+            raise PlanError(f"the capture of Book {book_id} holds different tracks, or a different track order, "
+                            "than this workspace")
+        if snapshot.tool_options != freeze_options(effective_run_options(book, workspace.shared)):
+            raise PlanError(f"the capture of Book {book_id} was taken with different settings than this "
+                            "workspace holds")
+
+
+def _no_checkpoint() -> None:
+    """The synchronous caller's checkpoint: nothing can cancel it."""
 
 
 def _collapse(text: object) -> str:
@@ -345,7 +434,7 @@ def _collapse(text: object) -> str:
 
 def _plan_book(book: BookJob, snapshot: RunSnapshot, *, shared, number: int, planner,
                destination: MakerDestination, silence: float, auto_number: bool,
-               all_sources) -> BookPlan:
+               inputs: output_paths.InputIndex) -> BookPlan:
     values = wf.effective_values(shared, book)
     artwork_text = str(values["artwork"]).strip()
     artwork = Path(artwork_text) if artwork_text else None
@@ -358,8 +447,8 @@ def _plan_book(book: BookJob, snapshot: RunSnapshot, *, shared, number: int, pla
     # that resolved to the same name also stage apart.
     staging_dir = destination.work_root / _strip_m4b(filename)
     staged = staging_dir / filename
-    output_paths.assert_not_input(published, all_sources)
-    output_paths.assert_not_input(staged, all_sources)
+    inputs.assert_not_input(published)
+    inputs.assert_not_input(staged)
 
     title = _collapse(wf.title_text(book)) or _collapse(resolved)
     files = book.files.files

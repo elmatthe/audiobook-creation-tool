@@ -233,6 +233,28 @@ class Attempt:
             reporter.completed(final)
         return self.result
 
+    def fail_unstarted(self, detail: str) -> WorkspaceRunResult:
+        """Settle this attempt as failed **without running it**: its worker could not be started (v0.8.2).
+
+        On the caller's thread, exactly as a worker fault settles: the controller fails, the result is composed, the
+        staging nobody can retry is released, and the one terminal event is sent -- because that event is what frees
+        the caller. No Book is touched. Not after :meth:`run`, and never twice.
+        """
+        if self._ran:
+            raise BatchError(f"attempt {self.number} has already run")
+        self._ran = True
+        controller, reporter = self.controller, self.reporter
+        try:
+            reporter.technical(f"The processing worker could not be started: {detail}")
+        except Exception:  # noqa: BLE001 - reporting is best effort here
+            pass
+        final = controller.fail(FAULT_MESSAGE, detail)
+        self.records = ()
+        self.result = self._owner._settle(self, final.state)
+        self._release_staging()
+        reporter.completed(final)
+        return self.result
+
     def _recover_temporaries(self) -> None:
         """What killed runs left in the owned temporary area, removed before this attempt's first Book (ACT72-031)."""
         recover = self._owner._recover_temporaries
@@ -462,10 +484,19 @@ class MakerRun:
         ordered = tuple(book for book in self.plan.books if book.book_id in retry)
         return self._begin(ordered, retry=retry)
 
-    def _begin(self, books: tuple[BookPlan, ...], *, retry) -> Attempt:
+    @property
+    def run_id(self) -> str:
+        """The one run id every attempt of this run shares, minted on first use.
+
+        v0.8.2: the panel builds the attempt's job area *before* the attempt begins, so a failed job area changes
+        nothing; it reads the id here first. Minting it earlier changes no id: the same factory mints it once.
+        """
         if self._run_id is None:
             self._run_id = self._ids.next_id("run")
-        run_id = self._run_id
+        return self._run_id
+
+    def _begin(self, books: tuple[BookPlan, ...], *, retry) -> Attempt:
+        run_id = self.run_id
         item_ids = tuple(occurrence for book in self.plan.books for occurrence in book.occurrence_ids)
         controller = JobController(run_id, listener=self._on_state, cancel_clock=time.monotonic)
         reporter = JobReporter(run_id, clock=self._clock, publish=self._publish,

@@ -41,6 +41,12 @@ from shared import paths
 from shared.book_workspace import BookDisposition
 from shared.job_control import JobEventKind, JobState
 
+from test_m4b_maker_ui import (  # noqa: E402,F401 - v0.8.2: the M4B panels' preparation helpers
+    ParkedProcessing,
+    processing_bodies,
+    processing_workers,
+    wait_until_prepared,
+)
 from test_m4b_metadata_editor_ui import (  # noqa: F401 - fixtures by import
     audio_md5, container, import_folder, library, make_panel, output_base, parked_threads,
     run_action, sha, tk_root, windows_theme, add_files,
@@ -129,8 +135,9 @@ def test_cancel_before_the_first_book_writes_nothing(make_panel, container, tmp_
     import_folder(panel, root)
     panel._thread_factory = parked_threads()
     assert panel.save() is True
+    wait_until_prepared(panel)  # v0.8.2: accepted; prepared off Tk
     panel.cancel()                              # before the worker body runs
-    panel._thread_factory.bodies[0]()
+    processing_bodies(panel)[0]()
     panel._pump.tick()
     result = panel.last_result
     assert result.state is JobState.CANCELLED
@@ -148,6 +155,7 @@ def test_cancel_mid_run_finishes_the_current_book_and_stops_the_rest(make_panel,
     import_folder(panel, root)
     panel._thread_factory = parked_threads()
     assert panel.save() is True
+    wait_until_prepared(panel)  # v0.8.2: accepted; prepared off Tk
     published: list[str] = []
 
     def on_event(event):
@@ -160,7 +168,7 @@ def test_cancel_mid_run_finishes_the_current_book_and_stops_the_rest(make_panel,
                 panel.cancel()
 
     panel.run.add_listener(on_event)
-    panel._thread_factory.bodies[0]()
+    processing_bodies(panel)[0]()
     panel._pump.tick()
     result = panel.last_result
     assert result.state is JobState.CANCELLED
@@ -189,10 +197,14 @@ def test_cancellation_uses_the_shared_primitive_raised_by_the_controller_not_the
         assert private not in names, private
     # The panel's Cancel forwards to the run, which asks its controller; the
     # only ``request_cancel`` the panel makes itself is the import scan's.
+    # v0.8.2: while a press is still being prepared there is no run yet, and Cancel withdraws the preparation (its
+    # own Event, behind ``m4b_preparation``) and says so; it still raises nothing and holds no cancellation itself.
     cancel = next(node for node in ast.walk(tree)
                   if isinstance(node, ast.FunctionDef) and node.name == "cancel")
     assert {ast.unparse(node.func) for node in ast.walk(cancel)
-            if isinstance(node, ast.Call)} == {"self.run.cancel"}
+            if isinstance(node, ast.Call)} == {
+        "self.run.cancel", "preparation.withdraw", "preparation.cancel_requested.is_set",
+        "self._release_unadopted", "self.controls.apply", "self.status.set_status"}
     for node in ast.walk(tree):
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)                 and node.func.attr == "request_cancel":
             assert ast.unparse(node.func.value) == "self._coordinator"

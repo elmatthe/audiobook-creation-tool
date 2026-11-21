@@ -570,7 +570,12 @@ def test_cover_declining_confirmation_starts_nothing(fresh_root, output_base, tm
 def test_metadata_editor_reserves_per_action(output_base):
     """One reservation per action start, and only there (v0.6.4 Phase 10: the
     three actions share one start path, ``_start_action``, which reserves
-    through ``_reserve_run`` exactly once after validation)."""
+    through ``_reserve_run`` exactly once after validation).
+
+    v0.8.2 Checkpoint 2: the reservation moved off the Tk thread with the plan.
+    ``_start_action`` validates and starts the one preparation worker,
+    ``_prepare``, whose body is the only caller of ``_reserve_run``; that is
+    still exactly one reservation per accepted action."""
     import ast
 
     source = (REPO_ROOT / "scripts" / "m4b" / "metadata" / "m4b_metadata_editor.py"
@@ -584,9 +589,14 @@ def test_metadata_editor_reserves_per_action(output_base):
                         for inner in ast.walk(node))]
     assert reservers == ["_reserve_run"]
     callers = [name for name, node in functions.items()
-               if any(isinstance(inner, ast.Call) and isinstance(inner.func, ast.Attribute)
-                      and inner.func.attr == "_reserve_run" for inner in ast.walk(node))]
-    assert callers == ["_start_action"]
+               if any(isinstance(inner, ast.Call) and ast.unparse(inner.func) in ("_reserve_run", "self._reserve_run")
+                      for inner in ast.walk(node))]
+    assert callers == ["_prepare"]
+    preparers = [name for name, node in functions.items()
+                 if any(isinstance(inner, ast.Call) and ast.unparse(inner.func) == "self._prepare"
+                        for inner in ast.walk(node))]
+    assert preparers == ["_start_action"]
+    assert source.count("self._prepare(preparation)") == 1, "one preparation worker per accepted action"
     for action in ("save", "on_clear_all_tags", "on_remove_series_numbering"):
         assert any(isinstance(inner, ast.Call) and isinstance(inner.func, ast.Attribute)
                    and inner.func.attr == "_start_action"
@@ -634,7 +644,10 @@ def test_metadata_editor_plans_every_output_through_the_reservations_planner():
     plan_calls = {ast.unparse(node.func) for node in ast.walk(ast.parse(plan))
                   if isinstance(node, ast.Call)}
     assert "reservation.planner" in plan_calls and "planner.plan" in plan_calls
-    assert "output_paths.assert_not_input" in plan_calls
+    # v0.8.2 Checkpoint 2: every planned output is still checked against every input -- by one lookup in the plan's
+    # own InputIndex (the same key and refusal as ``assert_not_input``), not by resolving every source again.
+    assert "output_paths.InputIndex" in plan_calls and "inputs.assert_not_input" in plan_calls
+    assert "output_paths.assert_not_input" not in plan_calls, "no per-output scan of every source is left"
 
 
 # --------------------------------------------------------------------------- #
@@ -736,6 +749,9 @@ def test_no_tool_reserves_output_outside_an_operation_start():
         "on_remove_series_numbering", "run_job", "_reserve_run", "_destination",
         "_start_frozen",  # v0.7.0: the second half of TTS run_job (shared with Install & Continue)
         "_prepare",  # v0.8.2: the MP3 Tool's preparation worker, started only by Write ID3 Tags / Combine
+        # v0.8.2 Checkpoint 2: the Maker's preparation worker reserves through this, started only by Build (the
+        # Editor's is ``_reserve_run``, above, started only by its three actions).
+        "_reserve_destination",
     }
 
     def innermost_reservers(tree_):

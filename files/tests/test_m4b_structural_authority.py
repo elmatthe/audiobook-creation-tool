@@ -233,9 +233,12 @@ def test_maker_and_editor_keep_separate_business_modules_with_no_shared_m4b_cont
                   and module not in MAKER_FAMILY + EDITOR_FAMILY + PANELS
                   and not module.startswith("m4b/converter/m4b_converter")}
     # The only modules both tools share below ``shared/``: the artwork service,
-    # its Tk control and the staging pattern -- none of them runs a Book.
+    # its Tk control, the staging pattern and (v0.8.2 Checkpoint 2) the Tk-free
+    # preparation hand-off -- none of them runs a Book.
     m4b_shared = {m for m in shared_m4b if m in (
-        "artwork/m4b_artwork.py", "artwork/m4b_artwork_ui.py", "m4b/m4b_staging.py")}
+        "artwork/m4b_artwork.py", "artwork/m4b_artwork_ui.py", "m4b/m4b_staging.py",
+        "m4b/m4b_preparation.py")}
+    assert "m4b/m4b_preparation.py" in m4b_shared
     for module in m4b_shared:
         names = top_level_definitions(TREES[module])
         assert not any("Run" in n or "Attempt" in n or "Controller" in n for n in names), module
@@ -307,7 +310,7 @@ def test_the_launcher_registry_and_tool_families_are_exactly_as_expected():
                and module not in MAKER_FAMILY + EDITOR_FAMILY + PANELS
                and not module.startswith("m4b/converter/m4b_converter")
                and module not in ("artwork/m4b_artwork.py", "artwork/m4b_artwork_ui.py",
-                                  "m4b/m4b_staging.py")]
+                                  "m4b/m4b_staging.py", "m4b/m4b_preparation.py")]
     converter_own = {"m4b/m4b_execution.py", "m4b/m4b_numbering.py",
                      "m4b/m4b_probe.py", "m4b/m4b_commands.py",
                      "m4b/converter/m4b_metadata.py", "m4b/m4b_chapters.py",

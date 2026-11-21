@@ -2,6 +2,16 @@
 
 Append-only. Newest entries on top. Each entry: date, decision, why, signed by whoever made it.
 
+## 2026-11-21 — v0.8.2 Checkpoint 2: the M4B Maker and Metadata Editor prepare on one shared, Tk-free preparation worker; their Plan 6 capture is taken there; the worker lets Tk paint the press first
+
+Signed: Claude Code (Opus 5.5), HOME-PC. Evidence: Handoff v0.8.2 Checkpoint 2; `files/dev-work/v0.8.2-cp2-evidence/` (ignored, local).
+- **Index, as in Checkpoint 1.** Both planners build one `InputIndex` per plan; the one-shot `assert_not_input` is no longer called by them (the Converter and Cover still use it until their own checkpoint). Plans are unchanged (parity tests).
+- **One shared hand-off module.** `scripts/m4b/m4b_preparation.py` holds the preparation's offer / adopt / withdraw decision, its cooperative Cancel and the worker body, for both panels, as `m4b_staging` already serves both. It imports no Tk. Rejected: copying the MP3 Tool's private `_Preparation` into each panel (three copies of an ownership protocol whose whole value is being one decision under one lock).
+- **The capture moves to the worker.** Checkpoint 1 took the MP3 Tool's capture on Tk because the shared capture documents itself as "on the caller's thread, before any worker exists". Measured here, at 5,000 Editor files the capture alone was about 100 ms of the press (one `RunSnapshot` per file) and the largest heartbeat gap after the press 139–167 ms. The capture is a pure function of the immutable workspace snapshot, the immutable observation store and the lock-guarded `IdFactory`; it reads no disk, and the Editor's readability predicate reads only that frozen store and is never stored. So `plan_run` takes it on the preparation worker, synchronously, before any processing worker exists, which is where `ffd1621`'s `plan_run` took it too (then on Tk). Rejected: keeping it on Tk and batching it across `after` calls (two places to freeze one press; the workspace could change between batches).
+- **Paint first.** The worker waits up to 0.25 s for an idle callback scheduled by the press before reserving. Measured: with the worker planning at once, the repaint after the press took 105–117 ms at 5,000 files, and with `gc` disabled it still took 96–132 ms; with the worker parked, 15 ms. So the cause is GIL contention, not collection. Rejected: starting the worker from `after_idle` (a press that returns before its worker exists makes Close and thread-start failure two more states); `sys.setswitchinterval` (process-wide).
+- **Per-run staging locks.** Each run gets its own `threading.Lock` instead of one panel-wide lock, so removing a superseded run's kept staging on a release worker can never make Tk or the new run wait. The lock still orders that run's worker against Tk (ACT72-031).
+- **Unchanged by owner decision.** No persistence feature (Decisions 2026-11-21); no merge, tag, release or Full gate per checkpoint.
+
 ## 2026-11-21 — v0.8.2: no persistence feature for the MP3 workspace; the guarantee is responsiveness and kept edits within the running session
 
 Signed: the owner's decision (Checkpoint 1 R1 instructions, 2026-11-21), recorded by Claude Code (Fable 5.2), HOME-PC.

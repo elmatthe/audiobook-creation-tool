@@ -144,6 +144,59 @@ def add_files(panel, *paths: Path):
     return panel.workspace
 
 
+#: v0.8.2 Checkpoint 2: the threads the two M4B panels start that are not a processing worker -- one preparation
+#: worker per accepted press, and short-lived workers that release what an unused or superseded run held.
+SIDE_THREADS = ("m4b-maker-prepare-", "m4b-maker-release-", "m4b-metadata-prepare-", "m4b-metadata-release-")
+
+
+def wait_until_prepared(panel, timeout: float = 20.0) -> None:
+    """v0.8.2 Checkpoint 2: a Build (or Editor action) press is accepted at once and prepared off the Tk thread; pump
+    until that preparation has ended (its plan adopted and the run started, or refused or cancelled). Inline and real
+    thread factories alike."""
+    import time
+
+    deadline = time.monotonic() + timeout
+    while panel.is_preparing:
+        if time.monotonic() > deadline:
+            raise AssertionError("the preparation did not end in time")
+        panel._pump.tick()
+        if panel.is_preparing:
+            time.sleep(0.005)
+
+
+def processing_workers(panel) -> list:
+    """The processing workers (``m4b-<run id>`` / ``m4b-metadata-<run id>``) the panel's thread factory made: not the
+    preparation or release workers (v0.8.2) and not the import scans."""
+    return [made for made in panel._thread_factory.made
+            if str(made.name).startswith("m4b-") and not str(made.name).startswith(SIDE_THREADS)]
+
+
+def processing_bodies(panel) -> list:
+    """The bodies of :func:`processing_workers`, in the order they were made."""
+    return [made.target for made in processing_workers(panel)]
+
+
+class ParkedProcessing:
+    """A thread kind that runs a preparation or release worker inline at ``start()`` and parks everything else
+    (the processing worker, an import scan) so a test can inspect the RUNNING state and run the body itself."""
+
+    def __init__(self, target, name: str) -> None:
+        self.target = target
+        self.name = name
+        self.starts = 0
+
+    def start(self) -> None:
+        self.starts += 1
+        if str(self.name).startswith(SIDE_THREADS):
+            self.target()
+
+    def is_alive(self) -> bool:
+        return False
+
+    def join(self, timeout: float | None = None) -> None:
+        return None
+
+
 def track_names(panel) -> list[str]:
     return [entry.name for entry in panel.workspace.current.files.files]
 
@@ -435,15 +488,15 @@ def test_build_freezes_one_plan_reserves_one_run_and_runs_every_book(make_panel,
     panel.on_next()
     panel.set_book_field("title", "Beta")
     assert panel.build() is True
+    wait_until_prepared(panel)  # v0.8.2: accepted at once; the plan exists once the pump adopted it
     plan = panel.last_plan
     assert isinstance(plan, mp.RunPlan) and plan.mode is mp.DestinationMode.STANDARD
     assert plan.root == output_base / "M4B-Maker-Outputs" / "M4B-Maker-1"
     assert [entry.title for entry in plan.books] == ["Alpha", "Beta"]
     assert isinstance(panel.run, batch.MakerRun) and len(panel.run.attempts) == 1
-    # The worker body ran inline through the thread factory: one worker body
-    # per attempt (the import scan has its own thread before it).
-    workers = [b for b in panel._thread_factory.bodies if getattr(b, "__name__", "") == "run"]
-    assert len(workers) == 1
+    # The worker body ran inline through the thread factory: one processing worker
+    # per attempt (the import scan and the preparation have their own threads before it).
+    assert len(processing_workers(panel)) == 1
     # Editing after Start reaches nothing the run reads.
     panel.set_book_field("title", "Changed")
     panel.on_shared_change("artist", "Late")
@@ -470,6 +523,7 @@ def test_custom_destination_builds_directly_into_the_chosen_folder(make_panel, t
     panel._on_custom_dest_change()
     panel.choose_custom_dest()
     assert panel.build() is True
+    wait_until_prepared(panel)
     plan = panel.last_plan
     assert plan.mode is mp.DestinationMode.CUSTOM and plan.root == chosen
     with pytest.raises(output_paths.UnsafePathError):
@@ -488,9 +542,13 @@ def test_an_invalid_custom_destination_reserves_nothing(make_panel, tmp_path, ou
     import_folder(panel, root)
     panel.var_custom_dest.set(True)
     panel.var_custom_path.set(str(tmp_path / "missing"))
-    assert panel.build() is False
+    # v0.8.2: the folder is validated off the Tk thread; the press is accepted and the refusal arrives by the pump.
+    assert panel.build() is True
+    wait_until_prepared(panel)
     assert make_panel.dialogs[-1][0] == "error"
     assert not output_base.exists() and panel.run is None
+    assert processing_workers(panel) == [] and not panel.is_running
+    assert panel.status.status_text == m4b_maker.STATUS_PREPARATION_FAILED
 
 
 def test_one_failed_book_does_not_stop_the_next_and_statuses_come_from_the_result(
@@ -502,6 +560,7 @@ def test_one_failed_book_does_not_stop_the_next_and_statuses_come_from_the_resul
     panel = make_panel()
     import_folder(panel, root)
     assert panel.build() is True
+    wait_until_prepared(panel)
     panel._pump.tick()
     result = panel.last_result
     assert result.state is JobState.COMPLETED_WITH_FAILURES
@@ -523,6 +582,7 @@ def test_retry_failed_reruns_only_the_failed_book_from_the_frozen_run(make_panel
     panel = make_panel()
     import_folder(panel, root)
     panel.build()
+    wait_until_prepared(panel)
     panel._pump.tick()
     plan = panel.last_plan
     published_a = plan.books[0].published
@@ -564,15 +624,10 @@ def test_pause_resume_and_cancel_reach_the_shared_controller(make_panel, tmp_pat
     threads = RecordingThreads()
     panel = make_panel(thread_factory=threads, run_factory=Recording)
     import_folder(panel, root)
-    # A thread factory that does not start: the run stays RUNNING for inspection.
-    import test_import_coordination as tic
-
-    class Parked(tic.InlineThread):
-        def start(self):
-            pass
-
-    panel._thread_factory = RecordingThreads(kind=Parked)
+    # A processing worker that does not start: the run stays RUNNING for inspection (v0.8.2: the preparation runs).
+    panel._thread_factory = RecordingThreads(kind=ParkedProcessing)
     assert panel.build() is True
+    wait_until_prepared(panel)
     assert panel.is_running
     controller = panel.job_controller
     panel.pause()
@@ -583,7 +638,7 @@ def test_pause_resume_and_cancel_reach_the_shared_controller(make_panel, tmp_pat
     assert controller.state is JobState.CANCEL_REQUESTED
     assert calls == ["pause", "resume", "cancel"]
     # Now the worker runs and honours the cancel at its first checkpoint.
-    panel._thread_factory.bodies[0]()
+    processing_bodies(panel)[0]()
     panel._pump.tick()
     result = panel.last_result
     assert result.state is JobState.CANCELLED
@@ -594,16 +649,11 @@ def test_pause_resume_and_cancel_reach_the_shared_controller(make_panel, tmp_pat
 def test_the_ui_locks_through_the_shared_matrix_while_running(make_panel, tmp_path, output_base):
     root = tmp_path / "Library"
     tone(root / "A" / "01.mp3")
-    import test_import_coordination as tic
-
-    class Parked(tic.InlineThread):
-        def start(self):
-            pass
-
     panel = make_panel()
     import_folder(panel, root)
-    panel._thread_factory = RecordingThreads(kind=Parked)
+    panel._thread_factory = RecordingThreads(kind=ParkedProcessing)
     assert panel.build() is True
+    wait_until_prepared(panel)
     assert panel.lock_group.last_applied
     assert "disabled" in panel.btn_build.state()
     assert "disabled" in panel.btn_import_folder.state()
@@ -611,7 +661,7 @@ def test_the_ui_locks_through_the_shared_matrix_while_running(make_panel, tmp_pa
     assert "disabled" in panel.navigator.buttons[BookNavigator.ADD].state()
     assert panel.book_field_enabled("title") is False
     assert not panel.book_artwork.enabled
-    panel._thread_factory.bodies[0]()
+    processing_bodies(panel)[0]()
     panel._pump.tick()
     assert "disabled" not in panel.btn_build.state()
     assert "disabled" not in panel.btn_import_folder.state()
@@ -620,17 +670,12 @@ def test_the_ui_locks_through_the_shared_matrix_while_running(make_panel, tmp_pa
 def test_the_worker_body_reaches_no_tk(make_panel, tmp_path, output_base):
     root = tmp_path / "Library"
     tone(root / "A" / "01.mp3")
-    import test_import_coordination as tic
-
-    class Parked(tic.InlineThread):
-        def start(self):
-            pass
-
     panel = make_panel()
     import_folder(panel, root)
-    panel._thread_factory = RecordingThreads(kind=Parked)
+    panel._thread_factory = RecordingThreads(kind=ParkedProcessing)
     assert panel.build() is True
-    body = panel._thread_factory.bodies[0]
+    wait_until_prepared(panel)
+    body = processing_bodies(panel)[0]
     raised: list[BaseException] = []
 
     def run():

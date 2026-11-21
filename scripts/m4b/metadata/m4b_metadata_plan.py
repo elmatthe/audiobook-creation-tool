@@ -49,11 +49,27 @@ Series auto-number: the run freezes the setting and the parsed Start Part as
 configuration for Save; no number is assigned here and no counter lives in the
 plan — the shared ``SuccessNumbers`` is Phase 9's execution state. Remove
 Series Numbering never numbers.
+
+Off the Tk thread (v0.8.2 Checkpoint 2)
+---------------------------------------
+The panel freezes the workspace, the observation store and the capture
+inputs on Tk and calls :func:`plan_run` on its preparation worker, with a
+``checkpoint`` that raises to stop a cancelled preparation and a ``progress``
+callback. ``plan_run`` takes the Plan 6 capture there, synchronously, before
+any processing worker exists: a pure function of immutable values (the
+store's frozen readable/unreadable answer; no disk read), so it can leave Tk,
+where it cost one ``RunSnapshot`` per file (Decisions, v0.8.2 Checkpoint 2).
+A caller may pass a capture it took itself (:func:`capture_for_run`). Every source is
+normalised once per plan into an :class:`~shared.output_paths.InputIndex`, and
+each planned path is one lookup; each Book's two paths used to resolve every
+source again -- 2N² path resolutions, 15 s for 250 files on the Tk thread. A
+supplied capture must be a capture of the workspace and store being planned
+(:func:`_require_capture_matches`).
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -66,9 +82,10 @@ from shared.book_workspace import (
     BookRunSnapshot,
     WorkspaceSnapshot,
     capture_workspace_run,
+    effective_run_options,
 )
 from shared.importing import IdFactory, ImportOptions, SupportedTypeCatalog
-from shared.job_control import RunSnapshot
+from shared.job_control import RunSnapshot, freeze_options
 from m4b.metadata import m4b_metadata_workflow as wf
 from m4b.metadata.m4b_metadata_workflow import ObservationStore, SourceObservation
 
@@ -79,6 +96,7 @@ __all__ = [
     "BookPlan",
     "RunPlan",
     "WORK_DIRNAME",
+    "capture_for_run",
     "plan_run",
 ]
 
@@ -183,11 +201,50 @@ class RunPlan:
 # --------------------------------------------------------------------------- #
 
 
+def _observations(workspace: WorkspaceSnapshot, store: ObservationStore) -> dict[str, SourceObservation]:
+    """Each Book's frozen observation, by Book id; a pristine Book has none."""
+    observations: dict[str, SourceObservation] = {}
+    for book in workspace.books:
+        seen = store.for_book(book)
+        if seen is not None:
+            observations[book.book_id] = seen
+    return observations
+
+
+def _readable_in(observations: Mapping[str, SourceObservation]) -> Callable[[BookJob], bool]:
+    """The capture's validity predicate: a Book is attempted only while its source was read."""
+    def readable(book: BookJob) -> bool:
+        seen = observations.get(book.book_id)
+        return seen is not None and seen.readable
+    return readable
+
+
+def capture_for_run(workspace: WorkspaceSnapshot, store: ObservationStore, *,
+                    catalog: SupportedTypeCatalog, import_options: ImportOptions,
+                    effective_config: Any, id_factory: IdFactory,
+                    created_at: float = 0.0) -> BookRunSnapshot:
+    """The Plan 6 capture one action is frozen from. Synchronous, on the calling thread (v0.8.2).
+
+    The shared capture is taken on the caller's thread before any processing worker exists. It reads no disk:
+    readability is the observation store's frozen answer, and the predicate built from it is used here and never
+    stored. :func:`plan_run` calls this on the panel's preparation worker; a caller may also take it first and pass it.
+    """
+    if not isinstance(store, ObservationStore):
+        raise PlanError(f"store must be an ObservationStore, got {type(store).__name__}")
+    return capture_workspace_run(
+        workspace, catalog=catalog, import_options=import_options,
+        effective_config=effective_config, id_factory=id_factory,
+        created_at=created_at, is_valid=_readable_in(_observations(workspace, store)))
+
+
 def plan_run(workspace: WorkspaceSnapshot, store: ObservationStore, *,
              action: EditorAction, options: EditorRunOptions,
-             reservation: output_paths.RunReservation, catalog: SupportedTypeCatalog,
-             import_options: ImportOptions, effective_config: Any, id_factory: IdFactory,
-             created_at: float = 0.0) -> RunPlan:
+             reservation: output_paths.RunReservation, catalog: SupportedTypeCatalog | None = None,
+             import_options: ImportOptions | None = None, effective_config: Any = None,
+             id_factory: IdFactory | None = None, created_at: float = 0.0,
+             capture: BookRunSnapshot | None = None,
+             checkpoint: Callable[[], None] | None = None,
+             progress: Callable[[int, int], None] | None = None) -> RunPlan:
     """Freeze one Editor action over the whole workspace. Creates nothing on disk.
 
     The reservation is the caller's — taken once, before this is called — and
@@ -196,6 +253,14 @@ def plan_run(workspace: WorkspaceSnapshot, store: ObservationStore, *,
     operation through the model's own ``EditorValueError`` before a name is
     planned. Books whose source could not be read are skipped as invalid by
     the shared capture and keep their identity in the plan's skips.
+
+    v0.8.2: the panel plans on a worker, where this takes the capture from the
+    four capture inputs. A caller may pass a *capture* it took itself
+    (:func:`capture_for_run`) instead. Also a *checkpoint*
+    that raises to stop a cancelled preparation (called between sources and
+    Books) and a *progress* callback told ``(Books planned, Books)``. A
+    supplied capture must describe this workspace and store
+    (:func:`_require_capture_matches`).
     """
     if not isinstance(workspace, WorkspaceSnapshot):
         raise PlanError(f"workspace must be a WorkspaceSnapshot, got {type(workspace).__name__}")
@@ -208,6 +273,12 @@ def plan_run(workspace: WorkspaceSnapshot, store: ObservationStore, *,
     if not isinstance(reservation, output_paths.RunReservation):
         raise PlanError(
             f"reservation must be an output_paths.RunReservation, got {type(reservation).__name__}")
+    if capture is None:
+        if catalog is None or import_options is None or id_factory is None:
+            raise PlanError("a plan needs either a capture or the catalog, import options and id factory to take one")
+    elif not isinstance(capture, BookRunSnapshot):
+        raise PlanError(f"capture must be a BookRunSnapshot, got {type(capture).__name__}")
+    check = checkpoint if checkpoint is not None else _no_checkpoint
 
     # Removal never numbers; a Save with Auto-number parses its Start Part first.
     numbering = bool(options.auto_number) and action is not EditorAction.REMOVE_SERIES_NUMBERING
@@ -215,43 +286,79 @@ def plan_run(workspace: WorkspaceSnapshot, store: ObservationStore, *,
 
     run_directory = Path(reservation.run_directory)
     sources = [entry.path for book in workspace.books for entry in book.files.files]
+    check()
     output_paths.assert_outside_source_trees(run_directory, {path.parent for path in sources})
 
-    observations: dict[str, SourceObservation] = {}
-    for book in workspace.books:
-        seen = store.for_book(book)
-        if seen is not None:
-            observations[book.book_id] = seen
+    observations = _observations(workspace, store)
+    if capture is None:
+        capture = capture_workspace_run(
+            workspace, catalog=catalog, import_options=import_options,
+            effective_config=effective_config, id_factory=id_factory,
+            created_at=created_at, is_valid=_readable_in(observations))
+    else:
+        _require_capture_matches(capture, workspace, observations)
 
-    def readable(book: BookJob) -> bool:
-        seen = observations.get(book.book_id)
-        return seen is not None and seen.readable
-
-    capture = capture_workspace_run(
-        workspace, catalog=catalog, import_options=import_options,
-        effective_config=effective_config, id_factory=id_factory,
-        created_at=created_at, is_valid=readable)
+    # Every source occurrence of the workspace, normalised once for this plan only (never shared or reused).
+    inputs = output_paths.InputIndex(sources, checkpoint=check)
 
     planner = reservation.planner()
     work_root = planner.plan_directory(WORK_DIRNAME)
     positions = {book.book_id: index for index, book in enumerate(workspace.books, start=1)}
     books_by_id = {book.book_id: book for book in workspace.books}
     plans: list[BookPlan] = []
-    for book_id, snapshot in capture.runs:
+    total = len(capture.runs)
+    for done, (book_id, snapshot) in enumerate(capture.runs):
+        check()
+        if progress is not None:
+            progress(done, total)
         book = books_by_id[book_id]
         plans.append(_plan_book(
             book, snapshot, action=action, shared=workspace.shared, store=store,
             observation=observations[book_id], number=positions[book_id],
-            planner=planner, work_root=work_root, all_sources=sources))
+            planner=planner, work_root=work_root, inputs=inputs))
+    check()
+    if progress is not None:
+        progress(total, total)
     return RunPlan(action=action, reservation=reservation, run_directory=run_directory,
                    work_root=work_root, capture=capture, books=tuple(plans),
                    observations=MappingProxyType(observations),
                    auto_number=numbering, start_part=start_part)
 
 
+def _require_capture_matches(capture: BookRunSnapshot, workspace: WorkspaceSnapshot,
+                             observations: Mapping[str, SourceObservation]) -> None:
+    """Refuse a capture that is not a capture of *workspace* and its store as they stand (v0.8.2). Linear; no disk.
+
+    The plan takes each Book's source, observation and explicit intent from the workspace and the store and freezes
+    them beside the capture, which the run's result and Retry Failed are settled against, so the two must describe
+    one workspace -- the capture's own contract (``capture_workspace_run`` with the store's readable predicate): the
+    same Shared Metadata; the same Books attempted and skipped (empty or unreadable), in workspace order; and for
+    every attempted Book the same imported source and the same effective run options.
+    """
+    if capture.shared != workspace.shared:
+        raise PlanError("the capture was taken with different Shared settings than this workspace holds")
+    readable = _readable_in(observations)
+    attempted = [book.book_id for book in workspace.books if not book.is_empty and readable(book)]
+    skipped = [book.book_id for book in workspace.books if book.is_empty or not readable(book)]
+    if list(capture.attempted_book_ids) != attempted or list(capture.skipped_book_ids) != skipped:
+        raise PlanError("the capture's Books, or their order, differ from this workspace's")
+    books_by_id = {book.book_id: book for book in workspace.books}
+    for book_id, snapshot in capture.runs:
+        book = books_by_id[book_id]
+        if snapshot.files is not book.files and snapshot.files != book.files:
+            raise PlanError(f"the capture of Book {book_id} holds a different source than this workspace")
+        if snapshot.tool_options != freeze_options(effective_run_options(book, workspace.shared)):
+            raise PlanError(f"the capture of Book {book_id} was taken with different settings than this "
+                            "workspace holds")
+
+
+def _no_checkpoint() -> None:
+    """The synchronous caller's checkpoint: nothing can cancel it."""
+
+
 def _plan_book(book: BookJob, snapshot: RunSnapshot, *, action: EditorAction, shared, store,
                observation: SourceObservation, number: int, planner, work_root: Path,
-               all_sources) -> BookPlan:
+               inputs: output_paths.InputIndex) -> BookPlan:
     source = wf.source_of(book)
     if source is None:  # pragma: no cover - the capture skips empty Books
         raise PlanError(f"Book {number} holds no source")
@@ -277,8 +384,8 @@ def _plan_book(book: BookJob, snapshot: RunSnapshot, *, action: EditorAction, sh
     filename = published.name
     staging_dir = work_root / output_paths.split_suffix(filename)[0]
     staged = staging_dir / filename
-    output_paths.assert_not_input(published, all_sources)
-    output_paths.assert_not_input(staged, all_sources)
+    inputs.assert_not_input(published)
+    inputs.assert_not_input(staged)
 
     return BookPlan(
         book_id=book.book_id, number=number, action=action, snapshot=snapshot,

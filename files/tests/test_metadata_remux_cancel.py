@@ -52,6 +52,12 @@ from m4b.metadata.m4b_metadata_workflow import ObservationStore
 
 import source_probe
 import test_m4b_metadata_processing as tp
+from test_m4b_maker_ui import (  # noqa: E402,F401 - v0.8.2: the M4B panels' preparation helpers
+    ParkedProcessing,
+    processing_bodies,
+    processing_workers,
+    wait_until_prepared,
+)
 from test_ffmpeg_cancel import (  # noqa: F401  (fixtures are collected by name)
     PROMPT_SECONDS,
     Spawned,
@@ -670,6 +676,7 @@ def test_the_editor_panel_cancel_stops_a_real_rebuild(make_panel, slow_book, tmp
 
     Remux(monkeypatch, edit=edit)
     assert panel.save(), make_panel.dialogs
+    wait_until_prepared(panel)  # v0.8.2: accepted; prepared off Tk
     wait_for(panel, lambda: "staged" in holder and _child_for(spawned, "rebuild", holder["staged"]) is not None,
              timeout=60)
     rebuild = _child_for(spawned, "rebuild", holder["staged"])

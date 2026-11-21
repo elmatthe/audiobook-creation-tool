@@ -23,6 +23,12 @@ from shared.job_control import JobState  # noqa: E402
 from m4b.maker import m4b_maker  # noqa: E402
 from m4b.maker import m4b_maker_processing as proc  # noqa: E402
 
+from test_m4b_maker_ui import (  # noqa: E402,F401 - v0.8.2: the M4B panels' preparation helpers
+    ParkedProcessing,
+    processing_bodies,
+    processing_workers,
+    wait_until_prepared,
+)
 from test_import_coordination import RecordingThreads  # noqa: E402
 import test_import_coordination as tic  # noqa: E402
 from test_importing import make_config  # noqa: E402
@@ -229,6 +235,7 @@ def test_statuses_and_the_status_line_follow_the_run_and_the_summary_counts_it(m
     monkeypatch.setattr(proc, "stage_book", stage)
     panel.on_select(b.book_id)
     assert panel.build() is True
+    wait_until_prepared(panel)  # v0.8.2: accepted; prepared off Tk
     Q, P, C, S = (m4b_maker.STATUS_QUEUED, m4b_maker.STATUS_PROCESSING, m4b_maker.STATUS_COMPLETED,
                   m4b_maker.STATUS_SKIPPED)
     assert seen["A.m4b"][0] == (P, Q, Q, S), seen
@@ -264,6 +271,7 @@ def test_each_attempt_starts_under_its_own_divider_and_clear_log_clears_only_the
 
     monkeypatch.setattr(proc, "publish_book", publish)
     assert panel.build() is True
+    wait_until_prepared(panel)  # v0.8.2: accepted; prepared off Tk
     panel._pump.tick()
     run_folder = panel.last_plan.root
     summary = list(panel.log.summary)
@@ -311,6 +319,7 @@ def test_a_cancelled_custom_build_leaves_the_chosen_folder_and_everything_alread
 
     monkeypatch.setattr(proc, "stage_book", stage)
     assert panel.build() is True
+    wait_until_prepared(panel)  # v0.8.2: accepted; prepared off Tk
     panel._pump.tick()
     assert panel.last_result.state is JobState.CANCELLED
     assert chosen.is_dir(), "the chosen folder is never removed"

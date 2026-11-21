@@ -25,6 +25,7 @@ from m4b.maker import m4b_maker_processing as proc  # noqa: E402
 from shared import config, output_paths as op  # noqa: E402
 from shared import settings as app_settings  # noqa: E402
 import tk_gate  # noqa: E402
+from test_m4b_maker_ui import wait_until_prepared  # noqa: E402 - v0.8.2: the preparation helper
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
@@ -234,7 +235,9 @@ def test_validation_failure_reserves_no_standard_run(fresh_root, output_base, tm
     ui.var_custom_dest.set(True)
     ui.var_custom_path.set(str(tmp_path / "does-not-exist"))
 
-    assert ui.build() is False
+    # v0.8.2: the folder is validated off the Tk thread; the press is accepted and the refusal arrives by the pump.
+    assert ui.build() is True
+    wait_until_prepared(ui)
 
     assert shown, "the user must be told why it did not start"
     assert not output_base.exists(), "an invalid destination must not reserve a run"

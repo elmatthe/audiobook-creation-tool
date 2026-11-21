@@ -87,6 +87,7 @@ import sys
 import threading
 import time
 from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
 
 import tkinter as tk
@@ -139,9 +140,17 @@ from shared.importing import (
     RootKind,
     ScanRequest,
 )
-from shared.job_control import JobEventKind, JobState, TERMINAL_STATES
+from shared.job_control import (
+    JobAction,
+    JobEventKind,
+    JobState,
+    ProgressMode,
+    ProgressView,
+    TERMINAL_STATES,
+)
 from shared.job_ui import MainThreadGuard, MainThreadPump, action_style, style_name
 from artwork import m4b_artwork_ui
+from m4b import m4b_preparation as prep
 from m4b.metadata import m4b_metadata_batch as batch
 from m4b.metadata import m4b_metadata_plan as mp
 from m4b.metadata import m4b_metadata_workflow as wf
@@ -178,6 +187,19 @@ LOG_LIMIT = 400
 
 #: The run id the job area carries before any operation has started.
 IDLE_RUN_ID = "m4b-metadata-idle"
+
+#: v0.8.2 Checkpoint 2: what the job area says between an accepted action press and the plan's adoption, while the
+#: preparation worker reserves the run and plans every Book off the Tk thread. The same words as the MP3 Tool's.
+STATUS_PREPARING = "Preparing job…"
+STATUS_CANCELLING_PREPARATION = "Cancelling preparation…"
+STATUS_PREPARATION_CANCELLED = "Cancelled — nothing was started"
+STATUS_PREPARATION_FAILED = "Not started"
+
+#: How many preparation messages one pump tick handles at most (one per Book plus one ending, normally).
+PREPARATION_DRAIN_LIMIT = 256
+
+#: The warning shown when no imported file could be read (v0.8.1's words).
+NOTHING_READABLE = "None of the imported files could be read, so there is nothing to write."
 
 #: Rules a line under the previous run's lines in both log panes.
 DIVIDER_MARK = "────"
@@ -264,6 +286,87 @@ CLEAR_IMPORTS_LABEL = "Clear All Imports"
 # ---------------------------
 # Utilities
 # ---------------------------
+
+
+# ---------------------------
+# Preparing an action off the Tk thread (v0.8.2 Checkpoint 2)
+# ---------------------------
+
+
+@dataclass(frozen=True)
+class _ActionInputs:
+    """What an action press froze on Tk. The preparation worker reads nothing else.
+
+    Immutable values, plus the panel's ``IdFactory`` (a lock-guarded counter) so the run's snapshot ids come from the
+    same sequence as before. The Plan 6 capture -- with the frozen store's readable/unreadable answer -- is *derived*
+    from the frozen workspace on the worker, inside ``plan_run``, exactly as v0.8.1 took it there: it is a pure
+    function of immutable values, and taking it on Tk cost one ``RunSnapshot`` per file there (about 100 ms at 5,000
+    files, measured in v0.8.2 Checkpoint 2).
+    """
+
+    action: EditorAction
+    workspace: WorkspaceSnapshot
+    store: wf.ObservationStore
+    options: mp.EditorRunOptions
+    #: The one output configuration of the press: every Book's run snapshot records it and the reservation
+    #: resolves its output base from it.
+    run_config: object
+    id_factory: IdFactory
+    created_at: float
+
+
+class _AttemptNotStarted(Exception):
+    """An attempt's setup failed before anything changed hands (v0.8.2).
+
+    Raised by ``_start_attempt`` only while the previous job area, run, result and Retry Failed are all still exactly
+    as they were, so the caller can report it and carry on as if the press had been refused.
+    """
+
+    def __init__(self, detail: str) -> None:
+        super().__init__(detail)
+        self.detail = detail
+
+
+def _reserve_run(inputs: _ActionInputs) -> output_paths.RunReservation:
+    """Worker: the one standard numbered run of this action, the only kind the Editor has. v0.8.1's refusal text."""
+    try:
+        return output_paths.reserve_run_directory(TOOL_KEY, effective=inputs.run_config)
+    except output_paths.OutputPathError as exc:
+        raise prep.Refusal(exc.message, exc.detail) from exc
+
+
+def _release_run(reservation: output_paths.RunReservation) -> None:
+    """Give back a run nothing was written into: removed only while still empty. Any thread; never raises."""
+    try:
+        output_paths.release_if_empty(reservation)
+    except Exception:  # noqa: BLE001 - release_if_empty never raises; still, a worker must not
+        pass
+
+
+def _plan_action(inputs: _ActionInputs, reservation, checkpoint, progress) -> mp.RunPlan:
+    """Worker: plan every Book from the frozen inputs into the run just reserved.
+
+    A plan with no Book to write (every source unreadable) is refused here with v0.8.1's warning, so its run is
+    released by the worker before the panel hears of it.
+    """
+    plan = mp.plan_run(inputs.workspace, inputs.store, action=inputs.action, options=inputs.options,
+                       reservation=reservation, catalog=wf.EDITOR_CATALOG,
+                       import_options=ImportOptions.for_catalog(wf.EDITOR_CATALOG),
+                       effective_config=inputs.run_config, id_factory=inputs.id_factory,
+                       created_at=inputs.created_at, checkpoint=checkpoint, progress=progress)
+    if not plan.books:
+        raise prep.Refusal(NOTHING_READABLE, warning=True)
+    return plan
+
+
+def _action_refusal(action: EditorAction):
+    """The plan's own refusals, worded exactly as v0.8.1 reported them; anything else is a fault."""
+    def refusal(exc: BaseException) -> prep.Refusal | None:
+        if isinstance(exc, (wf.EditorValueError, mp.PlanError, output_paths.OutputPathError)):
+            detail = exc.detail if isinstance(exc, output_paths.OutputPathError) else ""
+            return prep.Refusal(f"{ACTION_LABELS[action]}: {exc}", detail)
+        return None
+    return refusal
 
 
 def _remembered_dir(key: str) -> Path:
@@ -414,10 +517,16 @@ class M4BMetadataEditorUI(ttk.Frame):
         self.last_plan: mp.RunPlan | None = None
         self.run: batch.EditorRun | None = None
         self._attempt: batch.Attempt | None = None
-        #: Keeps the run's worker and this thread from releasing staging at once (ACT72-034). A plain mutex.
-        self._staging_lock = threading.Lock()
         self._label: str = ""
         self._rendering = False
+        # v0.8.2 Checkpoint 2: an accepted action press is prepared off the Tk thread. The press that is being
+        # prepared (``None`` when none is), how many presses and release workers this panel has started (their
+        # threads' names), and the queue the preparation worker speaks through, drained by the pump.
+        self._preparing: prep.Preparation | None = None
+        self._preparations = 0
+        self._releases = 0
+        self._prep_q: queue.SimpleQueue = queue.SimpleQueue()
+        self._worker_thread = None
 
         # --- the shared importing foundation ------------------------------- #
         self._pump = MainThreadPump(self)
@@ -456,6 +565,7 @@ class M4BMetadataEditorUI(ttk.Frame):
             self.check_auto_number, self.entry_start_part)
         self._chapters_lock = self._TextLock(self.chapter_text)
         self._install_jobs(IDLE_RUN_ID, ())
+        self._pump.add_drain(self._drain_preparation)
 
         self.render()
         self._pump.start()
@@ -694,8 +804,15 @@ class M4BMetadataEditorUI(ttk.Frame):
         job_ui.style_tk_widget(self.chapter_text, bundle, "text")
         ui_theme.enable_mousewheel(self.chapter_text)
         self.chapter_text.bind("<KeyRelease>", self.on_chapter_edit)
+        # v0.8.2 Checkpoint 2 (the MP3 Tool's R1-1): a paste, a drop or an input method changes the box without a key
+        # release. Tk's modified flag reports every change, so the model hears of it on the next event-loop turn;
+        # until then :meth:`flush_pending_editor_state` keeps it (every callback that can redraw the box calls it).
+        self.chapter_text.bind("<<Modified>>", self._on_chapter_modified)
         self._suspend_chapters = False
+        #: What the box showed when the panel last wrote it, and the Book it showed it for. A difference between the
+        #: box and the baseline is an edit the model has not heard of yet; it belongs to that Book and no other.
         self._chapter_baseline = ""
+        self._chapter_book_id: str | None = None
 
         self.run_separator = ttk.Separator(run, orient=tk.HORIZONTAL,
                                            style=st("separator"))
@@ -806,53 +923,112 @@ class M4BMetadataEditorUI(ttk.Frame):
         exactly one job drain. The log view is the panel's one region, handed
         in, and keeps every earlier attempt's lines.
         """
+        # v0.8.2 Checkpoint 2 -- transactional, in three steps (the MP3 Tool's R1-2, applied here):
+        #
+        # 1. BUILD. The new adapter is constructed, dressed, registered and laid out completely while the previous
+        #    one is still the live job area and has not been touched. If anything here raises, the half-built
+        #    adapter is taken down and the exception goes to the caller with the previous job area -- stream,
+        #    result, locks, Retry Failed -- exactly as it was, and still live.
+        # 2. SWAP. Plain attribute assignments, which cannot fail: from here the new adapter is the job area.
+        # 3. RETIRE. The previous adapter no longer owns anything, so closing it and taking its frame down is
+        #    cleanup (``_retire_adapter``): a Tk error there is reported and the frame is taken out of the layout;
+        #    it can neither undo the swap nor stop the run the new adapter belongs to.
         previous = getattr(self, "jobs", None)
-        if previous is not None:
-            previous.close()
-            previous.frame.destroy()
         bundle = self.appearance_bundle
-        self._event_q = queue.Queue()
-        self._estimator = job_control.EtaEstimator(run_id, clock=self._clock)
-        self.jobs = job_ui.JobAdapter(
-            self.actions,
-            run_id=run_id,
-            pump=self._pump,
-            # The shared compact bundle, exactly as Cover's, TTS's, the
-            # Converter's, the MP3 Tool's and the Maker's job areas use it.
-            theme=bundle,
-            pull=job_ui.queue_pull(self._event_q),
-            estimator=self._estimator,
-            bridge=self._bridge,
-            item_ids=item_ids,
-            views=self.log,
-            context=self._context,
-            on_pause=self.pause,
-            on_resume=self.resume,
-            on_cancel=self.cancel,
-            on_retry=self.retry_failed,
-            on_event=self._on_job_event,
-            on_terminal=self._on_terminal,
-        )
-        self.jobs.frame.grid(row=0, column=2, rowspan=self._jobs_rowspan, sticky="new",
-                             padx=(12, 0))
-        self.jobs.controls.frame.grid_configure(sticky="e")
-        self.controls = self.jobs.controls
-        self.status = self.jobs.status
-        self.lock_group = self.jobs.locks
-        # Per-instance restyling, exactly as Cover, TTS, the Converter, the MP3
-        # Tool and the Maker do it: the shared indicator stays generic for every
-        # panel that has not adopted the compact system, but here an unstyled
-        # native frame would be a light island in Dark. Aqua names inherit native controls.
-        self.status.indicator.frame.configure(style=style_name(bundle, "card"))
-        self.status.indicator.bar.configure(style=style_name(bundle, "progressbar"),
-                                            length=PROGRESS_BAR_LENGTH)
-        self.status.indicator.label.configure(style=style_name(bundle, "secondary_label"))
-        self.status.label_status.configure(style=style_name(bundle, "secondary_label"))
-        self._arrange_status()
-        self.jobs.register_inputs(self.navigator, self._import_lock)
-        self.jobs.register_options(self.surface, self.shared_artwork, self.book_artwork,
-                                   self._options_lock, self._chapters_lock)
+        event_q: queue.Queue = queue.Queue()
+        estimator = job_control.EtaEstimator(run_id, clock=self._clock)
+        adapter = None
+        try:
+            adapter = job_ui.JobAdapter(
+                self.actions,
+                run_id=run_id,
+                pump=self._pump,
+                # The shared compact bundle, exactly as Cover's, TTS's, the
+                # Converter's, the MP3 Tool's and the Maker's job areas use it.
+                theme=bundle,
+                pull=job_ui.queue_pull(event_q),
+                estimator=estimator,
+                bridge=self._bridge,
+                item_ids=item_ids,
+                views=self.log,
+                context=self._context,
+                on_pause=self.pause,
+                on_resume=self.resume,
+                on_cancel=self.cancel,
+                on_retry=self.retry_failed,
+                on_event=self._on_job_event,
+                on_terminal=self._on_terminal,
+            )
+            # Laid out in the previous adapter's cell, above it (a newer sibling stacks higher), before the swap.
+            adapter.frame.grid(row=0, column=2, rowspan=self._jobs_rowspan, sticky="new",
+                               padx=(12, 0))
+            adapter.controls.frame.grid_configure(sticky="e")
+            # Per-instance restyling, exactly as Cover, TTS, the Converter, the MP3
+            # Tool and the Maker do it: the shared indicator stays generic for every
+            # panel that has not adopted the compact system, but here an unstyled
+            # native frame would be a light island in Dark. Aqua names inherit native controls.
+            status = adapter.status
+            status.indicator.frame.configure(style=style_name(bundle, "card"))
+            status.indicator.bar.configure(style=style_name(bundle, "progressbar"),
+                                           length=PROGRESS_BAR_LENGTH)
+            status.indicator.label.configure(style=style_name(bundle, "secondary_label"))
+            status.label_status.configure(style=style_name(bundle, "secondary_label"))
+            self._arrange_status(adapter)
+            adapter.register_inputs(self.navigator, self._import_lock)
+            adapter.register_options(self.surface, self.shared_artwork, self.book_artwork,
+                                     self._options_lock, self._chapters_lock)
+        except BaseException:
+            if adapter is not None:
+                self._retire_adapter(adapter)  # the build error is the one the caller must see
+            raise
+        # -- 2. SWAP: the panel's own names for the shared pieces, re-pointed per run. Assignments only. ------- #
+        self._event_q = event_q
+        self._estimator = estimator
+        self.jobs = adapter
+        self.controls = adapter.controls
+        self.status = adapter.status
+        self.lock_group = adapter.locks
+        # -- 3. RETIRE the previous adapter: cleanup of something the panel no longer owns. --------------------- #
+        if previous is not None:
+            for problem in self._retire_adapter(previous):
+                logging_setup.get_logger().warning(
+                    "M4B Metadata Editor: the previous job area was not fully retired: %s", problem)
+                self._say("The previous job area could not be fully removed; it was taken out of the layout.",
+                          f"Previous job area not fully retired: {problem}")
         self.jobs.render()
+
+    def _retire_adapter(self, adapter) -> tuple[str, ...]:
+        """Close an adapter the panel does not (or no longer) own and take its frame down. Main thread; never raises.
+
+        Cleanup, never a decision: whatever this meets, the caller's job area and run stay as they are. Each step is
+        tried on its own -- ``close`` drops the adapter's pump drain first (one pump, one job drain), then the frame
+        is destroyed; a frame Tk will not destroy is taken out of the layout, failing that lowered, and its
+        indeterminate bar stopped. Returns one line per step that failed, for the caller to report once.
+        """
+        problems: list[str] = []
+        try:
+            adapter.close()
+        except Exception as exc:  # noqa: BLE001 - reported by the caller; the frame must still go
+            problems.append(f"close: {type(exc).__name__}: {exc}")
+            try:
+                self._pump.remove_drain(adapter.drain)
+            except Exception:  # noqa: BLE001
+                pass
+        try:
+            adapter.frame.destroy()
+        except Exception as exc:  # noqa: BLE001 - reported by the caller
+            problems.append(f"destroy: {type(exc).__name__}: {exc}")
+            for fallback in (adapter.frame.grid_forget, adapter.frame.lower):
+                try:
+                    fallback()
+                    break
+                except Exception:  # noqa: BLE001 - try the next way of getting it out of sight
+                    continue
+            try:
+                adapter.status.indicator.bar.stop()
+            except Exception:  # noqa: BLE001
+                pass
+        return tuple(problems)
 
     def _fit_output_hint(self, _event=None) -> None:
         """Show as much of the output path as the band holds, tail first.
@@ -1046,7 +1222,7 @@ class M4BMetadataEditorUI(ttk.Frame):
             return str(self.surface.book_frame.cget("text"))
         return str(self.hint_label.cget("text"))
 
-    def _arrange_status(self) -> None:
+    def _arrange_status(self, jobs=None) -> None:
         """The shared status view's lines: three, or two in the tight density.
 
         Grid positions and wrap only -- the same labels, bound to the same
@@ -1054,8 +1230,12 @@ class M4BMetadataEditorUI(ttk.Frame):
         progress, then stage and ETA, then the status line. Tight sets the
         status beside the progress bar and the stage beside the ETA, one line
         fewer beside the actions (the MP3 Tool's Phase 6 arrangement).
+
+        *jobs* (v0.8.2) is an adapter being built that is not the panel's yet;
+        with none given, the installed one.
         """
-        jobs = getattr(self, "jobs", None)
+        if jobs is None:
+            jobs = getattr(self, "jobs", None)
         if jobs is None:
             return
         view = jobs.status
@@ -1217,6 +1397,9 @@ class M4BMetadataEditorUI(ttk.Frame):
         self._guard.require("render")
         if self._closed:
             return
+        # v0.8.2: whatever moved the model, the box is about to be redrawn from it; an edit it has not heard of yet
+        # is committed to the Book it was typed for first, never painted over.
+        self.flush_pending_editor_state()
         self._rendering = True
         try:
             space = self.workspace
@@ -1343,8 +1526,11 @@ class M4BMetadataEditorUI(ttk.Frame):
         return "\n".join(seen.chapter_titles)
 
     def _render_chapters(self) -> None:
+        # Never paints over an edit the model has not heard of: it is committed to its own Book first (v0.8.2).
+        self.flush_pending_editor_state()
         raw = self._chapter_display()
         self._chapter_baseline = raw
+        self._chapter_book_id = self.workspace.current.book_id
         if raw == self.chapter_text.get("1.0", "end-1c"):
             return
         self._suspend_chapters = True
@@ -1354,6 +1540,10 @@ class M4BMetadataEditorUI(ttk.Frame):
             self.chapter_text.delete("1.0", "end")
             if raw:
                 self.chapter_text.insert("1.0", raw)
+            # v0.8.2: the panel's own repaint is not an edit, so Ctrl+Z may not undo it (left on the undo stack, an
+            # undo after a Book switch could bring the previous Book's titles back into this one). Undo history
+            # starts again at each repaint; a box the repaint did not change keeps its history.
+            self.chapter_text.edit_reset()
             self.chapter_text.configure(state=state)
         finally:
             self._suspend_chapters = False
@@ -1421,17 +1611,28 @@ class M4BMetadataEditorUI(ttk.Frame):
     # Navigator callbacks
     # ------------------------------------------------------------------ #
 
+    # v0.8.2: every callback that asks the model for a change first commits a Chapter Titles edit no key release
+    # reported yet (a paste, a drop, an input method) through :meth:`flush_pending_editor_state`, so the change is
+    # computed from a workspace that already holds it. ``render`` repeats the flush as the safety net, so nothing
+    # redraws the box over it.
+
     def on_previous(self) -> None:
+        self.flush_pending_editor_state()
         self._apply(previous_book(self.workspace))
 
     def on_next(self) -> None:
+        self.flush_pending_editor_state()
         self._apply(next_book(self.workspace))
 
     def on_select(self, book_id: str) -> None:
+        self.flush_pending_editor_state()
         self._apply(select_book(self.workspace, book_id))
 
     def on_remove(self, meaningful: bool) -> None:
         """Decision 50A: the model answered; this panel decides to ask."""
+        # A pasted title the navigator could not know of yet still makes the Book worth asking about.
+        if self.flush_pending_editor_state():
+            meaningful = meaningful or has_meaningful_work(self.workspace.current)
         if meaningful and not self._confirm(
                 "Remove this Book?",
                 "This page holds an imported file or edited values.\n\n"
@@ -1446,6 +1647,7 @@ class M4BMetadataEditorUI(ttk.Frame):
     def on_shared_change(self, field: str, raw: str) -> None:
         if self._rendering:
             return
+        self.flush_pending_editor_state()
         values = dict(self.workspace.shared.values)
         values[field] = raw
         self._apply(set_shared_metadata(
@@ -1463,19 +1665,60 @@ class M4BMetadataEditorUI(ttk.Frame):
     def set_book_field(self, name: str, value) -> None:
         """Store one raw explicit Book edit and show it. The model owns the write."""
         self._guard.require("set_book_field")
+        self.flush_pending_editor_state()
         self._apply(wf.set_book_field(self.workspace, name, value))
 
     def on_chapter_edit(self, _event=None) -> None:
+        """A key release (or a modified flag) in the Chapter Titles box: commit what it shows."""
         if self._suspend_chapters or self._rendering or self._closed:
             return
-        raw = self.chapter_text.get("1.0", "end-1c")
-        if raw == self._chapter_baseline:
+        if self.flush_pending_editor_state():
+            self._render_light()
+
+    def _on_chapter_modified(self, _event=None) -> None:
+        """Tk's ``<<Modified>>``: some change reached the box, typed or not. Main thread only.
+
+        The flag is cleared so the next change reports again; clearing it reports once more, and that report finds
+        nothing new. A change the panel itself painted is the baseline already, so it commits nothing.
+        """
+        if self._closed:
             return
+        try:
+            if not self.chapter_text.edit_modified():
+                return
+            self.chapter_text.edit_modified(False)
+        except tk.TclError:
+            return
+        self.on_chapter_edit()
+
+    def flush_pending_editor_state(self) -> bool:
+        """Commit a Chapter Titles change the model has not heard of yet, to the Book it was typed for (v0.8.2).
+
+        **The one commit boundary for the panel's own editor** (the MP3 Tool's R1-1, applied here). The box shows one
+        Book's chapter titles; the panel remembers which Book (``_chapter_book_id``) and what it last wrote there
+        (``_chapter_baseline``). Text that differs from the baseline is the user's and is stored -- raw, exactly as
+        the box holds it, as a key release stores it -- on *that* Book by its identity, so a change that already moved
+        the selection can never hand it to another Book. Unchanged text commits nothing, so an untouched Book keeps
+        preserving its source titles. Storing an edit is not applying it: Remove Series Numbering still freezes none
+        of the pending edits. The box itself is not touched. Returns whether the model changed. Main thread only.
+        """
+        if self._closed or self._suspend_chapters:
+            return False
+        try:
+            raw = self.chapter_text.get("1.0", "end-1c")
+        except tk.TclError:
+            return False
+        if raw == self._chapter_baseline:
+            return False
         self._chapter_baseline = raw
-        mutation = wf.set_book_field(self.workspace, "chapter_titles", raw)
+        space = self.workspace
+        owner = self._chapter_book_id or space.current.book_id
+        if owner not in space.book_ids:
+            return False
+        mutation = wf.set_book_field(space, "chapter_titles", raw, book_id=owner)
         if mutation.changed:
             self.workspace = mutation.workspace
-        self._render_light()
+        return mutation.changed
 
     def type_chapter_titles(self, raw: str) -> None:
         """Type into the Chapter Titles box as a person would, then report it."""
@@ -1536,6 +1779,7 @@ class M4BMetadataEditorUI(ttk.Frame):
         self._guard.require("import_folder")
         if self._closed or self._coordinator.is_active:
             return
+        self.flush_pending_editor_state()  # a pasted title is work the replace question must count
         if any(has_meaningful_work(book) for book in self.workspace.books):
             if not self._confirm(
                     "Replace the current Books?",
@@ -1606,6 +1850,7 @@ class M4BMetadataEditorUI(ttk.Frame):
         self._guard.require("clear_all_imports")
         if self._closed or self.is_running or self._coordinator.is_active:
             return False
+        self.flush_pending_editor_state()  # a pasted title is work the clear question must count
         meaningful = self._workspace_has_meaningful_work()
         if meaningful and not self._confirm(
                 "Clear all imports?",
@@ -1614,6 +1859,15 @@ class M4BMetadataEditorUI(ttk.Frame):
                 "modified, and outputs already written are kept.\n\nClear them?"):
             return False
         had_run = self.run is not None
+        # v0.8.2: the fresh, idle job area is built first, transactionally; if it cannot be, nothing is reset and
+        # the previous run, its result and its Retry Failed stay exactly as they were.
+        try:
+            self._install_jobs(IDLE_RUN_ID, ())
+        except Exception as exc:  # noqa: BLE001 - nothing changed
+            text = f"{CLEAR_IMPORTS_LABEL}: the tool could not be reset; nothing was cleared."
+            self._say(text, f"{type(exc).__name__}: {exc}")
+            messagebox.showerror(APP_TITLE, text, parent=self)
+            return False
         # The run goes with the workspace, and with it every chance of a Retry Failed: its kept staging goes too.
         self._abandon_run()
         self.workspace = wf.new_workspace(id_factory=self._ids)
@@ -1625,7 +1879,6 @@ class M4BMetadataEditorUI(ttk.Frame):
         self.var_outdir.set(output_paths.destination_hint(TOOL_KEY))
         if meaningful or had_run:
             self.log.divider(f"{DIVIDER_MARK} {CLEAR_IMPORTS_LABEL}")
-        self._install_jobs(IDLE_RUN_ID, ())
         self.render()
         return True
 
@@ -1663,6 +1916,7 @@ class M4BMetadataEditorUI(ttk.Frame):
 
     def _project_import(self, kind: str | None, outcome: ImportOutcome) -> None:
         """The committed snapshot becomes Books: one per occurrence, observed once."""
+        self.flush_pending_editor_state()
         commit = outcome.commit
         if kind == "folder":
             result = wf.import_folder(self.workspace, commit.snapshot,
@@ -1690,14 +1944,6 @@ class M4BMetadataEditorUI(ttk.Frame):
     def _run_options(self) -> mp.EditorRunOptions:
         return mp.EditorRunOptions(auto_number=bool(self.var_auto_number.get()),
                                    start_part_text=self.var_start_part.get())
-
-    def _reserve_run(self):
-        """Reserve one standard run for a validated action. None means do not start."""
-        try:
-            return output_paths.reserve_run_directory(TOOL_KEY)
-        except output_paths.OutputPathError as exc:
-            messagebox.showerror(APP_TITLE, exc.message, parent=self)
-            return None
 
     def save(self) -> bool:
         """Write the explicit edits onto copies (preserve-by-default)."""
@@ -1737,9 +1983,25 @@ class M4BMetadataEditorUI(ttk.Frame):
         return self._start_action(EditorAction.REMOVE_SERIES_NUMBERING)
 
     def _start_action(self, action: EditorAction) -> bool:
-        """Validate, reserve one run, freeze one plan, start one run."""
+        """Validate on Tk, freeze the inputs, and hand reserving and planning to the preparation worker.
+
+        Exactly one reservation per action, never one per Book, and only after the workspace validated. The plan is
+        frozen from the workspace and the observation store as they are at this moment; editing anything afterwards
+        cannot reach it, and neither can a later Retry Failed read anything but it. Remove Series Numbering freezes
+        the action alone -- pending edits are committed to the workspace (a pasted chapter edit is never lost) but
+        never part of its plan. A press while a run is under way -- or being prepared -- is refused first.
+
+        v0.8.2 Checkpoint 2: ``True`` now means *accepted*. The press returns at once with the job area showing
+        "Preparing job…" and Cancel; the preparation worker reserves the run and plans every Book off the Tk thread;
+        the run starts when the pump adopts the finished plan (:meth:`_on_preparation`). A refused plan -- or one with
+        nothing readable to write -- is reported then, exactly as before, with its empty run released.
+        """
         if self._closed or self.is_running:
             return False
+        # A Chapter Titles change no key release reported (a paste, an input method) is committed through the
+        # model, to its own Book, before anything is frozen.
+        if self.flush_pending_editor_state():
+            self._render_light()
         space = self.workspace
         if all(wf.source_of(book) is None for book in space.books):
             messagebox.showwarning(APP_TITLE, "Import a folder or add M4B files first.",
@@ -1752,35 +2014,211 @@ class M4BMetadataEditorUI(ttk.Frame):
             except wf.EditorValueError as exc:
                 messagebox.showerror(APP_TITLE, f"Start Part: {exc}", parent=self)
                 return False
-        reservation = self._reserve_run()
-        if reservation is None:
-            return False
+        label = ACTION_LABELS[action]
+        # Frozen here, on Tk, and never read again: the immutable workspace and observation store, the options, the
+        # moment of the press and ONE output configuration -- the one in force at this press -- that both every
+        # Book's run snapshot records and the reservation resolves its output base from. The run's Plan 6 capture
+        # (readability is the frozen store's answer; no disk is read) is derived from these on the worker.
+        inputs = _ActionInputs(action=action, workspace=space, store=self.store, options=options,
+                               run_config=shared_config.get_effective(), id_factory=self._ids,
+                               created_at=self._clock())
+        self._preparations += 1
+        preparation = prep.Preparation(label=label, inputs=inputs, number=self._preparations)
+        self._preparing = preparation
+        self._show_preparing(preparation, files=sum(1 for book in space.books if not book.files.is_empty))
+        # Tell the worker once Tk has painted this press: its CPU-bound planning would otherwise compete with that
+        # one repaint for the GIL and stretch it past 100 ms (measured at 5,000 files, v0.8.2 Checkpoint 2).
         try:
-            plan = mp.plan_run(
-                space, self.store, action=action, options=options, reservation=reservation,
-                catalog=wf.EDITOR_CATALOG,
-                import_options=ImportOptions.for_catalog(wf.EDITOR_CATALOG),
-                effective_config=self._effective_config, id_factory=self._ids,
-                created_at=self._clock())
-        except (wf.EditorValueError, mp.PlanError, output_paths.OutputPathError) as exc:
-            output_paths.release_if_empty(reservation)
-            messagebox.showerror(APP_TITLE, f"{ACTION_LABELS[action]}: {exc}", parent=self)
+            self.after_idle(preparation.painted.set)
+        except tk.TclError:
+            preparation.painted.set()
+        try:
+            thread = self._thread_factory(lambda: self._prepare(preparation),
+                                          f"m4b-metadata-prepare-{preparation.number}")
+            thread.start()
+        except Exception as exc:  # noqa: BLE001 - nothing was reserved yet; the panel must not stay locked
+            if self._preparing is preparation:
+                self._preparing = None
+                preparation.withdraw()
+                text = f"{label}: the job could not be prepared, and nothing was started."
+                self._end_preparation(STATUS_PREPARATION_FAILED, text, f"{type(exc).__name__}: {exc}")
+                messagebox.showerror(APP_TITLE, text, parent=self)
             return False
-        if not plan.books:
-            output_paths.release_if_empty(reservation)
-            messagebox.showwarning(
-                APP_TITLE, "None of the imported files could be read, so there is "
-                           "nothing to write.", parent=self)
-            return False
-        # The new run replaces the old one, whose Retry Failed can no longer be reached: its kept staging goes.
-        self._abandon_run()
-        self.last_plan = plan
-        self._label = ACTION_LABELS[action]
-        self.run = self._run_factory(plan, id_factory=self._ids, clock=self._clock,
-                                     publish=self._publish, staging_lock=self._staging_lock)
-        self.var_outdir.set(str(plan.run_directory))
-        self._start_attempt(self.run.start, self._label)
         return True
+
+    # -- the preparation: worker side ------------------------------------------ #
+
+    def _prepare(self, preparation: prep.Preparation) -> None:
+        """The preparation worker's whole body: reserve the run, then plan. Never raises.
+
+        Reads only the frozen *preparation* and writes only the preparation queue -- no widget, no Tk variable, no
+        panel state. Everything it does is in module-level functions that are handed what they need.
+        """
+        inputs = preparation.inputs
+        prep.prepare(
+            preparation, self._prep_q.put,
+            reserve=lambda: _reserve_run(inputs),
+            build=lambda reservation, progress: _plan_action(inputs, reservation, preparation.checkpoint,
+                                                             progress),
+            release=_release_run,
+            refusal=_action_refusal(inputs.action))
+
+    # -- the preparation: Tk side --------------------------------------------- #
+
+    def _show_preparing(self, preparation: prep.Preparation, *, files: int) -> None:
+        """Lock the workspace, offer Cancel, and say "Preparing job…" on the current job area. Main thread only.
+
+        The job area keeps the previous run's adapter: its stream, result and Retry Failed stay untouched behind this
+        presentation and come back with one ``jobs.render()`` if the preparation ends without a run.
+        """
+        self.lock_group.apply(JobState.RUNNING)
+        self.controls.apply(JobState.RUNNING)
+        # Cancel is the one control a preparation honours; Pause has no checkpoint to wait at here.
+        pause = self.controls.buttons.get(JobAction.PAUSE)
+        if pause is not None:
+            try:
+                pause.configure(state="disabled")  # the shared bar enables by this option, so it disables by it
+            except tk.TclError:
+                pass
+        self._show_preparation_progress(f"{preparation.label}: checking {files} file(s)")
+        self.status.set_eta("")
+        self.status.set_status(STATUS_PREPARING)
+        self._say(f"{preparation.label}: preparing {files} file(s)…")
+
+    def _show_preparation_progress(self, stage: str) -> None:
+        self.status.apply(ProgressView(ProgressMode.INDETERMINATE, label=STATUS_PREPARING), stage=stage)
+
+    def _drain_preparation(self) -> None:
+        """The pump's preparation drain: handle what the preparation worker said. Main thread only; never raises."""
+        for _ in range(PREPARATION_DRAIN_LIMIT):
+            try:
+                message = self._prep_q.get_nowait()
+            except queue.Empty:
+                return
+            current = message.preparation is self._preparing
+            try:
+                self._on_preparation(message)
+            except Exception as exc:  # noqa: BLE001 - one bad message must not stop the pump that frees the panel
+                logging_setup.get_logger().exception("M4B Metadata Editor: preparation message failed: %s", exc)
+                # The current preparation's ending must free the panel even if it failed part-way, as long as no
+                # attempt took the run over; a plan it offered is released off Tk.
+                if current and self._preparing is message.preparation and not self._closed:
+                    self._preparing = None
+                    left = message.preparation.withdraw()
+                    if left is not None:
+                        self._release_unadopted(left)
+                    try:
+                        self._end_preparation(STATUS_PREPARATION_FAILED,
+                                              f"{message.preparation.label}: the job could not be prepared.",
+                                              f"{type(exc).__name__}: {exc}")
+                    except Exception:  # noqa: BLE001 - the pump must keep running
+                        logging_setup.get_logger().exception("M4B Metadata Editor: the preparation could not be "
+                                                             "ended")
+
+    def _on_preparation(self, message: prep.PreparationMessage) -> None:
+        """Adopt a finished plan and start the run, or end the preparation. Main thread only.
+
+        A message from any preparation but the current one is stale: it is never acted on, and a plan it offered is
+        taken back and its empty run released. A plan Cancel or Close withdrew is never adopted, so no copy is made.
+        """
+        preparation = message.preparation
+        if self._closed or preparation is not self._preparing:
+            left = preparation.withdraw()
+            if left is not None:
+                self._release_unadopted(left)
+            return
+        kind = message.kind
+        if kind == prep.PROGRESS:
+            if message.total and not preparation.cancel_requested.is_set():
+                self._show_preparation_progress(
+                    f"{preparation.label}: planning Book {min(message.done + 1, message.total)} "
+                    f"of {message.total}")
+            return
+        self._preparing = None
+        if kind == prep.PREPARED:
+            plan = preparation.adopt()
+            if plan is not None:
+                self._adopt(preparation, plan)
+                return
+            kind = prep.CANCELLED
+        if kind == prep.CANCELLED or preparation.cancel_requested.is_set():
+            note = f" ({message.text})" if kind != prep.CANCELLED and message.text else ""
+            self._end_preparation(
+                STATUS_PREPARATION_CANCELLED,
+                f"{preparation.label}: cancelled before anything was started; the workspace is unchanged.",
+                f"{preparation.label}: preparation cancelled{note}; {message.detail}".rstrip("; "))
+            return
+        self._end_preparation(STATUS_PREPARATION_FAILED, message.text, message.detail or message.text)
+        if message.warning:
+            messagebox.showwarning(APP_TITLE, message.text, parent=self)
+        else:
+            messagebox.showerror(APP_TITLE, message.text, parent=self)
+
+    def _end_preparation(self, status: str, line: str, detail: str) -> None:
+        """Put the job area back exactly as the previous run left it, then say why nothing started."""
+        self.jobs.render()
+        self.status.set_status(status)
+        self._say(line, detail)
+        self.render()
+
+    def _adopt(self, preparation: prep.Preparation, plan: mp.RunPlan) -> None:
+        """The prepared plan becomes the run. Main thread only; never raises.
+
+        The one ``EditorRun`` is made, and only once the new attempt's job area is up does the new run replace the
+        old one (:meth:`_start_attempt`): its Retry Failed can no longer be reached, so the old run's kept staging
+        goes -- removed by the new attempt's worker, off the Tk thread. If that setup fails before anything changed
+        hands, the preparation ends as a failed one does -- the previous run, its result, Retry Failed and kept
+        staging untouched, the panel unlocked, the error shown -- and the plan's empty run is released off Tk.
+        """
+        text = f"{preparation.label}: the job could not be started, and nothing was started."
+        try:
+            # Each run gets its own staging lock: it orders that run's worker against this thread (ACT72-034), and a
+            # superseded run's cleanup on another worker can then never make this thread wait.
+            run = self._run_factory(plan, id_factory=self._ids, clock=self._clock,
+                                    publish=self._publish, staging_lock=threading.Lock())
+        except Exception as exc:  # noqa: BLE001 - nothing changed hands
+            self._release_unadopted(plan)
+            self._end_preparation(STATUS_PREPARATION_FAILED, text, f"{type(exc).__name__}: {exc}")
+            messagebox.showerror(APP_TITLE, text, parent=self)
+            return
+        try:
+            self._start_attempt(run, run.start, preparation.label, replaces=True)
+        except _AttemptNotStarted as exc:
+            self._release_unadopted(plan)
+            self._end_preparation(STATUS_PREPARATION_FAILED, text, exc.detail)
+            messagebox.showerror(APP_TITLE, text, parent=self)
+
+    def _release_unadopted(self, plan: mp.RunPlan) -> None:
+        """Release the still-empty run of a plan nobody will run, **off the Tk thread**. Main thread; returns at once.
+
+        A plan offered and then withdrawn (Cancel, Close, a stale ending) or one whose run could not be set up hands
+        its reservation here exactly once (``Preparation.withdraw`` / ``adopt`` decide that under one lock), and a
+        short-lived worker removes the run folder only while it is still empty (``output_paths.release_if_empty``:
+        links and anything inside are left alone; no source is ever touched). It needs neither Tk nor the pump, so
+        it finishes even after the panel closed. Should no worker start, the empty folder is left and named in the
+        log rather than making Tk wait on the filesystem.
+        """
+        reservation = plan.reservation
+        self._releases += 1
+
+        def release() -> None:
+            released = False
+            try:
+                released = output_paths.release_if_empty(reservation)
+            except Exception:  # noqa: BLE001 - release_if_empty never raises; still, a worker must not
+                pass
+            if not released:
+                logging_setup.get_logger().warning("M4B Metadata Editor: an unused run was left in place: %s",
+                                                   reservation.run_directory)
+
+        try:
+            self._thread_factory(release, f"m4b-metadata-release-{self._releases}").start()
+        except Exception as exc:  # noqa: BLE001 - an empty folder left behind is harmless; a frozen window is not
+            logging_setup.get_logger().warning("M4B Metadata Editor: an unused run was left in place: %s (%s: %s)",
+                                               reservation.run_directory, type(exc).__name__, exc)
+            if not self._closed:
+                self._say("An unused, empty run folder was left in place.",
+                          f"Unused run left in place: {reservation.run_directory} ({type(exc).__name__}: {exc})")
 
     def _abandon_run(self) -> None:
         """No Retry Failed can reach the current run any more (ACT72-034): its kept staging goes. Main thread; never
@@ -1798,33 +2236,129 @@ class M4BMetadataEditorUI(ttk.Frame):
             else:
                 self._say("Some private staging could not be removed.", line)
 
-    def _start_attempt(self, begin, label: str) -> None:
-        """Begin one attempt through the run and start its one worker thread."""
-        # The queue exists before the run publishes its first event; the
-        # adapter installed just after drains everything the attempt sends.
-        self._event_q = queue.Queue()
-        attempt = begin()
+    # ------------------------------------------------------------------ #
+    # The one run: adapter, attempt, worker
+    # ------------------------------------------------------------------ #
+
+    def _start_attempt(self, run: batch.EditorRun, begin, label: str, *, replaces: bool = False) -> None:
+        """Begin one attempt at *run* through *begin* (``run.start`` or ``run.retry_failed``) and start its one worker.
+
+        v0.8.2 Checkpoint 2 -- **ownership changes hands in one place.** The new job area is built first, for the
+        run's id, transactionally (:meth:`_install_jobs`). If that fails, :class:`_AttemptNotStarted` is raised and
+        *nothing* has changed: the previous attempt, its result, its job area with its Retry Failed and its kept
+        staging, and the panel's idle state are all as they were, and the run has not begun. Only after the job area
+        is up does the attempt begin (and, with ``replaces``, the run replace the last one, whose kept staging is
+        handed to the new worker to remove). A failure from there until the worker is running settles the attempt
+        as failed through its own controller and terminal event, as a worker fault would, so the panel never stays
+        busy with nothing running.
+        """
+        retired = self.jobs
+        plan = run.plan
+        failure: BaseException | None = None
+        try:
+            item_ids = tuple(book.occurrence_id for book in plan.books)
+            self._install_jobs(run.run_id, item_ids)
+        except Exception as exc:  # noqa: BLE001 - decided here: nothing changed hands, or the attempt settles
+            if self.jobs is retired:
+                raise _AttemptNotStarted(f"{type(exc).__name__}: {exc}") from exc
+            failure = exc
+
+        # -- From here the new job area is the panel's. ------------------------- #
+        superseded = None
+        if replaces:
+            # The new run replaces the old one: no Retry Failed can reach it any more. Its kept staging is removed by
+            # a short-lived release worker once this attempt's worker is running, off the Tk thread
+            # (``_release_superseded``).
+            superseded = self.run if self.run is not run else None
+            self.last_plan = plan
+            self.run = run
+            self._label = label
+            self.var_outdir.set(str(plan.run_directory))
+        try:
+            attempt = begin()
+        except Exception as exc:  # noqa: BLE001 - nothing began; the panel must not stay locked
+            detail = f"{type(exc).__name__}: {exc}"
+            logging_setup.get_logger().warning("M4B Metadata Editor: an attempt could not begin: %s", detail)
+            if replaces:
+                self._attempt = None  # the new run never began; Clear All Imports or closing lets it go
+            if superseded is not None:
+                self._release_in_background(lambda: self._release_superseded(superseded))
+            self.jobs.set_result(run.result)
+            self.jobs.render()
+            self.status.set_status(STATUS_PREPARATION_FAILED)
+            self._say(f"{label}: the job could not be started, and nothing was processed.", detail)
+            self.render()
+            return
         self._attempt = attempt
-        item_ids = tuple(book.occurrence_id for book in self.last_plan.books)
-        pending = self._event_q
-        self._install_jobs(attempt.run_id, item_ids)
-        # Events the run published before the adapter existed.
-        while True:
-            try:
-                self._event_q.put(pending.get_nowait())
-            except queue.Empty:
-                break
-        self.lock_group.apply(attempt.controller.state)
-        heading = (f"Retry Failed — attempt {attempt.number}" if attempt.is_retry
-                   else f"{label} — {self.last_plan.run_directory.name}")
-        self.log.divider(f"{DIVIDER_MARK} {heading}")
-        skipped = len(self.last_plan.capture.skipped)
-        if skipped and not attempt.is_retry:
-            self._say(f"{label}: {skipped} unreadable file(s) skipped; the others proceed.")
-        self._render_status()
-        thread = self._thread_factory(attempt.run, f"m4b-metadata-{attempt.run_id}")
-        self._worker_thread = thread
-        thread.start()
+        try:
+            if failure is not None:
+                raise failure
+            self.lock_group.apply(attempt.controller.state)
+            heading = (f"Retry Failed — attempt {attempt.number}" if attempt.is_retry
+                       else f"{label} — {plan.run_directory.name}")
+            self.log.divider(f"{DIVIDER_MARK} {heading}")
+            skipped = len(plan.capture.skipped)
+            if skipped and not attempt.is_retry:
+                self._say(f"{label}: {skipped} unreadable file(s) skipped; the others proceed.")
+            self._render_status()
+            # The worker body is the attempt's own (``Attempt.run`` never raises and always sends the one terminal
+            # event); it is handed to the thread, never called here.
+            thread = self._thread_factory(attempt.run, f"m4b-metadata-{attempt.run_id}")
+            self._worker_thread = thread
+            thread.start()
+        except Exception as exc:  # noqa: BLE001 - a worker that never started must still settle the run
+            self._fail_unstarted(attempt, superseded, f"{type(exc).__name__}: {exc}")
+            return
+        if superseded is not None:
+            # Beside the new run, not before it: the two runs share no folder and no lock.
+            self._release_in_background(lambda: self._release_superseded(superseded))
+
+    def _release_superseded(self, run) -> None:
+        """Remove the kept staging of the run a new run replaced (v0.8.2). Release worker; touches no widget; never
+        raises.
+
+        That run is finished and nothing else holds it; its own staging lock is not the new run's, so this never
+        makes Tk or the new run wait. What could not be removed is named in the session log and stays where it is.
+        """
+        try:
+            problems = run.abandon()
+        except Exception as exc:  # noqa: BLE001 - the new run must still go on
+            problems = (f"{type(exc).__name__}: {exc}",)
+        for line in problems:
+            logging_setup.get_logger().warning(
+                "M4B Metadata Editor: private staging of the previous run left in place: %s", line)
+
+    def _release_in_background(self, work) -> None:
+        """Run one cleanup on a short-lived worker; when none can start, run it here. Main thread."""
+        self._releases += 1
+        try:
+            self._thread_factory(work, f"m4b-metadata-release-{self._releases}").start()
+        except Exception:  # noqa: BLE001 - no worker at all: do it here rather than leave it behind
+            work()
+
+    def _fail_unstarted(self, attempt: batch.Attempt, superseded, detail: str) -> None:
+        """Settle an attempt whose worker never started as failed. Main thread only; never raises.
+
+        Nothing ran. The superseded run's kept staging goes to a short-lived release worker (Tk does not wait for
+        it); the attempt settles FAILED through its own controller (``Attempt.fail_unstarted``), which releases the
+        staging nobody can retry -- for a run that never started, a few directory checks -- and sends the one
+        terminal event that frees the panel. Should even that fail, the panel is freed directly.
+        """
+        if superseded is not None:
+            self._release_in_background(lambda: self._release_superseded(superseded))
+        try:
+            attempt.fail_unstarted(detail)
+            return
+        except Exception as exc:  # noqa: BLE001 - the attempt cannot settle; the panel must still be freed
+            logging_setup.get_logger().exception("M4B Metadata Editor: an attempt could not be settled: %s", exc)
+        self._attempt = None
+        try:
+            self.jobs.render()
+            self.status.set_status(STATUS_PREPARATION_FAILED)
+        except Exception:  # noqa: BLE001
+            pass
+        self._say(f"{self._label}: the job could not be started, and nothing was processed.", detail)
+        self.render()
 
     def _publish(self, event) -> None:
         """Hand one produced event to the queue the shared adapter drains.
@@ -1875,6 +2409,16 @@ class M4BMetadataEditorUI(ttk.Frame):
 
     @property
     def is_running(self) -> bool:
+        """An attempt is running, or an accepted action press is still being prepared (v0.8.2)."""
+        return self._preparing is not None or self._attempt_running
+
+    @property
+    def is_preparing(self) -> bool:
+        """An accepted action press is being reserved and planned off the Tk thread; no run has started yet."""
+        return self._preparing is not None
+
+    @property
+    def _attempt_running(self) -> bool:
         attempt = self._attempt
         return attempt is not None and attempt.controller.state not in TERMINAL_STATES
 
@@ -1895,7 +2439,7 @@ class M4BMetadataEditorUI(ttk.Frame):
             return STATUS_READY
         if book_id in plan.capture.skipped_book_ids:
             return STATUS_SKIPPED
-        if self.is_running:
+        if self._attempt_running:
             for record in attempt.records:
                 if record.book_id == book_id:
                     return STATUS_COMPLETED if record.succeeded else STATUS_FAILED
@@ -1953,15 +2497,33 @@ class M4BMetadataEditorUI(ttk.Frame):
     # -- the shared control bar's callbacks ---------------------------------- #
 
     def pause(self) -> None:
-        if self.run is not None and self.is_running:
+        if self.run is not None and self._attempt_running:
             self.run.pause()
 
     def resume(self) -> None:
-        if self.run is not None and self.is_running:
+        if self.run is not None and self._attempt_running:
             self.run.resume()
 
     def cancel(self) -> None:
-        if self.run is not None and self.is_running:
+        """Ask the run to stop -- or, while an action press is still being prepared, the preparation (v0.8.2).
+
+        During preparation there is no run yet. Cancel asks the preparation worker to stop at its next checkpoint and
+        says so at once; the panel ends the preparation when the worker acknowledges (its empty run released, nothing
+        started, the workspace and the previous run as they were). A plan already offered is taken back here and its
+        empty run released off the Tk thread, so it can never start.
+        """
+        preparation = self._preparing
+        if preparation is not None:
+            if preparation.cancel_requested.is_set():
+                return
+            left = preparation.withdraw()
+            if left is not None:
+                self._release_unadopted(left)  # off Tk: Cancel never waits on the output storage
+            if not self._closed:
+                self.controls.apply(JobState.CANCEL_REQUESTED)
+                self.status.set_status(STATUS_CANCELLING_PREPARATION)
+            return
+        if self.run is not None and self._attempt_running:
             self.run.cancel()
 
     def retry_failed(self) -> bool:
@@ -1972,7 +2534,15 @@ class M4BMetadataEditorUI(ttk.Frame):
         result = self.run.result
         if result is None or not result.can_retry_failed:
             return False
-        self._start_attempt(self.run.retry_failed, "Retry Failed")
+        try:
+            self._start_attempt(self.run, self.run.retry_failed, "Retry Failed")
+        except _AttemptNotStarted as exc:
+            # v0.8.2: nothing changed hands; the failed Books, their kept staging and Retry Failed stay as they were.
+            text = "Retry Failed: the retry could not be started; nothing was changed."
+            self.jobs.render()
+            self._say(text, exc.detail)
+            messagebox.showerror(APP_TITLE, text, parent=self)
+            return False
         return True
 
     # -- the output folder ---------------------------------------------------- #
@@ -2004,6 +2574,13 @@ class M4BMetadataEditorUI(ttk.Frame):
             return
         self._closed = True
         appearance.unregister_listener(self._on_appearance_changed)
+        # v0.8.2: a preparation still going stops at its next checkpoint and releases its own empty run; a plan it
+        # already offered is taken back here and released off Tk, so nothing it planned can start after closing.
+        preparation, self._preparing = self._preparing, None
+        if preparation is not None:
+            left = preparation.withdraw()
+            if left is not None:
+                self._release_unadopted(left)
         # Nothing can retry once the tool is closed (ACT72-034): kept staging goes now, or when the worker ends.
         self._abandon_run()
         if self.run is not None:

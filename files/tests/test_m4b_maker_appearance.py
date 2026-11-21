@@ -48,7 +48,12 @@ from shared.job_control import JobState
 from artwork import m4b_artwork_ui
 from m4b.maker import m4b_maker
 
-import test_import_coordination as tic
+from test_m4b_maker_ui import (  # noqa: E402,F401 - v0.8.2: the M4B panels' preparation helpers
+    ParkedProcessing,
+    processing_bodies,
+    processing_workers,
+    wait_until_prepared,
+)
 from test_import_coordination import RecordingThreads
 from test_m4b_maker_ui import (  # noqa: F401 - fixtures are collected by name
     add_files,
@@ -356,13 +361,6 @@ def test_a_live_toggle_preserves_every_piece_of_workspace_state(make_panel, tk_r
     assert panel.track_list.cget("background") == appearance.LIGHT_COLORS["field"]
 
 
-class _Parked(tic.InlineThread):
-    """A worker that does not start: the run stays RUNNING for inspection."""
-
-    def start(self):
-        pass
-
-
 @pytest.mark.skipif(not ffmpeg_utils.have_ffmpeg(),
                     reason="ffmpeg/ffprobe not available in this environment")
 def test_toggling_mid_run_leaves_the_running_build_alone(make_panel, tk_root, tmp_path,
@@ -374,8 +372,9 @@ def test_toggling_mid_run_leaves_the_running_build_alone(make_panel, tk_root, tm
     tone(root / "B" / "01.mp3")
     panel = make_panel(appearance_bundle=_bundle(tk_root, appearance.LIGHT))
     import_folder(panel, root)
-    panel._thread_factory = RecordingThreads(kind=_Parked)
+    panel._thread_factory = RecordingThreads(kind=ParkedProcessing)
     assert panel.build() is True
+    wait_until_prepared(panel)  # v0.8.2: accepted; prepared off Tk
     controller, jobs, plan, run = panel.job_controller, panel.jobs, panel.last_plan, panel.run
     assert panel.is_running and controller.state is JobState.RUNNING
     assert "disabled" in panel.btn_build.state()
@@ -388,7 +387,7 @@ def test_toggling_mid_run_leaves_the_running_build_alone(make_panel, tk_root, tm
     assert panel.navigator.locked is True
     assert panel.book_field_enabled("title") is False
 
-    panel._thread_factory.bodies[0]()
+    processing_bodies(panel)[0]()
     panel._pump.tick()
     assert controller.state is JobState.SUCCEEDED
     assert panel.last_result.state is JobState.SUCCEEDED

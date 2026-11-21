@@ -33,6 +33,7 @@ from test_m4b_metadata_editor_ui import (  # noqa: E402,F401  (fixtures are coll
     windows_theme,
 )
 from test_m4b_metadata_processing import png, sha  # noqa: E402
+from test_m4b_maker_ui import wait_until_prepared  # noqa: E402 - v0.8.2: the preparation helper
 
 SAVE = editor.ACTION_LABELS[EditorAction.SAVE_TAGS]
 
@@ -54,7 +55,10 @@ def runs_under(output_base: Path) -> list[str]:
 
 
 def workers(panel) -> list:
-    return [thread for thread in panel._thread_factory.made if str(getattr(thread, "name", "")).startswith("m4b-metadata-")]
+    """The processing workers: not the preparation or release workers (v0.8.2)."""
+    return [thread for thread in panel._thread_factory.made
+            if str(getattr(thread, "name", "")).startswith("m4b-metadata-")
+            and not str(getattr(thread, "name", "")).startswith(("m4b-metadata-prepare-", "m4b-metadata-release-"))]
 
 
 @pytest.fixture
@@ -108,9 +112,13 @@ def test_a_run_folder_that_cannot_be_reserved_starts_nothing_and_says_why(make_p
         raise output_paths.OutputPathError("The output folder cannot be created.", "denied for this test")
 
     monkeypatch.setattr(output_paths, "reserve_run_directory", refuse)
-    assert panel.save() is False
+    # v0.8.2: the press is accepted and the run is reserved off the Tk thread; the refusal arrives through the pump.
+    assert panel.save() is True
+    wait_until_prepared(panel)
     assert make_panel.dialogs[-1] == ("error", "The output folder cannot be created.")
     assert workers(panel) == [] and panel.last_plan is None and panel.run is None and not panel.is_running
+    assert panel.job_controller is None, "no run was started"
+    assert panel.status.status_text == editor.STATUS_PREPARATION_FAILED
     assert {p.name: sha(p) for p in (tmp_path / "Library").rglob("*.m4*")} == hashes
 
 
@@ -124,7 +132,8 @@ def test_a_plan_refused_after_reserving_releases_the_empty_run_and_says_why(make
         raise editor.mp.PlanError("two Books would write the same file")
 
     monkeypatch.setattr(editor.mp, "plan_run", refuse)
-    assert panel.save() is False
+    assert panel.save() is True  # v0.8.2: accepted; planned off the Tk thread
+    wait_until_prepared(panel)
     assert make_panel.dialogs[-1] == ("error", f"{SAVE}: two Books would write the same file")
     assert runs_under(output_base) == [], "the run it reserved was empty and is released"
     assert workers(panel) == [] and panel.last_plan is None and not panel.is_running
@@ -140,7 +149,8 @@ def test_when_no_imported_file_can_be_read_the_reserved_run_is_released(make_pan
     import_folder(panel, root)
     settle(panel)
     assert panel.log.summary[-1].endswith("2 could not be read and will be skipped."), panel.log.summary[-1]
-    assert panel.save() is False
+    assert panel.save() is True  # v0.8.2: accepted; the plan is found to hold nothing readable off the Tk thread
+    wait_until_prepared(panel)
     assert make_panel.dialogs[-1] == ("warning", "None of the imported files could be read, so there is nothing to write.")
     assert runs_under(output_base) == [], "the run folder it reserved is released"
     assert workers(panel) == [] and panel.last_plan is None

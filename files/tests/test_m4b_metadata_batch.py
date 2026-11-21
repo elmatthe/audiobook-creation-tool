@@ -592,4 +592,6 @@ def test_the_editor_panel_now_runs_through_this_module():
     assert len(built) == 1, "one EditorRun construction site"
     references = {ast.unparse(node) for node in ast.walk(tree) if isinstance(node, ast.Attribute)}
     assert "self.run.retry_failed" in references, "Retry Failed forwards to the run"
-    assert "self.run.start" in references
+    # v0.8.2 Checkpoint 2: the adopted run is started through its own ``start`` as its job area goes up, just before
+    # it becomes ``self.run``.
+    assert "run.start" in references

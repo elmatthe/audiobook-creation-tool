@@ -108,6 +108,17 @@ The M4B Metadata Editor changes the tags, chapter titles and cover art of audiob
 - If reserving the folder or planning fails, an error dialog appears and no empty folder is left.
 - A run folder that cannot be made, or a plan refused after reserving, shows the message and starts nothing; the refused plan's empty folder is released (ACT72-053, v0.7.2 Phase 6).
 
+### Preparing an action
+`ACT.METADATA.PREPARATION`
+
+- Purpose: keep the window responsive between pressing Save Tags, Clear All Tags or Remove Series Numbering and the first file starting, however many files there are (v0.8.2 Checkpoint 2).
+- Behaviour: after its confirmation, the press commits a Chapter Titles edit still in the box, freezes the workspace, what was read from each file at import, the options and the output Preferences in force, shows "Preparing job…" with Cancel available and Pause disabled, and returns at once. One short-lived background thread reserves the run folder and plans every file; it reads no file, never touches the window, and waits up to 0.25 s for the window to paint the press first. Remove Series Numbering freezes no pending metadata edit.
+- If none of the imported files could be read, the warning appears once preparation ends and nothing is started.
+- Cancel or closing the tool during preparation starts nothing, keeps the workspace and every original unchanged, says "Cancelled — nothing was started", and gives back the empty run folder on another background thread. A refused or failed preparation says why and starts nothing; the previous run's Retry Failed and kept staging stay usable, and the next action works.
+- A result that arrives after Cancel, after a newer press, or twice is released and never run. Changing Preferences after the press does not change where the run goes.
+- Measured on HOME-PC: 2,341 files planned in 2.0 s (250 files took 15.2 s before, 1,000 took 262 s); the longest pause of the window's 20 ms heartbeat during preparation was 59-66 ms at 5,000 files, for all three actions.
+- Still on the window's thread: importing reads each file's tags when it is imported, so a very large import can still pause the window (not changed here).
+
 ### Save Tags and Clear All Tags (keep chapters)
 `ACT.METADATA.SAVE-AND-CLEAR`
 

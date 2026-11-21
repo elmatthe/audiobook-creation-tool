@@ -35,6 +35,12 @@ from m4b.maker import m4b_maker_workflow as maker_wf  # noqa: E402
 from m4b.metadata import m4b_metadata_workflow as editor_wf  # noqa: E402
 from mp3 import mp3_workflow  # noqa: E402
 
+from test_m4b_maker_ui import (  # noqa: E402,F401 - v0.8.2: the M4B panels' preparation helpers
+    ParkedProcessing,
+    processing_bodies,
+    processing_workers,
+    wait_until_prepared,
+)
 from test_button_roles import assert_aqua_button_layout  # noqa: E402
 from test_import_coordination import RecordingThreads  # noqa: E402
 from test_importing import make_config  # noqa: E402
@@ -60,13 +66,8 @@ def import_folder(panel, root: Path):
 
 
 def parked_threads():
-    import test_import_coordination as tic
-
-    class Parked(tic.InlineThread):
-        def start(self):
-            pass
-
-    return RecordingThreads(kind=Parked)
+    """Parks the processing worker and any import scan; a preparation (v0.8.2) still runs inline."""
+    return RecordingThreads(kind=ParkedProcessing)
 
 
 def hashes(root: Path) -> dict[str, str]:
@@ -150,6 +151,7 @@ def test_maker_clear_all_imports_returns_the_pristine_startup_state(make_maker, 
     panel.on_previous()
     panel.on_previous()
     assert panel.build() is True          # outputs on disk before the reset
+    wait_until_prepared(panel)  # v0.8.2: accepted; prepared off Tk
     panel._pump.tick()
     plan = panel.last_plan
     outputs = hashes(plan.root)
@@ -175,6 +177,7 @@ def test_editor_clear_all_imports_returns_the_pristine_startup_state(make_editor
     root = populate_editor(panel, container, tmp_path)
     assert panel.workspace.count == 3 and panel.store.entries
     assert panel.save() is True
+    wait_until_prepared(panel)  # v0.8.2: accepted; prepared off Tk
     panel._pump.tick()
     plan = panel.last_plan
     outputs = hashes(plan.run_directory)
@@ -275,10 +278,11 @@ def test_maker_and_editor_clear_all_imports_are_locked_during_a_run(
     import_folder(maker, tmp_path / "Library")
     maker._thread_factory = parked_threads()
     assert maker.build() is True
+    wait_until_prepared(maker)  # v0.8.2: accepted; prepared off Tk
     assert "disabled" in maker.btn_clear_imports.state()
     assert maker.clear_all_imports() is False and maker.workspace.count == 1
     assert not maker.workspace.current.is_empty, "the live workspace was not touched"
-    maker._thread_factory.bodies[0]()
+    processing_bodies(maker)[0]()
     maker._pump.tick()
     assert "disabled" not in maker.btn_clear_imports.state()
 
@@ -286,9 +290,10 @@ def test_maker_and_editor_clear_all_imports_are_locked_during_a_run(
     import_folder(ed, editor_library(container, tmp_path / "EditorLib"))
     ed._thread_factory = parked_threads()
     assert ed.save() is True
+    wait_until_prepared(ed)  # v0.8.2: accepted; prepared off Tk
     assert "disabled" in ed.btn_clear_imports.state()
     assert ed.clear_all_imports() is False and ed.workspace.count == 3
-    ed._thread_factory.bodies[0]()
+    processing_bodies(ed)[0]()
     ed._pump.tick()
     assert "disabled" not in ed.btn_clear_imports.state()
     assert ed.last_result.state is JobState.SUCCEEDED, "the run was never interfered with"
@@ -321,6 +326,7 @@ def test_editor_clear_all_imports_and_clear_all_tags_are_distinct_actions(
     # Clear All Tags never resets the workspace.
     populate_editor(panel, container, tmp_path)
     assert panel.on_clear_all_tags() is True
+    wait_until_prepared(panel)  # v0.8.2: accepted; prepared off Tk
     panel._pump.tick()
     assert panel.workspace.count == 3 and panel.last_plan is not None
     tree = ast.parse((UNIVERSAL / "m4b" / "metadata" / "m4b_metadata_editor.py").read_text(encoding="utf-8"))

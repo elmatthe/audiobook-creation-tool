@@ -12981,7 +12981,7 @@
         {
           "path": "scripts/m4b/maker/m4b_maker.py",
           "symbols": [
-            "M4BMakerUI._destination",
+            "_reserve_destination",
             "M4BMakerUI._fit_output_hint",
             "M4BMakerUI.output_hint_text"
           ]
@@ -13058,7 +13058,7 @@
             "M4BMakerUI.choose_custom_dest",
             "M4BMakerUI.custom_destination",
             "M4BMakerUI._ask_destination",
-            "M4BMakerUI._destination",
+            "_reserve_destination",
             "CUSTOM_STAGING_NAME",
             "KEY_DEST_DIR"
           ]
@@ -13291,6 +13291,191 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_m4b_combined_hardening.py::test_maker_run_and_retry_ignore_every_later_live_mutation"
+          }
+        ]
+      },
+      "exceptions": []
+    },
+    {
+      "id": "ACT.MAKER.PREPARATION",
+      "tool": "m4b-maker",
+      "title": "Preparing a build off the Tk thread",
+      "release_required": true,
+      "applicability": {
+        "platforms": [
+          "windows"
+        ]
+      },
+      "source": [
+        {
+          "path": "scripts/m4b/maker/m4b_maker.py",
+          "symbols": [
+            "_BuildInputs",
+            "_Prepared",
+            "_AttemptNotStarted",
+            "_reserve_destination",
+            "_release_destination",
+            "_plan_build",
+            "_build_refusal",
+            "M4BMakerUI.build",
+            "M4BMakerUI._prepare",
+            "M4BMakerUI._show_preparing",
+            "M4BMakerUI._show_preparation_progress",
+            "M4BMakerUI._drain_preparation",
+            "M4BMakerUI._on_preparation",
+            "M4BMakerUI._end_preparation",
+            "M4BMakerUI._adopt",
+            "M4BMakerUI._release_unadopted",
+            "M4BMakerUI._start_attempt",
+            "M4BMakerUI._release_superseded",
+            "M4BMakerUI._release_in_background",
+            "M4BMakerUI._fail_unstarted",
+            "M4BMakerUI.is_preparing",
+            "M4BMakerUI.flush_pending_editor_state"
+          ]
+        },
+        {
+          "path": "scripts/m4b/m4b_preparation.py",
+          "symbols": [
+            "Refusal",
+            "Preparation",
+            "Preparation.checkpoint",
+            "Preparation.offer",
+            "Preparation.adopt",
+            "Preparation.withdraw",
+            "Preparation.wait_until_painted",
+            "PreparationMessage",
+            "prepare"
+          ]
+        },
+        {
+          "path": "scripts/m4b/maker/m4b_maker_plan.py",
+          "symbols": [
+            "capture_for_run",
+            "plan_run"
+          ]
+        },
+        {
+          "path": "scripts/m4b/maker/m4b_maker_batch.py",
+          "symbols": [
+            "MakerRun.run_id",
+            "Attempt.fail_unstarted"
+          ]
+        }
+      ],
+      "contracts": [
+        "Build commits a pending Chapter Titles edit, validates, freezes the workspace, options, custom folder and the one output configuration in force, shows 'Preparing job…' and returns at once; reserving or validating the destination and planning run on one short-lived worker that touches no Tk.",
+        "The planner normalises each source once (2,341 tracks in seven Books: 0.36 s and 2,379 normalisations, against 4.74 s and 32,812 at ffd1621).",
+        "The worker waits (at most 0.25 s) for Tk to paint the press before planning, so the repaint is not slowed by the planning thread.",
+        "Cancel or Close during preparation starts nothing, keeps the workspace, releases the empty run folder or the owned work-area entry off the Tk thread, and never leaves the navigator locked or Build disabled.",
+        "A plan is adopted only if it belongs to the current press and no Cancel came first; a stale, duplicate or withdrawn result is released and never run.",
+        "A preparation that is refused or faults keeps the previous run's Retry Failed and staging, and a later Build works.",
+        "The new job area is built before the previous one is retired; a failure to build it changes nothing, a failure to retire the old one does not stop the new run, and a processing worker that cannot start fails the run and frees the panel."
+      ],
+      "selection": [
+        "files/tests/test_m4b_preparation.py",
+        "files/tests/test_m4b_maker_ui.py",
+        "files/tests/test_maker_panel_branches.py",
+        "files/tests/test_maker_custom_destination.py"
+      ],
+      "journeys": [],
+      "verification": {
+        "all_of": [
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_preparation.py::test_the_press_returns_at_once_and_tk_keeps_its_heartbeat_while_the_job_is_prepared[maker-2341-in-7]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_preparation.py::test_the_press_returns_at_once_and_tk_keeps_its_heartbeat_while_the_job_is_prepared[maker-250-one-track-books]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_preparation.py::test_the_press_returns_at_once_and_tk_keeps_its_heartbeat_while_the_job_is_prepared[maker-5000-in-7]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_preparation.py::test_the_press_returns_at_once_and_tk_keeps_its_heartbeat_while_the_job_is_prepared[maker-custom-2341]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_preparation.py::test_the_maker_plan_normalises_each_source_once[2341-in-7]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_preparation.py::test_the_worker_plans_only_after_tk_has_painted_the_press[maker-standard]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_preparation.py::test_the_worker_waits_for_the_paint_only_briefly_and_never_once_withdrawn"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_preparation.py::test_cancel_during_preparation_starts_nothing_and_keeps_the_workspace[maker-standard]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_preparation.py::test_cancel_during_preparation_starts_nothing_and_keeps_the_workspace[maker-custom]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_preparation.py::test_a_plan_offered_just_before_cancel_is_never_adopted[maker-standard]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_preparation.py::test_a_slow_release_never_makes_cancel_or_close_wait[maker-custom]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_preparation.py::test_closing_during_preparation_starts_nothing_and_releases_the_run[maker-custom]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_preparation.py::test_a_duplicate_preparation_ending_is_never_acted_on[maker-standard]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_preparation.py::test_a_stale_preparations_offered_plan_is_released_and_never_run"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_preparation.py::test_repeated_presses_while_preparing_make_exactly_one_run[maker-custom]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_preparation.py::test_a_failed_preparation_keeps_the_previous_runs_retry_and_a_new_start_then_works[fault-maker-standard]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_preparation.py::test_a_failed_preparation_keeps_the_previous_runs_retry_and_a_new_start_then_works[reserve-refused-maker-custom]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_preparation.py::test_a_job_area_that_cannot_be_built_changes_nothing[maker-standard]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_preparation.py::test_a_previous_job_area_that_cannot_be_retired_does_not_stop_the_new_run[maker-standard]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_preparation.py::test_a_processing_worker_that_cannot_start_fails_the_run_and_frees_the_panel[maker-custom]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_preparation.py::test_the_run_uses_the_output_preferences_in_force_at_the_press[maker-standard]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_preparation.py::test_a_pasted_chapter_edit_survives_a_redraw_and_navigation_and_reaches_the_plan[maker-standard]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_preparation.py::test_no_preparation_release_or_processing_worker_calls_into_tk[maker-custom]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_preparation.py::test_offer_adopt_and_withdraw_are_one_decision_each"
           }
         ]
       },
@@ -15183,7 +15368,7 @@
           "path": "scripts/m4b/metadata/m4b_metadata_editor.py",
           "symbols": [
             "M4BMetadataEditorUI._start_action",
-            "M4BMetadataEditorUI._reserve_run",
+            "_reserve_run",
             "M4BMetadataEditorUI._start_attempt",
             "M4BMetadataEditorUI._publish",
             "M4BMetadataEditorUI._default_thread"
@@ -15244,6 +15429,194 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_metadata_panel_branches.py::test_a_plan_refused_after_reserving_releases_the_empty_run_and_says_why"
+          }
+        ]
+      },
+      "exceptions": []
+    },
+    {
+      "id": "ACT.METADATA.PREPARATION",
+      "tool": "m4b-metadata-editor",
+      "title": "Preparing an action off the Tk thread",
+      "release_required": true,
+      "applicability": {
+        "platforms": [
+          "windows"
+        ]
+      },
+      "source": [
+        {
+          "path": "scripts/m4b/metadata/m4b_metadata_editor.py",
+          "symbols": [
+            "_ActionInputs",
+            "_AttemptNotStarted",
+            "_reserve_run",
+            "_release_run",
+            "_plan_action",
+            "_action_refusal",
+            "M4BMetadataEditorUI._start_action",
+            "M4BMetadataEditorUI._prepare",
+            "M4BMetadataEditorUI._show_preparing",
+            "M4BMetadataEditorUI._show_preparation_progress",
+            "M4BMetadataEditorUI._drain_preparation",
+            "M4BMetadataEditorUI._on_preparation",
+            "M4BMetadataEditorUI._end_preparation",
+            "M4BMetadataEditorUI._adopt",
+            "M4BMetadataEditorUI._release_unadopted",
+            "M4BMetadataEditorUI._start_attempt",
+            "M4BMetadataEditorUI._release_superseded",
+            "M4BMetadataEditorUI._release_in_background",
+            "M4BMetadataEditorUI._fail_unstarted",
+            "M4BMetadataEditorUI.is_preparing",
+            "M4BMetadataEditorUI.flush_pending_editor_state"
+          ]
+        },
+        {
+          "path": "scripts/m4b/m4b_preparation.py",
+          "symbols": [
+            "Refusal",
+            "Preparation",
+            "Preparation.checkpoint",
+            "Preparation.offer",
+            "Preparation.adopt",
+            "Preparation.withdraw",
+            "Preparation.wait_until_painted",
+            "PreparationMessage",
+            "prepare"
+          ]
+        },
+        {
+          "path": "scripts/m4b/metadata/m4b_metadata_plan.py",
+          "symbols": [
+            "capture_for_run",
+            "plan_run"
+          ]
+        },
+        {
+          "path": "scripts/m4b/metadata/m4b_metadata_batch.py",
+          "symbols": [
+            "EditorRun.run_id",
+            "Attempt.fail_unstarted"
+          ]
+        }
+      ],
+      "contracts": [
+        "Save Tags, Clear All Tags and Remove Series Numbering each commit a pending Chapter Titles edit, confirm where they always did, freeze the workspace, the observation store, the options and the one output configuration in force, show 'Preparing job…' and return at once; reserving the run and planning run on one short-lived worker that touches no Tk.",
+        "Remove Series Numbering freezes no pending metadata edit; only the chapter paste is committed to the workspace, as navigation would.",
+        "The planner normalises each source once (2,341 files: 1.78 s and 10,773 normalisations; 250 files took 15.2 s and 113,404 at ffd1621). Readability is the frozen store's answer; no file is read while planning.",
+        "The worker waits (at most 0.25 s) for Tk to paint the press before planning, so the repaint is not slowed by the planning thread.",
+        "Cancel or Close during preparation starts nothing, keeps the workspace and the originals, releases the empty run folder off the Tk thread, and never leaves the navigator locked or the action buttons disabled.",
+        "A plan is adopted only if it belongs to the current press and no Cancel came first; a stale, duplicate or withdrawn result is released and never run.",
+        "A preparation that is refused (including 'nothing could be read') or faults keeps the previous run's Retry Failed and staging, and a later action works.",
+        "The new job area is built before the previous one is retired; a failure to build it changes nothing, a failure to retire the old one does not stop the new run, and a processing worker that cannot start fails the run and frees the panel."
+      ],
+      "selection": [
+        "files/tests/test_m4b_preparation.py",
+        "files/tests/test_m4b_metadata_editor_ui.py",
+        "files/tests/test_metadata_panel_branches.py"
+      ],
+      "journeys": [],
+      "verification": {
+        "all_of": [
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_preparation.py::test_the_press_returns_at_once_and_tk_keeps_its_heartbeat_while_the_job_is_prepared[editor-save-250]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_preparation.py::test_the_press_returns_at_once_and_tk_keeps_its_heartbeat_while_the_job_is_prepared[editor-save-2341]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_preparation.py::test_the_press_returns_at_once_and_tk_keeps_its_heartbeat_while_the_job_is_prepared[editor-save-5000]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_preparation.py::test_the_press_returns_at_once_and_tk_keeps_its_heartbeat_while_the_job_is_prepared[editor-remove-2341]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_preparation.py::test_the_editor_plan_normalises_each_source_once[2341-files]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_preparation.py::test_the_worker_plans_only_after_tk_has_painted_the_press[editor-save]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_preparation.py::test_cancel_during_preparation_starts_nothing_and_keeps_the_workspace[editor-save]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_preparation.py::test_cancel_during_preparation_starts_nothing_and_keeps_the_workspace[editor-clear]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_preparation.py::test_cancel_during_preparation_starts_nothing_and_keeps_the_workspace[editor-remove]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_preparation.py::test_a_plan_offered_just_before_cancel_is_never_adopted[editor-remove]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_preparation.py::test_a_slow_release_never_makes_cancel_or_close_wait[editor-save]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_preparation.py::test_closing_during_preparation_starts_nothing_and_releases_the_run[editor-save]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_preparation.py::test_closing_after_the_plan_was_offered_releases_it_unadopted[editor-clear]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_preparation.py::test_a_duplicate_preparation_ending_is_never_acted_on[editor-save]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_preparation.py::test_repeated_presses_while_preparing_make_exactly_one_run[editor-remove]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_preparation.py::test_a_failed_preparation_keeps_the_previous_runs_retry_and_a_new_start_then_works[refused-editor-save]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_preparation.py::test_a_failed_preparation_keeps_the_previous_runs_retry_and_a_new_start_then_works[fault-editor-clear]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_preparation.py::test_a_failed_preparation_keeps_the_previous_runs_retry_and_a_new_start_then_works[reserve-refused-editor-remove]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_preparation.py::test_a_job_area_that_cannot_be_built_changes_nothing[editor-save]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_preparation.py::test_a_previous_job_area_that_cannot_be_retired_does_not_stop_the_new_run[editor-save]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_preparation.py::test_a_processing_worker_that_cannot_start_fails_the_run_and_frees_the_panel[editor-save]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_preparation.py::test_the_run_uses_the_output_preferences_in_force_at_the_press[editor-save]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_preparation.py::test_a_pasted_chapter_edit_survives_a_redraw_and_navigation_and_reaches_the_plan[editor-save]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_preparation.py::test_remove_series_numbering_commits_a_paste_but_freezes_no_pending_edit"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_preparation.py::test_no_preparation_release_or_processing_worker_calls_into_tk[editor-clear]"
           }
         ]
       },
@@ -26023,9 +26396,11 @@
       "binding:scripts/launcher.py::LauncherApp._build_ui_darwin::bind:<Leave>": "ACT.LAUNCHER.OPEN-TOOLS",
       "binding:scripts/launcher.py::LauncherApp._build_ui_darwin::bind:sequence": "ACT.SHARED.APPEARANCE",
       "binding:scripts/m4b/converter/m4b_converter.py::M4BConverterUI.__init__::bind:<Configure>": "ACT.CONVERTER.LAYOUT",
+      "binding:scripts/m4b/maker/m4b_maker.py::M4BMakerUI._build::bind:<<Modified>>": "ACT.MAKER.CHAPTER-TITLES",
       "binding:scripts/m4b/maker/m4b_maker.py::M4BMakerUI._build::bind:<Configure>": "ACT.MAKER.RUN-FOLDER",
       "binding:scripts/m4b/maker/m4b_maker.py::M4BMakerUI._build::bind:<Configure>#2": "ACT.MAKER.LAYOUT",
       "binding:scripts/m4b/maker/m4b_maker.py::M4BMakerUI._build::bind:<KeyRelease>": "ACT.MAKER.CHAPTER-TITLES",
+      "binding:scripts/m4b/metadata/m4b_metadata_editor.py::M4BMetadataEditorUI._build::bind:<<Modified>>": "ACT.METADATA.CHAPTER-TITLES",
       "binding:scripts/m4b/metadata/m4b_metadata_editor.py::M4BMetadataEditorUI._build::bind:<Configure>": "ACT.METADATA.OUTPUT",
       "binding:scripts/m4b/metadata/m4b_metadata_editor.py::M4BMetadataEditorUI._build::bind:<Configure>#2": "ACT.METADATA.LAYOUT",
       "binding:scripts/m4b/metadata/m4b_metadata_editor.py::M4BMetadataEditorUI._build::bind:<Configure>#3": "ACT.METADATA.SOURCE-READBACK",
@@ -26097,27 +26472,33 @@
       "dialog:scripts/m4b/converter/m4b_converter.py::M4BConverterUI.retry_failed::messagebox.showerror:Retry Failed": "ACT.CONVERTER.RETRY",
       "dialog:scripts/m4b/converter/m4b_converter.py::M4BConverterUI.start_convert::messagebox.showerror:FFmpeg is not ready": "ACT.CONVERTER.FFMPEG-READY",
       "dialog:scripts/m4b/converter/m4b_converter.py::M4BConverterUI.start_convert::messagebox.showwarning:No files": "ACT.CONVERTER.START",
+      "dialog:scripts/m4b/maker/m4b_maker.py::M4BMakerUI._adopt::messagebox.showerror:APP_TITLE": "ACT.MAKER.PREPARATION",
+      "dialog:scripts/m4b/maker/m4b_maker.py::M4BMakerUI._adopt::messagebox.showerror:APP_TITLE#2": "ACT.MAKER.PREPARATION",
       "dialog:scripts/m4b/maker/m4b_maker.py::M4BMakerUI._artwork_error::messagebox.showerror:APP_TITLE": "ACT.MAKER.ARTWORK",
       "dialog:scripts/m4b/maker/m4b_maker.py::M4BMakerUI._ask_destination::filedialog.askdirectory:Choose the destination folder": "ACT.MAKER.CUSTOM-DESTINATION",
       "dialog:scripts/m4b/maker/m4b_maker.py::M4BMakerUI._ask_files::filedialog.askopenfilenames:Select MP3 files": "ACT.MAKER.ADD-FILES",
       "dialog:scripts/m4b/maker/m4b_maker.py::M4BMakerUI._ask_folder::filedialog.askdirectory:Select a folder of MP3 audiobooks": "ACT.MAKER.IMPORT-FOLDER",
-      "dialog:scripts/m4b/maker/m4b_maker.py::M4BMakerUI._destination::messagebox.showerror:APP_TITLE": "ACT.MAKER.CUSTOM-DESTINATION",
-      "dialog:scripts/m4b/maker/m4b_maker.py::M4BMakerUI._destination::messagebox.showerror:APP_TITLE#2": "ACT.MAKER.CUSTOM-DESTINATION",
-      "dialog:scripts/m4b/maker/m4b_maker.py::M4BMakerUI._destination::messagebox.showerror:APP_TITLE#3": "ACT.MAKER.CUSTOM-DESTINATION",
-      "dialog:scripts/m4b/maker/m4b_maker.py::M4BMakerUI._destination::messagebox.showerror:APP_TITLE#4": "ACT.MAKER.RUN-FOLDER",
+      "dialog:scripts/m4b/maker/m4b_maker.py::M4BMakerUI._on_preparation::messagebox.showerror:APP_TITLE": "ACT.MAKER.PREPARATION",
+      "dialog:scripts/m4b/maker/m4b_maker.py::M4BMakerUI._on_preparation::messagebox.showwarning:APP_TITLE": "ACT.MAKER.PREPARATION",
       "dialog:scripts/m4b/maker/m4b_maker.py::M4BMakerUI.build::messagebox.showerror:APP_TITLE": "ACT.MAKER.SILENCE",
       "dialog:scripts/m4b/maker/m4b_maker.py::M4BMakerUI.build::messagebox.showerror:APP_TITLE#2": "ACT.MAKER.SERIES",
       "dialog:scripts/m4b/maker/m4b_maker.py::M4BMakerUI.build::messagebox.showerror:APP_TITLE#3": "ACT.MAKER.BUILD",
       "dialog:scripts/m4b/maker/m4b_maker.py::M4BMakerUI.build::messagebox.showwarning:APP_TITLE": "ACT.MAKER.BUILD",
+      "dialog:scripts/m4b/maker/m4b_maker.py::M4BMakerUI.clear_all_imports::messagebox.showerror:APP_TITLE": "ACT.MAKER.CLEAR-IMPORTS",
+      "dialog:scripts/m4b/maker/m4b_maker.py::M4BMakerUI.retry_failed::messagebox.showerror:APP_TITLE": "ACT.MAKER.RETRY",
+      "dialog:scripts/m4b/metadata/m4b_metadata_editor.py::M4BMetadataEditorUI._adopt::messagebox.showerror:APP_TITLE": "ACT.METADATA.PREPARATION",
+      "dialog:scripts/m4b/metadata/m4b_metadata_editor.py::M4BMetadataEditorUI._adopt::messagebox.showerror:APP_TITLE#2": "ACT.METADATA.PREPARATION",
       "dialog:scripts/m4b/metadata/m4b_metadata_editor.py::M4BMetadataEditorUI._artwork_error::messagebox.showerror:APP_TITLE": "ACT.METADATA.ARTWORK",
       "dialog:scripts/m4b/metadata/m4b_metadata_editor.py::M4BMetadataEditorUI._ask_files::filedialog.askopenfilenames:Select M4B file(s)": "ACT.METADATA.IMPORT",
       "dialog:scripts/m4b/metadata/m4b_metadata_editor.py::M4BMetadataEditorUI._ask_folder::filedialog.askdirectory:Select a folder of M4B files": "ACT.METADATA.IMPORT",
-      "dialog:scripts/m4b/metadata/m4b_metadata_editor.py::M4BMetadataEditorUI._reserve_run::messagebox.showerror:APP_TITLE": "ACT.METADATA.RUN-START",
+      "dialog:scripts/m4b/metadata/m4b_metadata_editor.py::M4BMetadataEditorUI._on_preparation::messagebox.showerror:APP_TITLE": "ACT.METADATA.PREPARATION",
+      "dialog:scripts/m4b/metadata/m4b_metadata_editor.py::M4BMetadataEditorUI._on_preparation::messagebox.showwarning:APP_TITLE": "ACT.METADATA.UNREADABLE",
       "dialog:scripts/m4b/metadata/m4b_metadata_editor.py::M4BMetadataEditorUI._start_action::messagebox.showerror:APP_TITLE": "ACT.METADATA.AUTO-NUMBER",
       "dialog:scripts/m4b/metadata/m4b_metadata_editor.py::M4BMetadataEditorUI._start_action::messagebox.showerror:APP_TITLE#2": "ACT.METADATA.RUN-START",
       "dialog:scripts/m4b/metadata/m4b_metadata_editor.py::M4BMetadataEditorUI._start_action::messagebox.showwarning:APP_TITLE": "ACT.METADATA.RUN-START",
-      "dialog:scripts/m4b/metadata/m4b_metadata_editor.py::M4BMetadataEditorUI._start_action::messagebox.showwarning:APP_TITLE#2": "ACT.METADATA.UNREADABLE",
+      "dialog:scripts/m4b/metadata/m4b_metadata_editor.py::M4BMetadataEditorUI.clear_all_imports::messagebox.showerror:APP_TITLE": "ACT.METADATA.CLEAR-IMPORTS",
       "dialog:scripts/m4b/metadata/m4b_metadata_editor.py::M4BMetadataEditorUI.open_outdir::messagebox.showerror:APP_TITLE": "ACT.METADATA.OPEN-OUTPUT",
+      "dialog:scripts/m4b/metadata/m4b_metadata_editor.py::M4BMetadataEditorUI.retry_failed::messagebox.showerror:APP_TITLE": "ACT.METADATA.RETRY",
       "dialog:scripts/mp3/mp3_tool.py::MP3ToolUI._adopt::messagebox.showerror:APP_TITLE": "ACT.MP3.WRITE-AND-COMBINE",
       "dialog:scripts/mp3/mp3_tool.py::MP3ToolUI._ask_artwork::filedialog.askopenfilename:Select Book Artwork": "ACT.MP3.ARTWORK",
       "dialog:scripts/mp3/mp3_tool.py::MP3ToolUI._ask_files::filedialog.askopenfilenames:Select MP3 files": "ACT.MP3.ADD-FILES",
@@ -27592,21 +27973,22 @@
     "scripts/m4b/m4b_naming.py": "aa699d7863537d9c50ef382af25ec47ed1f7998ce5b0699884b414d170065e00",
     "scripts/m4b/m4b_nero.py": "705105c650dff2b3989d957368a83af79aab39626b4e973938713c75bf16c3bc",
     "scripts/m4b/m4b_numbering.py": "8085e2cd7b3acae2db8addbaffc0da483ce1a459953a6382161f38682ab988a1",
+    "scripts/m4b/m4b_preparation.py": "8ce02be1b6d2fef037c75779bdb923e8a631db0838696989653a65e8b1e51720",
     "scripts/m4b/m4b_probe.py": "b737ac8e894de05f8c19f706c2fa96da6fe16827b4eaf0f0bc911b20e24d2490",
     "scripts/m4b/m4b_staging.py": "2bdd120d172aad9c8ab54cb535f778b0ce9e94e641992c849a6d2d90960296f1",
     "scripts/m4b/m4b_winaudio.py": "19cc9ea93c8e8abee622621be95d828fe0ec2f4cfad4fc341ca7dbb138378a69",
     "scripts/m4b/maker/__init__.py": "44b46ce022c1d44c62e24901c993d25fd5fd466748baab3ee6b62a6d2599a989",
-    "scripts/m4b/maker/m4b_maker.py": "8a3418e0cee2e4d0dd1bb344a2c55926f8f4ea7d8107aa7815961bcdea29d8cd",
-    "scripts/m4b/maker/m4b_maker_batch.py": "cfec80871ea1f8c1a3435b080d3a07479753f26ef742626c693668d09d292f18",
-    "scripts/m4b/maker/m4b_maker_plan.py": "7ee5c51855198f9b3b397d3ad4abb6d09b9e7a9d0abe9ae9afac841b0600a9c7",
+    "scripts/m4b/maker/m4b_maker.py": "180cdb73743bb2c7ac3b00e3f34c658c5ca25e0ead09acf657568e9d8423c2d3",
+    "scripts/m4b/maker/m4b_maker_batch.py": "3b9dc94dd901c0ef2a6cc31c631660d30ade67c392b32fb765bfb61304986860",
+    "scripts/m4b/maker/m4b_maker_plan.py": "d739a9069d17ecc1915b7b770d4ffb70044f2c79ebe510d74b2bcb110f31cda7",
     "scripts/m4b/maker/m4b_maker_processing.py": "1e8ab335a300549d4708aa816a061ca36146d2cdcb4737e4d0dcf4bb7754c732",
-    "scripts/m4b/maker/m4b_maker_workflow.py": "d98b0e890277b970d80572b9b4978d7d9d9d2987e93f7e15ad2130c69924562b",
+    "scripts/m4b/maker/m4b_maker_workflow.py": "ed2e3f0528065683b02c8b7f5c0fcdc3725c6711b1eeaf3df884208af56e921e",
     "scripts/m4b/metadata/__init__.py": "b369c0a23a5a1ced497355f6119db888853e931a90c7265bae3c94cf923aaeaa",
-    "scripts/m4b/metadata/m4b_metadata_batch.py": "36b5cb2e5acdbe250428d5a9f2b446deb26256898e2f4ef50504f11aa9c177bf",
-    "scripts/m4b/metadata/m4b_metadata_editor.py": "fb49838af23fa751bc03a5d5878ecbdc72c40c9e1a47c434957158717cbec62f",
-    "scripts/m4b/metadata/m4b_metadata_plan.py": "837f90b1ee95fe2ea2bcc7295e84eed7411df7209a17456d238508b82e82a489",
+    "scripts/m4b/metadata/m4b_metadata_batch.py": "cf0e2f55d68388f956b8c18732af5c020103dafed7ca1bc80b9fc8886dec117a",
+    "scripts/m4b/metadata/m4b_metadata_editor.py": "1eefadf338ad8423c143b01b20dea1117f2ff87f1e84c2e8cd1509fb6bbd7717",
+    "scripts/m4b/metadata/m4b_metadata_plan.py": "69ccf5e8e9b17a0801c5f556664c59060fd916c320a9124ac417a60b5e0b3958",
     "scripts/m4b/metadata/m4b_metadata_processing.py": "58ddfd565b486a5af62ac001b44292ffc79daf9f3d6496ef65283c6482ec2609",
-    "scripts/m4b/metadata/m4b_metadata_workflow.py": "dcbace33e9fa53cc2995c40e13c1e0c086a496a2a1f87637ac9d7799db87630d",
+    "scripts/m4b/metadata/m4b_metadata_workflow.py": "29ac484c8768ae0eb57f46d9d674e122f441a01d603f3ba999fcaf9000e24bd2",
     "scripts/mp3/__init__.py": "9b509f0a549209fcf0dd27fed262cd09d2215315754f4bfcad4b63fd1d8ae8c2",
     "scripts/mp3/mp3_plan.py": "780c8bef0505895e3c4db4394a33a9bdd041135250d34e23a6d0f0203040bc55",
     "scripts/mp3/mp3_processing.py": "e932558f28de02191a953264afe86466718147b3be3d2128dd0dffda004f55d1",

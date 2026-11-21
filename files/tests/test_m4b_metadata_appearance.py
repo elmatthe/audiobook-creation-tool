@@ -48,6 +48,12 @@ from artwork import m4b_artwork_ui
 from m4b.metadata import m4b_metadata_editor as editor
 from m4b.metadata import m4b_metadata_workflow as wf
 
+from test_m4b_maker_ui import (  # noqa: E402,F401 - v0.8.2: the M4B panels' preparation helpers
+    ParkedProcessing,
+    processing_bodies,
+    processing_workers,
+    wait_until_prepared,
+)
 from test_m4b_metadata_editor_ui import (  # noqa: F401 - fixtures are collected by name
     container,
     import_folder,
@@ -359,6 +365,7 @@ def test_toggling_mid_run_leaves_the_running_save_alone(make_panel, tk_root, con
     panel.surface.set_shared_text("genre", "Toggled")
     panel._thread_factory = parked_threads()
     assert panel.save() is True
+    wait_until_prepared(panel)  # v0.8.2: accepted; prepared off Tk
     controller, jobs, plan, run = panel.job_controller, panel.jobs, panel.last_plan, panel.run
     assert panel.is_running and controller.state is JobState.RUNNING
     assert "disabled" in panel.btn_save.state()
@@ -371,7 +378,7 @@ def test_toggling_mid_run_leaves_the_running_save_alone(make_panel, tk_root, con
     assert panel.navigator.locked is True
     assert panel.book_field_enabled("title") is False
 
-    panel._thread_factory.bodies[0]()
+    processing_bodies(panel)[0]()
     panel._pump.tick()
     assert controller.state is JobState.SUCCEEDED
     assert panel.last_result.state is JobState.SUCCEEDED

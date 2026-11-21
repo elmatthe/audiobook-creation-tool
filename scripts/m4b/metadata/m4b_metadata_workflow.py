@@ -404,18 +404,30 @@ def add_files(workspace: WorkspaceSnapshot, additions: Sequence[ImportedFile], *
 # --------------------------------------------------------------------------- #
 
 
-def set_book_field(workspace: WorkspaceSnapshot, name: str, value: object) -> BookMutation:
+def set_book_field(workspace: WorkspaceSnapshot, name: str, value: object, *,
+                   book_id: str | None = None) -> BookMutation:
     """Store one raw explicit edit. Blank is a stored fact meaning *preserve*.
 
     Series Part is refused: it is read-back plus the batch-level Auto-number
     contract, never a per-Book text edit (plan section 6.7).
+
+    The current Book by default. *book_id* (v0.8.2) names the Book explicitly:
+    the panel commits a Chapter Titles edit to the Book it was typed for, which
+    is not the current one once a model change has already moved the
+    selection. The selection never moves here, and an identity this workspace
+    does not hold is refused.
     """
     space = _require_workspace(workspace)
     if name not in _ALL_BOOK_FIELDS:
         raise EditorContractError(f"{name!r} is not an M4B Metadata Editor Book field")
     if not isinstance(value, str):
         raise EditorContractError(f"{name} must be raw text, got {type(value).__name__}")
-    book = space.current
+    if book_id is None:
+        book = space.current
+    else:
+        book = next((entry for entry in space.books if entry.book_id == book_id), None)
+        if book is None:
+            raise EditorContractError(f"book_id {book_id!r} is not one of this workspace's Books")
     if name in book.configuration and book.configuration[name] == value:
         return replace_book(space, book)
     configuration = dict(book.configuration)

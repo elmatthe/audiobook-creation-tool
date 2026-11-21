@@ -15,6 +15,7 @@ Three launcher tiles, one sub-package each, plus the M4B code they share (the mo
 | `m4b_naming.py` | One chapter title → one safe output filename |
 | `m4b_winaudio.py` | Windows Media Foundation decoding, for what ffmpeg cannot read |
 | `m4b_staging.py` | Private staging and atomic publication (Maker and Metadata Editor) |
+| `m4b_preparation.py` | Preparing one Maker or Metadata Editor run off the Tk thread: the preparation worker and its hand-off (v0.8.2) |
 | `m4b_numbering.py` | Compatibility re-export; the allocator lives in `../shared/numbering.py` |
 
 ## M4B Converter — `converter/m4b_converter.py`
