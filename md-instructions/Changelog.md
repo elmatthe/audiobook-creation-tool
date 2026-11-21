@@ -18,6 +18,10 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 One shared Windows + macOS version again after the macOS-only `0.8.0+macos.1` revision. Nothing is built, tagged or
 published yet.
 
+**Fixed (Review R2, Codex M3 re-review; tests and gate metadata only)**
+- The test guard's bundled-Python bytecode exception now requires the bundled interpreter's own cache tag, an existing source module, a `__pycache__` that is not nested, and a location under `python/Lib/`; foreign-tag, source-less and nested-cache entries and links are reported.
+- The real-link isolation test has its own skip reason and policy rule (ceiling 1); the generic `no-symlink-privilege` ceiling stays 17.
+
 **Fixed (Review R1, Codex findings M1-M3; focused tests only)**
 - Add Files and Add Folder (all six tools, one shared adapter) refuse while an import is already running, before the file dialog opens. A cancelled or rejected second dialog can no longer discard the running import's remembered folder or become the next one.
 - Reset Preferences refreshes the Light/Dark bundle through the interpreter root, so the Aqua outlined role buttons repaint with the stored appearance instead of keeping the previous theme's images. Native Mac confirmation is still the owner's.

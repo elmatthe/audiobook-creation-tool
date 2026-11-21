@@ -14,6 +14,7 @@ from __future__ import annotations
 import hashlib
 import os
 import re
+import stat
 import sys
 from pathlib import Path
 
@@ -209,30 +210,56 @@ _REAL_SCANDIR = os.scandir
 _REAL_STAT = os.stat
 
 
-_BYTECODE_FILE = re.compile(r"[^/]+\.(?:cpython|pypy)-\d+(?:\.opt-[12])?\.pyc")
+_BYTECODE_NAME = re.compile(r"(?P<module>[^./]+)\.(?P<tag>[a-z]+-\d+)(?:\.opt-[12])?\.pyc")
+_PYTHON_DLL = re.compile(r"python3(\d+)\.dll")
 
 
-def _bundled_python_bytecode(relative: str, entry=None) -> bool:
-    """True for an entry the bundled Python's own compile cache legitimately adds, inside ``files/runtime-data``.
+def _bundled_cache_tag(root: Path):
+    """The interpreter cache tag of the bundled Python under *root* (``cpython-312`` for ``python312.dll``), or ``None``.
 
-    ``relative`` is a path below the runtime-data folder, ``/``-separated; ``entry`` is its ``os.DirEntry``.
-    Two things qualify, both below ``python/`` only: a ``__pycache__`` folder (it is not recorded, but the walk still
-    descends into it), and a regular file in one named like the interpreter's cache, ``<module>.<tag>-<NN>[.opt-N].pyc``.
-    That is the standard library's compile cache, which the interpreter writes the first time a module is imported
-    (v0.8.1 Checkpoint F1: ``multiprocessing.heap`` and ``popen_spawn_win32`` on the first real ``spawn`` the Edge
-    publication tests make). It is neither application state nor something a test can forge to fake an installation.
+    Read from the bundled interpreter's own DLL name, not from the interpreter running the tests, so a test Python of
+    another version cannot make the wrong cache look right. No DLL means no tag, and then nothing is excused.
+    """
+    try:
+        with _REAL_SCANDIR(Path(root) / "python") as entries:
+            found = sorted(match.group(1) for entry in entries if entry.is_file()
+                           for match in [_PYTHON_DLL.fullmatch(entry.name)] if match)
+    except OSError:
+        return None
+    return f"cpython-3{found[0]}" if len(found) == 1 else None
 
-    Nothing else is excused (v0.8.1 review M3: F1 first skipped the whole cache folder, which hid a ``.json`` written
-    beside a ``.pyc``): a link, a nested directory, a file that is not cache-named, the interpreter, its libraries,
-    ``Scripts`` and every ``__pycache__`` anywhere else in runtime-data still count.
+
+def _bundled_python_bytecode(relative: str, entry=None, *, root=None, tag=None) -> bool:
+    """True only for what the bundled Python's own first import of its standard library adds, inside runtime-data.
+
+    ``relative`` is a path below the runtime-data folder, ``/``-separated; ``entry`` is its ``os.DirEntry``; ``tag`` is
+    the bundled interpreter's cache tag (:func:`_bundled_cache_tag`) and ``root`` the runtime-data folder. Two things
+    qualify, both below ``python/Lib/`` and never through a link:
+
+    * a ``__pycache__`` folder that is not itself inside another ``__pycache__`` (it is not recorded, but the walk still
+      descends, so whatever else is in it registers; a nested ``__pycache__`` is recorded);
+    * a regular file in it named ``<module>.<tag>[.opt-1|.opt-2].pyc`` with exactly the bundled interpreter's *tag*,
+      whose source ``<module>.py`` sits beside the cache folder (a cache without its source is unexplained).
+
+    v0.8.1 Checkpoint F1 excused the first real ``spawn``'s ``multiprocessing.heap`` and ``popen_spawn_win32``;
+    reviews M3 and R2 narrowed it from the whole folder to these entries. Everything else (any other file, a foreign-tag
+    or source-less ``.pyc``, a link, the interpreter, ``Scripts``, a ``__pycache__`` elsewhere) still counts.
     """
     parts = relative.rstrip("/").split("/")
-    if parts[0] != "python" or len(parts) < 2 or (entry is not None and _is_link(entry)):
+    if parts[:2] != ["python", "Lib"] or len(parts) < 3 or entry is None or _is_link(entry):
         return False
-    if entry is None or entry.is_dir(follow_symlinks=False):
-        return parts[-1] == "__pycache__"
-    return (entry.is_file(follow_symlinks=False) and parts[-2] == "__pycache__"
-            and _BYTECODE_FILE.fullmatch(parts[-1]) is not None)
+    if entry.is_dir(follow_symlinks=False):
+        return parts[-1] == "__pycache__" and "__pycache__" not in parts[:-1]
+    match = _BYTECODE_NAME.fullmatch(parts[-1])
+    if (not entry.is_file(follow_symlinks=False) or match is None or tag is None or root is None
+            or match.group("tag") != tag or len(parts) < 4 or parts[-2] != "__pycache__"
+            or "__pycache__" in parts[:-2]):
+        return False
+    source = Path(root).joinpath(*parts[:-2], match.group("module") + ".py")
+    try:
+        return stat.S_ISREG(_REAL_STAT(source, follow_symlinks=False).st_mode)
+    except OSError:
+        return False
 
 
 def _fingerprint(path: Path, *, follow_links: bool = True, ignore=None):
@@ -333,12 +360,17 @@ def _listing(path: Path):
         return None
 
 
+def _runtime_data_ignore(root: Path):
+    tag = _bundled_cache_tag(root)
+    return lambda relative, entry: _bundled_python_bytecode(relative, entry, root=root, tag=tag)
+
+
 def _fingerprint_named(name: str, path: Path):
     """The fingerprint the guard uses for the guarded path called *name*."""
     if name in _SHALLOW_GUARDED:
         return _listing(path)
     return _fingerprint(path, follow_links=name not in _LINK_SAFE_TREES,
-                        ignore=_bundled_python_bytecode if name == "the real runtime data" else None)
+                        ignore=_runtime_data_ignore(path) if name == "the real runtime data" else None)
 
 
 def _snapshot(paths: dict, names) -> dict:

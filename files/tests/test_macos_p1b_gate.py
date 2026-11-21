@@ -149,6 +149,41 @@ def test_an_unreviewed_macos_skip_and_one_over_a_new_ceiling_still_fail_on_windo
         assert problems == [] and tally == {rule_id: ceiling}, rule_id
 
 
+#: v0.8.1 review R2: the isolation guard's real-link test has its own skip reason and rule (ceiling 1), apart from the
+#: generic no-symlink-privilege rule (ceiling 17) that it used to be counted against.
+ISOLATION_LINK_REASON = (
+    "Windows refused to create a real symbolic link in the bundled-Python cache (WinError 1314: this account does not "
+    "hold the symbolic-link privilege), so the isolation guard link control cannot be exercised here")
+
+
+def test_the_isolation_guards_link_skip_has_its_own_exact_rule_and_the_generic_one_is_unchanged():
+    windows = POLICY["skip_policy"]["win32"]
+    rules = {rule["id"]: rule for rule in windows}
+    own, generic = rules["windows-isolation-guard-symlink-privilege-not-held"], rules["no-symlink-privilege"]
+    assert own["max"] == 1 and len(own["why"]) > 120 and generic["max"] == 17, "the old allowance is preserved"
+    assert re.search(own["pattern"], ISOLATION_LINK_REASON) and not re.search(generic["pattern"], ISOLATION_LINK_REASON)
+    for other in rules.values():
+        if other is not own:
+            assert not re.search(other["pattern"], ISOLATION_LINK_REASON), other["id"]
+    for wide in ("", "Windows refused to create a real symbolic link", "this account cannot create symbolic links"):
+        assert not re.search(own["pattern"], wide), wide
+    # Exactly one such skip passes, a second is over the ceiling, and the generic rule still stops at its own 17.
+    one = [{"id": "t::link", "reason": ISOLATION_LINK_REASON}]
+    problems, tally = pytest_reports.skip_policy_problems(one, [], windows)
+    assert problems == [] and tally == {own["id"]: 1}
+    problems, _ = pytest_reports.skip_policy_problems(one + [{"id": "t::link2", "reason": ISOLATION_LINK_REASON}], [], windows)
+    assert any("more than" in problem and own["id"] in problem for problem in problems)
+    generic_reason = "this account cannot create symbolic links"
+    seventeen = [{"id": f"t::{n}", "reason": generic_reason} for n in range(17)]
+    problems, tally = pytest_reports.skip_policy_problems(seventeen + one, [], windows)
+    assert problems == [] and tally == {generic["id"]: 17, own["id"]: 1}, "the two allowances do not share a count"
+    problems, _ = pytest_reports.skip_policy_problems(seventeen + [{"id": "t::18", "reason": generic_reason}], [], windows)
+    assert any("more than" in problem and generic["id"] in problem for problem in problems)
+    problems, _ = pytest_reports.skip_policy_problems(
+        [{"id": "t::x", "reason": "Windows refused to create a real symbolic link somewhere else entirely"}], [], windows)
+    assert problems and problems[0].startswith("unexpected skip")
+
+
 def test_fresh_macos_is_a_darwin_scenario_and_windows_keeps_its_frozen_set():
     verify = load_gate("act_verify_p1b_gate")
 

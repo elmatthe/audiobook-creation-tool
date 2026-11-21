@@ -71,6 +71,10 @@ def _runtime_data_like(tmp_path):
     (root / "python" / "Lib" / "encodings").mkdir()
     (root / "python" / "Lib" / "encodings" / "__init__.py").write_text("x", encoding="utf-8")
     (root / "python" / "python.exe").write_bytes(b"exe")
+    (root / "python" / "python312.dll").write_bytes(b"dll")  # names the bundled interpreter cache tag: cpython-312
+    for module in ("multiprocessing/heap", "multiprocessing/context"):
+        (root / "python" / "Lib" / f"{module}.py").write_text("x", encoding="utf-8")
+    (root / "python" / "Lib" / "encodings" / "idna.py").write_text("x", encoding="utf-8")
     (root / "logs").mkdir()
     (root / "settings.json").write_text("{}", encoding="utf-8")
     return root
@@ -113,52 +117,118 @@ def test_nothing_else_in_runtime_data_is_excused_by_the_bytecode_rule(tmp_path):
         assert conftest._fingerprint_named("the real runtime data", root) != before, label
 
 
-def test_only_real_bytecode_files_are_excused_inside_the_bundled_cache(tmp_path):
-    """v0.8.1 review M3. The exception is for the interpreter's own ``*.cpython-NNN[.opt-N].pyc`` files, not for the
-    folder: Codex's reproduction (an unexpected-state.json beside heap.cpython-312.pyc in python/Lib/multiprocessing/
-    __pycache__) left the old fingerprint unchanged. Each control writes beside a legitimate .pyc, so a guard that
-    skipped the whole cache folder would pass none of them; the first entry is the positive control."""
-    pyc = lambda root: root / "python" / "Lib" / "multiprocessing" / "__pycache__"  # noqa: E731
+def test_only_genuine_stdlib_bytecode_is_excused_inside_the_bundled_cache(tmp_path):
+    """Reviews M3 and R2. Each case writes beside a legitimate .pyc in the bundled standard library cache, so a guard
+    that skipped the folder, or any .pyc-shaped name, would pass none of the negative ones. Positive controls (an
+    expected first-import .pyc, a rewrite of an existing one, an optimised one) leave the fingerprint unchanged."""
+    lib = lambda root: root / "python" / "Lib"  # noqa: E731
+    cache = lambda root: lib(root) / "multiprocessing" / "__pycache__"  # noqa: E731
+
+    def write(path, data=b"x"):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+
     changes = {
-        "(positive control) the expected heap .pyc": None,
-        "(positive control) an optimised .pyc": None,
-        "the reported unexpected-state.json": lambda root: (pyc(root) / "unexpected-state.json").write_text(
-            "{}", encoding="utf-8"),
-        "a source file": lambda root: (pyc(root) / "evil.py").write_text("x", encoding="utf-8"),
-        "an extensionless file": lambda root: (pyc(root) / "heap").write_bytes(b"x"),
-        "a pyc with no interpreter tag": lambda root: (pyc(root) / "heap.pyc").write_bytes(b"x"),
-        "an atomic-write leftover": lambda root: (pyc(root) / "heap.cpython-312.pyc.123").write_bytes(b"x"),
-        "a nested directory": lambda root: (pyc(root) / "nested").mkdir(),
-        "a pyc-named directory": lambda root: (pyc(root) / "dir.cpython-312.pyc").mkdir(),
+        "(positive) the expected heap .pyc": (False, lambda r: write(cache(r) / "heap.cpython-312.pyc")),
+        "(positive) a rewrite of an existing .pyc": (False, lambda r: write(
+            cache(r) / "context.cpython-312.pyc", b"rewritten, longer")),
+        "(positive) an optimised .pyc": (False, lambda r: write(cache(r) / "heap.cpython-312.opt-2.pyc")),
+        "(positive) a cache folder created by a first import": (False, lambda r: write(
+            lib(r) / "encodings" / "__pycache__" / "idna.cpython-312.pyc")),
+        "a foreign interpreter tag": (True, lambda r: write(cache(r) / "heap.cpython-311.pyc")),
+        "another implementation tag": (True, lambda r: write(cache(r) / "heap.pypy-39.pyc")),
+        "a cache-named .pyc with no source module": (True, lambda r: write(cache(r) / "ghost.cpython-312.pyc")),
+        "an optimised .pyc with no source module": (True, lambda r: write(cache(r) / "ghost.cpython-312.opt-1.pyc")),
+        "a nested __pycache__ directory": (True, lambda r: (cache(r) / "__pycache__").mkdir()),
+        "a file inside a nested __pycache__": (True, lambda r: write(cache(r) / "__pycache__" / "heap.cpython-312.pyc")),
+        "an unexpected JSON file": (True, lambda r: write(cache(r) / "unexpected-state.json", b"{}")),
+        "an unexpected source file": (True, lambda r: write(cache(r) / "evil.py")),
+        "an unexpected text file": (True, lambda r: write(cache(r) / "notes.txt")),
+        "an extensionless file": (True, lambda r: write(cache(r) / "heap")),
+        "a pyc with no interpreter tag": (True, lambda r: write(cache(r) / "heap.pyc")),
+        "an atomic-write leftover": (True, lambda r: write(cache(r) / "heap.cpython-312.pyc.123")),
+        "a pyc-named directory": (True, lambda r: (cache(r) / "heap.cpython-312.pyc").mkdir()),
+        "a pyc whose source is a directory": (True, lambda r: (
+            (lib(r) / "multiprocessing" / "dirmod.py").mkdir(), write(cache(r) / "dirmod.cpython-312.pyc"))),
+        "a good pyc in Scripts": (True, lambda r: (
+            write(r / "python" / "Scripts" / "pip.py"), write(r / "python" / "Scripts" / "__pycache__" / "pip.cpython-312.pyc"))),
+        "a good pyc directly under python/ (not Lib)": (True, lambda r: (
+            write(r / "python" / "site.py"), write(r / "python" / "__pycache__" / "site.cpython-312.pyc"))),
+        "a good pyc under python-packages": (True, lambda r: (
+            write(r / "python-packages" / "pkg" / "m.py"),
+            write(r / "python-packages" / "pkg" / "__pycache__" / "m.cpython-312.pyc"))),
     }
-    for number, (label, change) in enumerate(changes.items()):
+    for number, (label, (detected, change)) in enumerate(changes.items()):
         root = _runtime_data_like(tmp_path / str(number))
         before = conftest._fingerprint_named("the real runtime data", root)
-        if change is None:
-            name = "heap.cpython-312.pyc" if "heap" in label else "heap.cpython-312.opt-2.pyc"
-            (pyc(root) / name).write_bytes(b"written by the interpreter")
-            assert conftest._fingerprint_named("the real runtime data", root) == before, label
-        else:
-            change(root)
-            assert conftest._fingerprint_named("the real runtime data", root) != before, label
+        change(root)
+        after = conftest._fingerprint_named("the real runtime data", root)
+        assert (after != before) is detected, label
+
+
+def test_a_bundled_python_with_no_identifiable_cache_tag_excuses_nothing(tmp_path):
+    root = _runtime_data_like(tmp_path)
+    (root / "python" / "python312.dll").unlink()
+    before = conftest._fingerprint_named("the real runtime data", root)
+    (root / "python" / "Lib" / "multiprocessing" / "__pycache__" / "heap.cpython-312.pyc").write_bytes(b"x")
+    assert conftest._fingerprint_named("the real runtime data", root) != before
+
+
+def test_the_cache_tag_follows_the_bundled_interpreter_not_the_test_interpreter(tmp_path):
+    root = _runtime_data_like(tmp_path)
+    assert conftest._bundled_cache_tag(root) == "cpython-312"
+    (root / "python" / "python312.dll").rename(root / "python" / "python313.dll")
+    assert conftest._bundled_cache_tag(root) == "cpython-313"
+    before = conftest._fingerprint_named("the real runtime data", root)
+    cache = root / "python" / "Lib" / "multiprocessing" / "__pycache__"
+    (cache / "heap.cpython-313.pyc").write_bytes(b"x")
+    assert conftest._fingerprint_named("the real runtime data", root) == before
+    (cache / "heap.cpython-312.pyc").write_bytes(b"x")
+    assert conftest._fingerprint_named("the real runtime data", root) != before
 
 
 def test_a_link_in_the_bundled_cache_is_not_excused(tmp_path):
-    """A link named like a .pyc is not a regular cache file, so it still registers (skipped where the account may not
-    create links, like the real-link test beside it)."""
+    """A real link named like a good .pyc still registers. It skips only where this account cannot create links; the
+    skip reason is the one verification.json bounds at one."""
     root = _runtime_data_like(tmp_path)
     cache = root / "python" / "Lib" / "multiprocessing" / "__pycache__"
     before = conftest._fingerprint_named("the real runtime data", root)
     try:
-        (cache / "linked.cpython-312.pyc").symlink_to(root / "settings.json")
+        (cache / "heap.cpython-312.pyc").symlink_to(root / "settings.json")
     except OSError as error:
-        if getattr(error, "winerror", None) != 1314:
+        if getattr(error, "winerror", None) != 1314:  # ERROR_PRIVILEGE_NOT_HELD; anything else is a real problem
             raise
-        pytest.skip("this account cannot create symbolic links (WinError 1314)")
+        pytest.skip("Windows refused to create a real symbolic link in the bundled-Python cache (WinError 1314: this "
+                    "account does not hold the symbolic-link privilege), so the isolation guard link control cannot "
+                    "be exercised here")
     assert conftest._fingerprint_named("the real runtime data", root) != before
 
 
-def test_the_bytecode_predicate_refuses_links_and_irregular_entries_without_needing_a_real_link():
+def test_the_link_test_skips_only_on_winerror_1314_and_with_its_own_policy_reason(tmp_path, monkeypatch):
+    """Other filesystem errors fail normally; the 1314 skip carries exactly the reason verification.json bounds at one.
+    No link is simulated as created: the test body is driven with a symlink_to that refuses."""
+    from test_macos_p1b_gate import ISOLATION_LINK_REASON
+
+    def refuse(winerror):
+        def symlink_to(self, *args, **kwargs):
+            error = OSError(winerror, "refused")
+            error.winerror = winerror
+            raise error
+        return symlink_to
+
+    monkeypatch.setattr(Path, "symlink_to", refuse(1314))
+    with pytest.raises(pytest.skip.Exception) as skipped:
+        test_a_link_in_the_bundled_cache_is_not_excused(tmp_path / "a")
+    assert str(skipped.value) == ISOLATION_LINK_REASON or skipped.value.msg == ISOLATION_LINK_REASON
+    for other in (5, 183, 1):
+        monkeypatch.setattr(Path, "symlink_to", refuse(other))
+        with pytest.raises(OSError):
+            test_a_link_in_the_bundled_cache_is_not_excused(tmp_path / f"b{other}")
+
+
+def test_the_bytecode_predicate_refuses_links_and_irregular_entries_without_needing_a_real_link(tmp_path):
+    root = _runtime_data_like(tmp_path)
+
     class Entry:
         def __init__(self, *, link=False, directory=False, file=True):
             self._link, self._dir, self._file = link, directory, file
@@ -172,16 +242,16 @@ def test_the_bytecode_predicate_refuses_links_and_irregular_entries_without_need
         def is_file(self, follow_symlinks=True):
             return self._file
 
-    ok = "python/Lib/x/__pycache__/heap.cpython-312.pyc"
-    accept = conftest._bundled_python_bytecode
+    ok = "python/Lib/multiprocessing/__pycache__/heap.cpython-312.pyc"
+    cache = "python/Lib/multiprocessing/__pycache__"
+    accept = lambda rel, entry: conftest._bundled_python_bytecode(rel, entry, root=root, tag="cpython-312")  # noqa: E731
     assert accept(ok, Entry())
-    assert accept("python/Lib/x/__pycache__", Entry(directory=True, file=False))
+    assert accept(cache, Entry(directory=True, file=False))
     assert not accept(ok, Entry(link=True)), "a link named like a .pyc"
-    assert not accept("python/Lib/x/__pycache__", Entry(link=True, directory=True, file=False)), "a linked cache folder"
+    assert not accept(cache, Entry(link=True, directory=True, file=False)), "a junction"
     assert not accept(ok, Entry(file=False)), "not a regular file"
-    assert not accept("python/Lib/x/__pycache__/sub", Entry(directory=True, file=False)), "a nested directory"
-    assert not accept("python/Lib/x/__pycache__/state.json", Entry())
-    assert not accept("logs/__pycache__/heap.cpython-312.pyc", Entry()), "outside python/"
+    assert not accept(cache + "/__pycache__", Entry(directory=True, file=False))
+    assert not accept(ok, None)
 
 
 def test_the_bytecode_rule_applies_to_the_runtime_data_tree_alone(tmp_path):
