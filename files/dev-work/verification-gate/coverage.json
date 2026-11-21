@@ -1589,12 +1589,14 @@
         "Every route names its file <source stem>-<voice label frozen at Start>.mp3; the engine adds no suffix and a later voice rename cannot move a run or its retry.",
         "Stem and label are cleaned separately (forbidden characters and separators become '_', NFC normalised) and a Windows device name before the first dot is guarded.",
         "When a path would be too long only the stem is shortened, from its end; a label or folder that cannot fit is refused at Start before any synthesis.",
-        "Clashes (same stem, PDF and TXT, case or Unicode spelling, deliberate duplicates, existing files) get the shared planner's -1, -2 numbering; no planned destination is ever an input."
+        "Clashes (same stem, PDF and TXT, case or Unicode spelling, deliberate duplicates, existing files) get the shared planner's -1, -2 numbering; no planned destination is ever an input.",
+        "v0.8.2 CP3: planning N outputs is linear in N in both passes of plan_named (the folder-finding pass names every source probe.mp3, so it collided even for unique titles); the planned names are unchanged."
       ],
       "selection": [
         "files/tests/test_tts_output_names.py",
         "files/tests/test_tts_jobs.py",
-        "files/tests/test_tool_output_integration.py"
+        "files/tests/test_tool_output_integration.py",
+        "files/tests/test_destination_planner_scaling.py"
       ],
       "journeys": [
         "tts.edge-replay-direct-file"
@@ -1624,6 +1626,18 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_tts_jobs.py::test_deliberate_duplicates_stay_distinct_with_two_safe_destinations"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_destination_planner_scaling.py::test_the_tts_folder_finding_pass_and_the_real_pass_are_both_linear[2341]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_destination_planner_scaling.py::test_tts_start_planning_matches_the_reference_for_direct_and_folder_imports"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_destination_planner_scaling.py::test_the_full_suffix_range_is_reachable_and_its_longest_names_fit_the_budget"
           }
         ]
       },
@@ -21019,12 +21033,14 @@
         "A destination equal to an input, inside a source tree, or reached through a link or junction is refused.",
         "Each panel's read-only output-folder line follows a saved or reset output base without rebuilding the panel.",
         "On macOS and Linux a temporary sibling, and so the output it becomes, is created with mode 0o666 under the user's umask, as any new file is; Windows keeps mkstemp (v0.8.x P1B; test_macos_p1b_filesystem.py)",
-        "v0.8.2: InputIndex answers exactly as assert_not_input (same key, OSError fallback, case-folding and refusal) after normalising each input once per operation; it is never global or reused."
+        "v0.8.2: InputIndex answers exactly as assert_not_input (same key, OSError fallback, case-folding and refusal) after normalising each input once per operation; it is never global or reused.",
+        "v0.8.2 CP3: a numbered collision search resumes where the same sequence's previous search ended (per planner, never shared or kept), so k outputs sharing one name cost about 2k candidates instead of k(k+1)/2; on an unchanging folder every planned name is identical to the restarting search's (goldens captured at 4465b94, a verbatim reference beside it, seeded random sequences), and every index not yet tried is still checked on disk."
       ],
       "selection": [
         "files/tests/test_output_paths.py",
         "files/tests/test_output_location_refresh.py",
-        "files/tests/test_tool_output_integration.py"
+        "files/tests/test_tool_output_integration.py",
+        "files/tests/test_destination_planner_scaling.py"
       ],
       "journeys": [],
       "verification": {
@@ -21080,6 +21096,30 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_output_paths.py::test_the_input_index_runs_its_checkpoint_before_every_input_and_stops_when_it_raises"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_destination_planner_scaling.py::test_every_scenario_plans_exactly_the_names_the_previous_planner_did[case_only]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_destination_planner_scaling.py::test_every_scenario_matches_the_restarting_reference_run_beside_it[start_indices]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_destination_planner_scaling.py::test_random_call_sequences_match_the_reference_call_for_call[0]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_destination_planner_scaling.py::test_identical_names_cost_a_bounded_number_of_candidates_per_output[2341]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_destination_planner_scaling.py::test_a_search_interrupted_by_an_error_resumes_exactly_as_the_reference"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_destination_planner_scaling.py::test_planners_are_independent_and_remember_nothing_between_operations"
           }
         ]
       },
@@ -28043,7 +28083,7 @@
     "scripts/shared/optional_setup_tk_harness_v3.py": "23727d8ea3d09d7ac49d523a05055748f378593c9cacd6b7c9942241562afb26",
     "scripts/shared/optional_setup_v3.py": "1a3fa01225bbc10dd68a5f41092ab5c9134546835b6035279301626f04c18d43",
     "scripts/shared/optional_setup_wire_v3.py": "f7f6a600afa84cfc1e0362609c1e812b200da18742f40509d7de5ec42883eee3",
-    "scripts/shared/output_paths.py": "311401786215e02fe60e41e919ab68abed39b9c1a18b56aa3e4e9760270926e8",
+    "scripts/shared/output_paths.py": "eba1ef6ddb1aa05f7d337785fe2b9aecd040b77794a956a1d9a54de37c0fdcca",
     "scripts/shared/paths.py": "9486c2afc0362d7b401da94b24d660ab5887ae581c97b754524a5524168f098f",
     "scripts/shared/preferences_ui.py": "a587859b3e8d0385baf8bf757c6bf669040d2edfa81bdb923375076377c62ef4",
     "scripts/shared/release.py": "bfdf0c5fc1830bdf47a3a6e96a4d3e5a5e16345c32bb32abe1492a01b2aa67d3",

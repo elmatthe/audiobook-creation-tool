@@ -617,12 +617,25 @@ class DestinationPlanner:
 
     Not thread-safe by itself: a plan is built on one thread and then handed to
     a worker, which is the pattern every tool already uses for its job snapshot.
+
+    A numbered search **resumes** where the previous search of the same
+    sequence ended (v0.8.2 Checkpoint 3). Before, every call started again at
+    ``-1``, so k outputs sharing one name cost k(k+1)/2 candidates (2,341
+    identical TTS titles: 23.8 s). Every index skipped was found taken or
+    occupied by this planner during this planning operation, and a taken name
+    stays taken, so on an unchanging folder the names are exactly the ones a
+    restarted search finds. A name that is freed on disk while planning is not
+    offered again (only ever a later number; publication is no-clobber in any
+    case); every index not yet tried is still checked on disk when it is tried.
     """
 
     def __init__(self, root: Path, *, check_filesystem: bool = True):
         self.root = Path(root)
         self._check_filesystem = check_filesystem
         self._taken: set[str] = set()
+        #: (kind, directory, sanitised name, first index) -> the first index not yet found taken or occupied.
+        #: Per instance, so per planning operation; never shared or kept.
+        self._resume: dict[tuple[str, str, str, int], int] = {}
 
     @staticmethod
     def _key(path: Path) -> str:
@@ -636,6 +649,23 @@ class DestinationPlanner:
             if candidate.exists() or candidate.is_symlink():
                 return False
         return True
+
+    def _first_free(self, kind: str, directory: Path, safe_name: str, first: int, variant) -> Path | None:
+        """Reserve the first free ``variant(index)`` from *first* on, resuming this sequence's last search.
+
+        The sequence is keyed by the exact text of the folder and the name, so two spellings that collide
+        case-insensitively keep separate resume points; each skips only indices it has itself found unavailable,
+        which stay unavailable. Returns ``None`` when the bound is reached (the caller raises its own refusal).
+        """
+        key = (kind, str(directory), safe_name, first)
+        for index in range(self._resume.get(key, first), MAX_COLLISION_ATTEMPTS + 1):
+            candidate = directory / variant(index)
+            if self._is_free(candidate):
+                self._taken.add(self._key(candidate))
+                self._resume[key] = index + 1
+                return candidate
+        self._resume[key] = MAX_COLLISION_ATTEMPTS + 1
+        return None
 
     def plan(
         self, name: str, *, subdir: PurePath | str | None = None, start_index: int = 0
@@ -665,11 +695,10 @@ class DestinationPlanner:
                 self._taken.add(self._key(candidate))
                 return candidate
 
-        for index in range(max(1, start_index), MAX_COLLISION_ATTEMPTS + 1):
-            candidate = directory / numbered_variant(safe_name, index)
-            if self._is_free(candidate):
-                self._taken.add(self._key(candidate))
-                return candidate
+        candidate = self._first_free("file", directory, safe_name, max(1, start_index),
+                                     lambda index: numbered_variant(safe_name, index))
+        if candidate is not None:
+            return candidate
 
         raise ReservationError(
             f"no free name could be found for {safe_name!r} after "
@@ -704,11 +733,9 @@ class DestinationPlanner:
         if self._is_free(candidate):
             self._taken.add(self._key(candidate))
             return candidate
-        for index in range(1, MAX_COLLISION_ATTEMPTS + 1):
-            candidate = directory / f"{safe_name}-{index}"
-            if self._is_free(candidate):
-                self._taken.add(self._key(candidate))
-                return candidate
+        candidate = self._first_free("folder", directory, safe_name, 1, lambda index: f"{safe_name}-{index}")
+        if candidate is not None:
+            return candidate
         raise ReservationError(
             f"no free folder name could be found for {safe_name!r} after "
             f"{MAX_COLLISION_ATTEMPTS} attempts",

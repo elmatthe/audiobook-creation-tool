@@ -2,6 +2,15 @@
 
 Append-only. Newest entries on top. Each entry: date, decision, why, signed by whoever made it.
 
+## 2026-11-21 — v0.8.2 Checkpoint 3: the shared collision search resumes per sequence inside one planner; names unchanged; TTS Start still plans on Tk
+
+Signed: Claude Code (Opus 5.5), HOME-PC. Evidence: Handoff v0.8.2 Checkpoint 3; `files/dev-work/v0.8.2-cp3-evidence/` (ignored, local).
+- **Resume, not a new allocator.** `DestinationPlanner.plan` / `plan_directory` keep, per instance, the index where each numbered sequence's last search ended, keyed by kind (file or folder), the exact folder text, the exact sanitised name and the first index (so `start_index` 0 and 1 share one sequence, a higher start has its own). Every index skipped was found taken or occupied by this planner, and `_taken` only grows. Nothing else changed: same sanitiser, containment, link check, case-insensitive taken-set, disk check, suffix format, bound and refusal text. Rejected: a TTS-specific naming service, a cache keyed by casefolded names (exact text cannot be wrong whatever casefolding does), memoising disk answers across planners.
+- **The one behavioural difference, accepted.** A name occupied on disk when its index was tried, and freed later in the same planning operation, is not offered again; the restarting search would have offered it. Only ever a later number; publication is no-clobber in every tool. A name that appears on disk during planning is still avoided (each untried index is checked when tried).
+- **`plan_named` left as it is.** Its folder-finding pass gives every source the same placeholder name; with the resume that pass is linear too, so `output_names.py` is unchanged.
+- **Not done here (measured, recorded for Checkpoint 5).** TTS Start still plans on the Tk thread; after this change the press is linear at 1.6–2.4 ms per file, almost all of it the containment and link checks (`assert_contained`, `_relative_parent`) that both passes run for every file. Moving TTS preparation off Tk, as the MP3 Tool and M4B tools now do, is the fix; it is a panel redesign, not a collision change.
+- **Pre-existing, flagged for the owner, not changed:** `_is_free` treats a dangling Windows junction as free (`exists` and `is_symlink` are both False); such a numbered name is planned and its publication refused (`DestinationOccupied`). Changing the occupancy test would change allocations.
+
 ## 2026-11-21 — v0.8.2 Checkpoint 2: the M4B Maker and Metadata Editor prepare on one shared, Tk-free preparation worker; their Plan 6 capture is taken there; the worker lets Tk paint the press first
 
 Signed: Claude Code (Opus 5.5), HOME-PC. Evidence: Handoff v0.8.2 Checkpoint 2; `files/dev-work/v0.8.2-cp2-evidence/` (ignored, local).

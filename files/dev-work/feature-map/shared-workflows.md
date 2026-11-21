@@ -192,6 +192,7 @@ The launcher (`scripts/launcher.py`) is the one window of the Audiobook Creation
 - Each run writes to `‹output base›/‹Tool›-Outputs/‹Tool›-N`; the base defaults to `~/Downloads/Audiobook-Creation-Tool-Outputs`; N is the lowest free number, claimed atomically when a validated run starts. An empty unused run folder is released.
 - Starting the app, building or switching panels and opening or saving Preferences create nothing.
 - Existing or already-planned names get "-1", "-2"… (case-insensitive). Names are cleaned of characters and device names Windows forbids. A destination equal to an input, inside a source tree, or through a link or junction is refused.
+- The "-N" search resumes where the same name's previous search in the same planning operation stopped (v0.8.2 Checkpoint 3), so k outputs with one name cost about 2k candidate checks instead of k(k+1)/2; every tool's names are unchanged. A name freed on disk during planning is not offered again; every number not yet tried is still checked on disk. Pre-existing and unchanged: a dangling Windows junction on a numbered name is not seen as taken, so it is planned and then refused at publication (`DestinationOccupied`; nothing is replaced or written outside).
 - Each tool's read-only output-folder line updates when the base is saved or reset.
 - Differences: Cover Image can write beside the sources (next section); M4B Maker can use a custom destination. The old `next_output_dir`/`avoid_input_overwrite` helpers are dormant.
 

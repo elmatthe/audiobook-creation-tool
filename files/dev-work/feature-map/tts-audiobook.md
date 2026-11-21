@@ -263,6 +263,12 @@ OmniVoice voices use the same run, queue and output rules, with their own synthe
   are guarded. If the path would be too long only the stem is shortened; a label or folder that cannot fit is refused at
   Start ("Output folder") before any synthesis. Clashes, including deliberate duplicates and same-stem PDF/TXT pairs, get
   `-1`, `-2` numbering.
+- **Scale (v0.8.2 Checkpoint 3):** the numbering search resumes where it stopped instead of starting again at `-1`, in
+  both planning passes (the first pass, which finds each file's folder, gave every file the same placeholder name, so it
+  collided even for unique titles). Names are unchanged. Measured on HOME-PC: planning 2,341 identical titles 3.1 s
+  (41.1 s before), 5,000 unique titles added directly 6.5 s (135.7 s before). Start still plans on the window's thread:
+  the press holds the window 1.6-2.4 ms per file (3.8 s at 2,341, 7.9 s at 5,000, 12.0 s for 5,000 files in 5,000
+  sub-folders), almost all of it the per-file containment and link checks of both passes (open, Checkpoint 5).
 
 ### Publish each MP3 whole, and Overwrite only when asked
 `ACT.TTS.PUBLICATION`
