@@ -1486,8 +1486,11 @@ class M4BMakerUI(ttk.Frame):
             if book_id not in self.book_numbers:
                 highest += 1
                 self.book_numbers[book_id] = highest
+        # v0.8.2 Checkpoint 6: a set, not the list: this runs on every render, and ``in`` a list of 5,000 Books made
+        # it quadratic (about 0.1 s a keystroke in the Metadata Editor at 5,000 Books).
+        present = set(ids)
         self.book_numbers = {book_id: number for book_id, number in self.book_numbers.items()
-                             if book_id in ids}
+                             if book_id in present}
 
     def render(self) -> None:
         """Show the current workspace. Every value comes from the snapshot."""
@@ -1547,9 +1550,17 @@ class M4BMakerUI(ttk.Frame):
 
     def _render_tracks(self, selection=()) -> None:
         book = self.workspace.current
+        # v0.8.2 Checkpoint 6: a render that changed nothing about this Book's tracks (a Shared keystroke, numbering)
+        # leaves the list, and the rows the user selected, as they are. The snapshot is immutable, so the same object
+        # means the same rows; refilling 5,000 rows cost about 45 ms of Tk work per keystroke.
+        shown = getattr(self, "_tracks_shown", None)
+        if not selection and shown is not None and shown[0] == book.book_id and shown[1] is book.files:
+            return
         self.track_list.delete(0, "end")
-        for entry in book.files.files:
-            self.track_list.insert("end", entry.name)
+        names = [entry.name for entry in book.files.files]
+        if names:
+            self.track_list.insert("end", *names)  # one Tk call for every row instead of one per track
+        self._tracks_shown = (book.book_id, book.files)
         wanted = set(selection)
         for row, entry in enumerate(book.files.files):
             if entry.occurrence_id in wanted:

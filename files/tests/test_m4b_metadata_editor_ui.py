@@ -151,16 +151,34 @@ def library(container: Path, root: Path) -> Path:
     return root
 
 
+def settle_reading(panel, timeout: float = 20.0) -> None:
+    """v0.8.2 Checkpoint 6: a committed import's files are read on a worker; the import ends when they are read.
+
+    With the suite's inline threads that happens inside the import call; with real ones (a panel built by the real
+    shell) pump until it has."""
+    import time
+
+    deadline = time.monotonic() + timeout
+    while panel.is_reading_sources:
+        if time.monotonic() > deadline:
+            raise AssertionError("the import's files were not read in time")
+        panel._pump.tick()
+        if panel.is_reading_sources:
+            time.sleep(0.003)
+
+
 def import_folder(panel, root: Path):
     panel._choose_folder = lambda: (str(root),)
     panel.import_folder()
     panel._pump.tick()
+    settle_reading(panel)
     return panel.workspace
 
 
 def add_files(panel, *paths: Path):
     panel._choose_files = lambda: tuple(str(p) for p in paths)
     panel.add_files()
+    settle_reading(panel)
     return panel.workspace
 
 

@@ -542,6 +542,28 @@ def test_select_all_covers_the_whole_manager_order(make_panel, tmp_path, view):
     assert panel.manager.selection == ids
 
 
+@pytest.mark.parametrize("view", (cover_resizer.VIEW_DETAILS, cover_resizer.VIEW_LIST))
+def test_painting_a_selection_reads_it_once_not_once_per_row(make_panel, tmp_path, view, monkeypatch):
+    """v0.8.2 Checkpoint 6: Select All on 5,000 images rebuilt the selection for every row (0.27 s on Tk)."""
+    panel, ids, _files = loaded(make_panel, tmp_path, *(f"{index:03d}.jpg" for index in range(120)))
+    panel.browser.set_view(view)
+    panel.browser.key("select_all")
+    assert panel.manager.selection == ids
+    manager_type = type(panel.manager)
+    real = manager_type.selection
+    reads = {"count": 0}
+
+    def counted(manager):
+        reads["count"] += 1
+        return real.fget(manager)
+
+    monkeypatch.setattr(manager_type, "selection", property(counted))
+    panel.browser._paint_selection()
+    assert reads["count"] == 1, f"the selection was read {reads['count']} times for {len(ids)} rows"
+    shown = panel.browser.surface(view).selection()
+    assert tuple(shown) == ids, "every selected row is shown selected, in manager order"
+
+
 def test_the_selection_anchor_follows_manager_order_not_click_order():
     """A range is between two positions, whichever was clicked first."""
     order = ("o1", "o2", "o3", "o4")

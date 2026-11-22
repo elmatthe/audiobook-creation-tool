@@ -141,6 +141,7 @@ from shared import logging_setup
 from shared import output_paths
 from shared import paths
 from shared import settings
+from shared import source_readback
 from shared import subprocess_utils as sp
 from shared import ui_theme
 from shared.book_workspace import (
@@ -541,6 +542,25 @@ class _AttemptNotStarted(Exception):
         self.detail = detail
 
 
+class _PendingImport:
+    """A committed import whose files' tags are being read off Tk (v0.8.2 Checkpoint 6).
+
+    Nothing of it is in the workspace yet: the Books (Import Folder) or tracks (Add Files) are made from the committed
+    snapshot only when :attr:`readback` has finished, through the unchanged workflow functions. ``target`` is the Book
+    Add Files was pressed on, by identity, so navigating while the tags are read cannot send the files elsewhere.
+    """
+
+    __slots__ = ("readback", "kind", "outcome", "target", "shown")
+
+    def __init__(self, readback: source_readback.SourceReadback, kind: str | None, outcome: ImportOutcome,
+                 target: str) -> None:
+        self.readback = readback
+        self.kind = kind
+        self.outcome = outcome
+        self.target = target
+        self.shown = -1
+
+
 class _Attempt:
     """The facts one attempt shares between the worker and the main thread.
 
@@ -915,6 +935,9 @@ class MP3ToolUI(ttk.Frame):
             self._coordinator, self._pump.schedule, cancel=self._pump.cancel,
             interval_ms=self._pump.interval_ms, on_outcome=self._handle_outcome)
         self._import_kind: str | None = None
+        # v0.8.2 Checkpoint 6: the committed import whose tags a worker is reading, and how many were started.
+        self._pending_import: _PendingImport | None = None
+        self._readbacks = 0
 
         # Where the next run will go, shown read-only. Reserving the numbered
         # run folder is the processing phases' job; nothing is created here.
@@ -940,6 +963,7 @@ class MP3ToolUI(ttk.Frame):
         self._chapters_lock = self._TextLock(self.chapter_text)
         self._install_jobs(IDLE_RUN_ID, ())
         self._pump.add_drain(self._drain_preparation)
+        self._pump.add_drain(self._drain_readback)
 
         self.render()
         if not ensure_ffmpeg_available():
@@ -1767,8 +1791,11 @@ class MP3ToolUI(ttk.Frame):
                 self.book_numbers[book_id] = highest
         # Forgetting the gone: their numbers stay retired because ``highest``
         # was taken before they were dropped.
+        # v0.8.2 Checkpoint 6: a set, not the list: this runs on every render, and ``in`` a list of 5,000 Books made
+        # it quadratic (about 0.1 s a keystroke in the Metadata Editor at 5,000 Books).
+        present = set(ids)
         self.book_numbers = {book_id: number for book_id, number in self.book_numbers.items()
-                             if book_id in ids}
+                             if book_id in present}
 
     def render(self) -> None:
         """Show the current workspace. Every value comes from the snapshot."""
@@ -1817,9 +1844,17 @@ class MP3ToolUI(ttk.Frame):
 
     def _render_tracks(self, selection=()) -> None:
         book = self.workspace.current
+        # v0.8.2 Checkpoint 6: a render that changed nothing about this Book's tracks (a Shared keystroke, numbering)
+        # leaves the list, and the rows the user selected, as they are. The snapshot is immutable, so the same object
+        # means the same rows; refilling 5,000 rows cost about 45 ms of Tk work per keystroke.
+        shown = getattr(self, "_tracks_shown", None)
+        if not selection and shown is not None and shown[0] == book.book_id and shown[1] is book.files:
+            return
         self.track_list.delete(0, "end")
-        for entry in book.files.files:
-            self.track_list.insert("end", entry.name)
+        names = [entry.name for entry in book.files.files]
+        if names:
+            self.track_list.insert("end", *names)  # one Tk call for every row instead of one per track
+        self._tracks_shown = (book.book_id, book.files)
         wanted = set(selection)
         for row, entry in enumerate(book.files.files):
             if entry.occurrence_id in wanted:
@@ -2160,7 +2195,7 @@ class MP3ToolUI(ttk.Frame):
     def import_folder(self) -> None:
         """Workspace-level: scan one parent folder, then replace the Books."""
         self._guard.require("import_folder")
-        if self._closed or self._coordinator.is_active:
+        if self._closed or self._import_busy:
             return
         self.flush_pending_editor_state()  # a pasted title is work the replace question must count
         if any(has_meaningful_work(book) for book in self.workspace.books):
@@ -2191,7 +2226,7 @@ class MP3ToolUI(ttk.Frame):
     def add_files(self) -> None:
         """Into the current Book, in the order the dialog returned them."""
         self._guard.require("add_files")
-        if self._closed or self._coordinator.is_active:
+        if self._closed or self._import_busy:
             return
         paths_chosen = tuple(self._choose_files() or ())
         if not paths_chosen:
@@ -2207,6 +2242,9 @@ class MP3ToolUI(ttk.Frame):
         self._guard.require("cancel_import")
         if self._closed:
             return False
+        if self._pending_import is not None:
+            self._abandon_readback(self._pending_import)
+            return True
         cancelled = self._coordinator.request_cancel()
         if cancelled:
             self.import_status.set_cancelling()
@@ -2230,7 +2268,7 @@ class MP3ToolUI(ttk.Frame):
         work asks first.
         """
         self._guard.require("clear_all_imports")
-        if self._closed or self.is_running or self._coordinator.is_active:
+        if self._closed or self.is_running or self._import_busy:
             return False
         self.flush_pending_editor_state()  # a pasted title is work the clear question must count
         meaningful = self._workspace_has_meaningful_work()
@@ -2289,45 +2327,143 @@ class MP3ToolUI(ttk.Frame):
         if status in TERMINAL_STATUSES or status is OutcomeStatus.CLOSED:
             self._poller.stop()
             kind, self._import_kind = self._import_kind, None
-            self.import_status.set_idle(outcome.display_message)
             if status is OutcomeStatus.COMMITTED and outcome.commit is not None:
-                self._project_import(kind, outcome)
-            else:
-                label = "Import Folder" if kind == "folder" else "Add Files"
-                self._say(f"{label}: {outcome.display_message}",
-                          outcome.technical_detail or outcome.display_message)
-            for problem in outcome.problems:
-                self._say(f"  {problem.display_message}",
-                          f"  {problem.technical_detail or problem.display_message}")
+                # v0.8.2 Checkpoint 6: the tags are read off Tk; the Books are made when the reading is done, and the
+                # outcome's message and problems are reported then, in the order they always were.
+                self._begin_readback(kind, outcome)
+                return outcome
+            self.import_status.set_idle(outcome.display_message)
+            label = "Import Folder" if kind == "folder" else "Add Files"
+            self._say(f"{label}: {outcome.display_message}",
+                      outcome.technical_detail or outcome.display_message)
+            self._say_problems(outcome)
             return outcome
         if status in (OutcomeStatus.BUSY, OutcomeStatus.NO_TYPES_SELECTED):
             self.import_status.set_message(outcome.display_message)
         return outcome
 
-    def _project_import(self, kind: str | None, outcome: ImportOutcome) -> None:
-        """The committed snapshot becomes Books (folder) or tracks (files)."""
+    def _say_problems(self, outcome: ImportOutcome) -> None:
+        for problem in outcome.problems:
+            self._say(f"  {problem.display_message}",
+                      f"  {problem.technical_detail or problem.display_message}")
+
+    # -- reading the committed files' tags off Tk (v0.8.2 Checkpoint 6) ---- #
+
+    @property
+    def _import_busy(self) -> bool:
+        """A scan is running, or a committed import's tags are still being read: nothing may start or reset."""
+        return self._coordinator.is_active or self._pending_import is not None
+
+    @property
+    def is_reading_tags(self) -> bool:
+        return self._pending_import is not None
+
+    def _begin_readback(self, kind: str | None, outcome: ImportOutcome) -> None:
+        """Read the committed files' tags on a worker; the import is finished when they are read.
+
+        The workspace does not change yet: what the workflow will make of the commit is decided in
+        :meth:`_finish_readback`, from the workspace as it is then. A worker that cannot start leaves the reading to
+        this thread, exactly as before.
+        """
         self.flush_pending_editor_state()
         commit = outcome.commit
-        if kind == "folder":
+        entries = commit.snapshot.files if kind == "folder" else commit.added
+        readback = source_readback.SourceReadback(
+            "mp3", (entry.path for entry in entries), {"reader": self._reader})
+        pending = _PendingImport(readback, kind, outcome, self.workspace.current_book_id)
+        self._pending_import = pending
+        self._show_reading(pending)
+        self._readbacks += 1
+        try:
+            self._thread_factory(readback.read_sources, f"mp3-readback-{self._readbacks}").start()
+        except Exception as exc:  # noqa: BLE001 - no worker: read here, as v0.8.1 did
+            logging_setup.get_logger().warning("MP3 Tool: tags read on the main thread: %s: %s",
+                                               type(exc).__name__, exc)
+            readback.read_sources()
+        self._drain_readback()  # an inline or already finished reading completes the import now
+
+    def _show_reading(self, pending: _PendingImport) -> None:
+        done = pending.readback.done
+        if done == pending.shown:
+            return
+        pending.shown = done
+        self.import_status.set_message(
+            f"Reading tags… {done:,} of {pending.readback.total:,} files")
+        self.import_status.set_cancel_enabled(True)
+
+    def _drain_readback(self) -> None:
+        """Pump drain: report the reading's progress, and finish the import once every file was read."""
+        pending = self._pending_import
+        if pending is None or self._closed:
+            return
+        if pending.readback.finished:
+            self._finish_readback(pending)
+        elif pending.readback.failed:
+            self._abandon_readback(pending, "The files could not be read, so nothing was added.")
+        else:
+            self._show_reading(pending)
+
+    def _abandon_readback(self, pending: _PendingImport,
+                          message: str = "The import was cancelled and nothing was added.") -> None:
+        """Cancel Import (or a reading that failed) while the tags are read: nothing is added, and a late result is
+        never adopted."""
+        if self._pending_import is not pending:
+            return
+        self._pending_import = None
+        pending.readback.cancel()
+        self.import_status.set_idle(message)
+        label = "Import Folder" if pending.kind == "folder" else "Add Files"
+        self._say(f"{label}: {message}")
+        self._say_problems(pending.outcome)
+
+    def _finish_readback(self, pending: _PendingImport) -> None:
+        if self._pending_import is not pending or self._closed or not pending.readback.finished:
+            return  # cancelled, closed or replaced: a stale reading changes nothing
+        self._pending_import = None
+        self.import_status.set_idle(pending.outcome.display_message)
+        self._project_import(pending)
+        self._say_problems(pending.outcome)
+
+    def _project_import(self, pending: _PendingImport) -> None:
+        """The committed snapshot becomes Books (folder) or tracks (files), observed from what the worker read."""
+        self.flush_pending_editor_state()
+        commit = pending.outcome.commit
+        reader = pending.readback.reader("reader")
+        if pending.kind == "folder":
             result = wf.import_folder(
                 self.workspace, commit.snapshot, id_factory=self._ids,
-                store=self.store, reader=self._reader)
+                store=self.store, reader=reader)
             self.store = result.store
             self._apply(result.mutation)
             books = [book for book in self.workspace.books if not book.files.is_empty]
             total = sum(book.file_count for book in books)
             self._say(f"Import Folder: {total} MP3 file(s) in {len(books)} Book(s).")
             return
-        held = set(self.workspace.current.files.identities)
+        space = self.workspace
+        target = pending.target
+        if target not in space.book_ids:
+            self.render()
+            self._say("Add Files: the Book these files were for was removed while their tags were read; "
+                      "nothing was added.")
+            return
+        # Add Files goes into the Book it was pressed on, even if another Book is showing now; the page stays put.
+        showing = space.current_book_id
+        if showing != target:
+            space = select_book(space, target).workspace
+        held = set(space.current.files.identities)
         additions = tuple(entry for entry in commit.added if entry.identity not in held)
         skipped = len(commit.added) - len(additions)
-        result = wf.add_files(self.workspace, additions, store=self.store,
-                              reader=self._reader)
+        result = wf.add_files(space, additions, store=self.store, reader=reader)
         self.store = result.store
-        self._apply(result.mutation)
+        grown = result.mutation.workspace if result.mutation.changed else space
+        position = grown.book_ids.index(target) + 1
+        where = f"Book {position} of {grown.count}"
+        if grown.current_book_id != showing:
+            grown = select_book(grown, showing).workspace
+        self.workspace = grown
+        self.render()
         note = f" {skipped} already in this Book were skipped." if skipped else ""
-        self._say(f"Add Files: {len(additions)} MP3 file(s) added to "
-                  f"{self.navigator.position_text}.{note}")
+        self._say(f"Add Files: {len(additions)} MP3 file(s) added to {where}.{note}")
 
     # ------------------------------------------------------------------ #
     # The processing seams
@@ -2357,7 +2493,7 @@ class MP3ToolUI(ttk.Frame):
         (:meth:`_on_preparation`). A refused plan is reported then, exactly as
         before, with the empty run released and nothing started.
         """
-        if self._closed or self.is_running or self._coordinator.is_active:
+        if self._closed or self.is_running or self._import_busy:
             return False
         # A Chapter Titles change no key release reported (a mouse paste, an input method) is committed through the
         # model, to its own Book, before anything is frozen, so the run uses exactly what the box shows.
@@ -3217,6 +3353,10 @@ class MP3ToolUI(ttk.Frame):
             return
         self._closed = True
         appearance.unregister_listener(self._on_appearance_changed)
+        # v0.8.2 Checkpoint 6: tags still being read stop after the file in hand, and are never adopted.
+        pending, self._pending_import = self._pending_import, None
+        if pending is not None:
+            pending.readback.cancel()
         # v0.8.2: a preparation still going stops at its next checkpoint and releases its own empty run; a plan it
         # already offered is taken back here and released, so nothing it planned can start after the tool closed.
         preparation, self._preparing = self._preparing, None

@@ -14,7 +14,7 @@ Source: `scripts/mp3/mp3_tool.py` (the panel, `MP3ToolUI`), `scripts/mp3/mp3_wor
 - **Purpose:** Turn a parent folder of audiobooks into one Book per folder that directly holds MP3s, each pre-filled from its own files.
 - **How to reach it:** Section 1 'Import & Books': Import Folder, then the 'Select a folder of MP3 audiobooks' dialog; Cancel Import in the import status bar while a scan runs.
 - **States:** Disabled while a run owns the workspace; a press while a scan is already running does nothing; a whole drive or the home folder asks 'Scan a very broad folder?'; a very large result asks 'Import a large number of MP3s?'.
-- **Inputs and outputs:** Input: one folder, scanned through the shared importer with the MP3-only catalog. Output: a new workspace whose Books are numbered from 1, tracks in natural order, plus a Summary line with the file and Book counts.
+- **Inputs and outputs:** Input: one folder, scanned through the shared importer with the MP3-only catalog. Output: a new workspace whose Books are numbered from 1, tracks in natural order, plus a Summary line with the file and Book counts. The files' tags are read in the background after the scan ("Reading tags… N of M files", Cancel Import available; v0.8.2 Checkpoint 6, `ACT.SHARED.WORKSPACE-SCALING`); the Books appear when every file was read.
 - **Failure, cancel and retry:** Scan problems are logged line by line; a declined replacement, a declined confirmation or a cancelled scan leaves the existing Books untouched.
 - **Persistence:** The chosen folder is remembered as the dialog's starting place (settings key mp3_tool.input_dir); Books and imports are not saved between sessions.
 - **Intentional differences:** Folder import replaces the workspace; Add Files appends to the current Book only.
@@ -26,8 +26,8 @@ Source: `scripts/mp3/mp3_tool.py` (the panel, `MP3ToolUI`), `scripts/mp3/mp3_wor
 
 - **Purpose:** Build or extend one Book by picking MP3 files directly.
 - **How to reach it:** Section 3 'Tracks & Run': Add Files, then the 'Select MP3 files' dialog (MP3 files or All files).
-- **States:** Disabled while a run is under way; a press while a folder scan is running does nothing.
-- **Inputs and outputs:** Input: one or more files, validated by the shared direct-file importer with the MP3-only catalog. Output: the files appended to the current Book's track list and a Summary line naming the Book.
+- **States:** Disabled while a run is under way; a press while a folder scan is running, or while an import's tags are read, does nothing.
+- **Inputs and outputs:** Input: one or more files, validated by the shared direct-file importer with the MP3-only catalog. Output: the files appended to the track list of the Book that was current when Add Files was pressed (their tags are read in the background first; if another Book is showing by then it stays showing, and a Book removed meanwhile receives nothing, v0.8.2 Checkpoint 6) and a Summary line naming the Book.
 - **Failure, cancel and retry:** Rejected selections are reported in the log; cancelling the dialog does nothing.
 - **Persistence:** The folder of the first chosen file is remembered as the next dialog's starting place (mp3_tool.input_dir).
 - **Intentional differences:** Unlike Import Folder this never regroups by parent folder and never replaces Books.

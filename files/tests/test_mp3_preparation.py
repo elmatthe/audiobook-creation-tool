@@ -90,7 +90,8 @@ def pump_until(panel, predicate, timeout: float = 30.0) -> None:
 def import_and_settle(panel, root: Path) -> None:
     panel._choose_folder = lambda: (str(root),)
     panel.import_folder()
-    pump_until(panel, lambda: not panel._coordinator.is_active)
+    # v0.8.2 Checkpoint 6: the import ends when its files' tags are read (on a worker), not when the scan commits.
+    pump_until(panel, lambda: not panel._coordinator.is_active and not panel.is_reading_tags)
 
 
 def join_all(panel) -> None:

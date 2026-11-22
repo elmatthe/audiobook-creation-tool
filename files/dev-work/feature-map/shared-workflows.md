@@ -182,6 +182,16 @@ The launcher (`scripts/launcher.py`) is the one window of the Audiobook Creation
 - Each Book ends succeeded, failed, skipped empty, skipped invalid or not attempted; a Book cancelled part-way is failed.
 - Retry Failed re-runs only failed Books with a retryable failure.
 
+### Large workspaces stay responsive
+`ACT.SHARED.WORKSPACE-SCALING`
+
+- With thousands of imported files or Books the window keeps answering. MP3 Tool and the Metadata Editor read an import's tags (the Editor also asks FFprobe for each file's chapter titles) in the background: the import line counts "Reading tags… N of M files" (Editor: "Reading tags and chapters… N of M files") and Cancel Import stays available.
+- The Books appear only when every file has been read, with the same information as before (readable or not, chapter titles, prefilled fields). Until then Import Folder, Add Files, Clear All Imports and the tool's Start buttons wait, as during a scan.
+- Cancel Import or closing the tool while the files are read adds nothing; a reading that fails says so and adds nothing. Source files are only read.
+- MP3 Add Files puts the files into the Book it was pressed on, even if another Book is showing when the tags arrive; that Book stays showing, and a Book removed meanwhile receives nothing.
+- A folder of thousands of one-file folders becomes thousands of MP3 Tool Books without a pause. Switching Books and typing in Book or Shared fields stay quick with thousands of Books; a Shared keystroke leaves an unchanged track list (and its selection) alone in MP3 Tool and M4B Maker. Select All and moving a large selection in the imported-file list, and Select All in Cover Image's browser, are immediate.
+- Not changed: the Summary and Details logs keep every line; progress updates; Cover Image's short pause at 5,000 images.
+
 ### Gap-free series numbers for successful Books
 `ACT.SHARED.SUCCESS-NUMBERING`
 

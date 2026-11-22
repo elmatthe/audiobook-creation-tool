@@ -53,9 +53,11 @@ from shared.book_workspace import (
     BookJob,
     BookMutation,
     SharedMetadata,
+    SharedMetadataError,
     WorkspaceOperation,
     WorkspaceSnapshot,
     effective_metadata,
+    effective_value,
     new_book_id,
     replace_book,
 )
@@ -82,6 +84,7 @@ __all__ = [
     "new_shared_metadata",
     "new_workspace",
     "observe_source",
+    "source_readers",
     "source_of",
     "import_folder",
     "add_files",
@@ -293,6 +296,15 @@ class ObservationStore:
         return None if source is None else self.entries.get(source.occurrence_id)
 
 
+def source_readers() -> Mapping[str, Callable[[Path], object]]:
+    """The readers an import observes a source with, by the keyword :func:`import_folder` and :func:`add_files` take.
+
+    The same two readers those functions use by default. v0.8.2 Checkpoint 6: the panel runs them on a worker before
+    it calls either function, and hands each one back as a lookup of what was read (``shared.source_readback``).
+    """
+    return MappingProxyType({"reader": metadata.read_m4b_tags, "chapters": metadata.read_chapter_titles})
+
+
 def observe_files(entries: Iterable[ImportedFile], *, reader: TagReader = metadata.read_m4b_tags,
                   chapters: ChapterReader = metadata.read_chapter_titles
                   ) -> tuple[SourceObservation, ...]:
@@ -390,7 +402,9 @@ def add_files(workspace: WorkspaceSnapshot, additions: Sequence[ImportedFile], *
     revision = space.revision.advance()
     books = tuple(_book_for(entry, revision, id_factory=ids) for entry in fresh)
     kept = tuple(book for book in space.books if not book.files.is_empty or book.configuration)
-    removed = tuple(book for book in space.books if book not in kept)
+    # v0.8.2 Checkpoint 6: the exact complement of ``kept``'s test. ``book not in kept`` compared every Book with
+    # every kept Book field by field: 12.5 million comparisons, about 1 s on Tk, adding files beside 5,000 Books.
+    removed = tuple(book for book in space.books if book.files.is_empty and not book.configuration)
     grown = store.with_observations(observe_files(fresh, reader=reader, chapters=chapters))
     appended = WorkspaceSnapshot(books=kept + books, current_book_id=books[-1].book_id,
                                  revision=revision, shared=space.shared)
@@ -479,6 +493,27 @@ def prefill_values(observation: SourceObservation | None) -> Mapping[str, str]:
     return MappingProxyType({name: observation.source_value(name) for name in TEXT_FIELDS})
 
 
+def _require_shared(shared: object) -> SharedMetadata:
+    """The check ``effective_metadata`` makes first, for the one-field path: the same error, the same text."""
+    if not isinstance(shared, SharedMetadata):
+        raise SharedMetadataError(f"shared must be a SharedMetadata, got {type(shared).__name__}")
+    return shared
+
+
+def _page_value(shared: SharedMetadata, book: BookJob, observation: SourceObservation | None, name: str,
+                effective: Callable[[str], object]) -> str:
+    """One text field of :func:`page_values`: the Shared or Book value when either is set, else the prefill.
+
+    *effective* answers a field's effective value (Plan 6's ``effective_metadata`` for a whole page,
+    ``effective_value`` for one field); the rule is this function's alone.
+    """
+    if shared.populated(name) or name in book.configuration:
+        return str(effective(name))
+    if observation is None or not observation.readable:
+        return BLANK
+    return observation.source_value(name)
+
+
 def page_values(shared: SharedMetadata, book: BookJob,
                 store: ObservationStore) -> Mapping[str, str]:
     """``Shared -> Book edit -> source prefill`` for every text field, for display.
@@ -487,15 +522,11 @@ def page_values(shared: SharedMetadata, book: BookJob,
     *preserve*, decided by :func:`edit_intent`, not here).
     """
     current = _require_book(book)
-    prefill = prefill_values(_require_store(store).for_book(current))
+    observation = _require_store(store).for_book(current)
     effective = effective_metadata(shared, current)
-    values: dict[str, str] = {}
-    for name in TEXT_FIELDS:
-        if shared.populated(name) or name in current.configuration:
-            values[name] = str(effective.get(name, BLANK))
-        else:
-            values[name] = prefill[name]
-    return MappingProxyType(values)
+    return MappingProxyType({name: _page_value(shared, current, observation, name,
+                                               lambda field: effective.get(field, BLANK))
+                             for name in TEXT_FIELDS})
 
 
 def edit_intent(shared: SharedMetadata, book: BookJob, store: ObservationStore,
@@ -587,7 +618,13 @@ def series_readback(observation: SourceObservation | None) -> str:
 def display_hint(shared: SharedMetadata, book: BookJob, store: ObservationStore) -> str:
     """What follows ``Book N`` in the selector: the page Title, else the filename."""
     current = _require_book(book)
-    title = " ".join(page_values(shared, current, store)["title"].split())
+    # v0.8.2 Checkpoint 6: the one field it shows, by page_values' own rule. Every render asks this of every Book
+    # (the selector lists them all); building all of a page's values for each made a keystroke cost 0.2 s at 5,000.
+    observation = _require_store(store).for_book(current)
+    shared = _require_shared(shared)
+    title = " ".join(_page_value(shared, current, observation, "title",
+                                 lambda field: effective_value(shared, current, field)
+                                 if field in shared.fields else BLANK).split())
     if title:
         return title
     source = source_of(current)

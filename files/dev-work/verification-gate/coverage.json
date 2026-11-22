@@ -6795,14 +6795,16 @@
         "Import Folder replaces every Book; when any Book holds files or settings the user is asked first, and declining changes nothing.",
         "A scan that finds no MP3s is reported in the log, not in a dialog.",
         "Cancel Import stops a running scan and leaves the workspace as it was.",
-        "v0.8.2 R1: Import Folder asks before replacing a Book whose only work is a pasted Chapter Titles edit."
+        "v0.8.2 R1: Import Folder asks before replacing a Book whose only work is a pasted Chapter Titles edit.",
+        "v0.8.2 Checkpoint 6: the committed files' ID3 frames are read on a worker; the Books appear when every file was read, prepopulated exactly as before. See ACT.SHARED.WORKSPACE-SCALING. The new Books are seeded in one snapshot, not one replacement per Book (5,000 one-file folders: 4.2 s on Tk before, 83 ms after)."
       ],
       "selection": [
         "files/tests/test_mp3_tool_ui.py",
         "files/tests/test_mp3_workflow.py",
         "files/tests/test_mp3_metadata_precedence.py",
         "files/tests/test_mp3_panel_branches.py",
-        "files/tests/test_mp3_cp1_remediation.py"
+        "files/tests/test_mp3_cp1_remediation.py",
+        "files/tests/test_import_readback.py"
       ],
       "journeys": [],
       "verification": {
@@ -6875,13 +6877,15 @@
         "Chosen MP3s go into the current Book only, in the order the dialog returned them, whatever their folders.",
         "A file already in the current Book is skipped and the Summary says how many were skipped.",
         "Adding to a Book that already has tracks never changes its typed or cleared values.",
-        "v0.8.2 R1: adding files keeps a pasted Chapter Titles edit; only the added track takes its default."
+        "v0.8.2 R1: adding files keeps a pasted Chapter Titles edit; only the added track takes its default.",
+        "v0.8.2 Checkpoint 6: the chosen files' ID3 frames are read on a worker; they go into the Book that was current when Add Files was pressed (by identity), even if another Book is showing when the tags arrive, and a Book removed meanwhile receives nothing. See ACT.SHARED.WORKSPACE-SCALING."
       ],
       "selection": [
         "files/tests/test_mp3_tool_ui.py",
         "files/tests/test_mp3_workflow.py",
         "files/tests/test_mp3_panel_branches.py",
-        "files/tests/test_mp3_cp1_remediation.py"
+        "files/tests/test_mp3_cp1_remediation.py",
+        "files/tests/test_import_readback.py"
       ],
       "journeys": [
         "mp3.write-id3-then-combine",
@@ -14892,12 +14896,14 @@
         "Import Folder scans the chosen folder and its subfolders and replaces every Book with one Book per .m4b/.m4a/.mp4 file, in order, even when several files share a folder",
         "Add Files appends one Book per new file, skips a file already in the workspace and makes the last added Book current",
         "Import Folder asks before replacing Books that hold a source or edits",
-        "Importing reads tags only and writes nothing"
+        "Importing reads tags only and writes nothing",
+        "v0.8.2 Checkpoint 6: each committed source's tags and chapter titles are read on a worker (about 29 ms a file); the Books appear when every source was read, observed exactly as before, and the window stays responsive (2,341 files held it 70 s at 1d47024). See ACT.SHARED.WORKSPACE-SCALING."
       ],
       "selection": [
         "files/tests/test_m4b_metadata_editor_ui.py",
         "files/tests/test_m4b_metadata_workflow.py",
-        "files/tests/test_metadata_panel_branches.py"
+        "files/tests/test_metadata_panel_branches.py",
+        "files/tests/test_import_readback.py"
       ],
       "journeys": [
         "metadata.save-tags-then-clear"
@@ -20992,11 +20998,13 @@
         "Extended selection (Shift-click, Ctrl-click, Ctrl+A); a selected block moves as one with Move Up/Move Down or Alt+Up/Alt+Down and keeps its internal order; each button is enabled only when its action can apply.",
         "Remove, Delete, BackSpace and Clear All remove rows only; no source file is touched.",
         "Selection follows the occurrence, not the row index, so a moved row stays selected and two deliberate duplicates are two independent rows.",
-        "Shortcuts are bound to the list itself, so they never fire while typing in a field."
+        "Shortcuts are bound to the list itself, so they never fire while typing in a field.",
+        "v0.8.2 Checkpoint 6: selecting, restoring a selection and filling the rows are linear (Select All at 5,000 files: 0.68-0.75 s before, about 10 ms after); rows, order and selection are unchanged."
       ],
       "selection": [
         "files/tests/test_job_ui.py",
-        "files/tests/test_import_manager.py"
+        "files/tests/test_import_manager.py",
+        "files/tests/test_import_readback.py"
       ],
       "journeys": [],
       "verification": {
@@ -21202,6 +21210,248 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_book_navigator_actions.py::test_an_editor_style_subset_has_no_add_or_duplicate_button[row]"
+          }
+        ]
+      },
+      "exceptions": []
+    },
+    {
+      "id": "ACT.SHARED.WORKSPACE-SCALING",
+      "tool": "shared",
+      "title": "Large workspaces stay responsive: imports read off Tk, linear Book labels and list selection",
+      "release_required": true,
+      "applicability": {
+        "platforms": [
+          "windows"
+        ]
+      },
+      "source": [
+        {
+          "path": "scripts/shared/source_readback.py",
+          "symbols": [
+            "SourceReadback",
+            "SourceReadback.read_sources",
+            "SourceReadback.cancel",
+            "SourceReadback.reader",
+            "SourceReadback.finished",
+            "SourceReadback.failed"
+          ]
+        },
+        {
+          "path": "scripts/mp3/mp3_tool.py",
+          "symbols": [
+            "_PendingImport",
+            "MP3ToolUI._import_busy",
+            "MP3ToolUI._begin_readback",
+            "MP3ToolUI._show_reading",
+            "MP3ToolUI._drain_readback",
+            "MP3ToolUI._abandon_readback",
+            "MP3ToolUI._finish_readback",
+            "MP3ToolUI._project_import",
+            "MP3ToolUI._say_problems",
+            "MP3ToolUI._handle_outcome",
+            "MP3ToolUI.cancel_import",
+            "MP3ToolUI.close",
+            "MP3ToolUI.is_reading_tags",
+            "MP3ToolUI._assign_book_numbers",
+            "MP3ToolUI._render_tracks"
+          ]
+        },
+        {
+          "path": "scripts/m4b/metadata/m4b_metadata_editor.py",
+          "symbols": [
+            "_PendingImport",
+            "M4BMetadataEditorUI._import_busy",
+            "M4BMetadataEditorUI._begin_readback",
+            "M4BMetadataEditorUI._show_reading",
+            "M4BMetadataEditorUI._drain_readback",
+            "M4BMetadataEditorUI._abandon_readback",
+            "M4BMetadataEditorUI._finish_readback",
+            "M4BMetadataEditorUI._project_import",
+            "M4BMetadataEditorUI._say_problems",
+            "M4BMetadataEditorUI._handle_outcome",
+            "M4BMetadataEditorUI.cancel_import",
+            "M4BMetadataEditorUI.close",
+            "M4BMetadataEditorUI.is_reading_sources",
+            "M4BMetadataEditorUI._start_action",
+            "M4BMetadataEditorUI._assign_book_numbers"
+          ]
+        },
+        {
+          "path": "scripts/m4b/metadata/m4b_metadata_workflow.py",
+          "symbols": [
+            "source_readers",
+            "page_values",
+            "display_hint",
+            "add_files"
+          ]
+        },
+        {
+          "path": "scripts/m4b/maker/m4b_maker.py",
+          "symbols": [
+            "M4BMakerUI._assign_book_numbers",
+            "M4BMakerUI._render_tracks"
+          ]
+        },
+        {
+          "path": "scripts/shared/job_ui.py",
+          "symbols": [
+            "ImportedFileList.refresh",
+            "ImportedFileList.button_states",
+            "ImportedFileList._apply_selection"
+          ]
+        },
+        {
+          "path": "scripts/artwork/cover_resizer.py",
+          "symbols": [
+            "CoverBrowser._paint_selection"
+          ]
+        },
+        {
+          "path": "scripts/mp3/mp3_workflow.py",
+          "symbols": [
+            "import_folder"
+          ]
+        }
+      ],
+      "contracts": [
+        "The MP3 Tool and the Metadata Editor read a committed import's files (ID3 frames; MP4 tags and FFprobe chapter titles) on one worker per import, never on Tk; each distinct path is read once with the readers the workflow would have used, and the unchanged workflow functions make the Books from what was read, so every observation (readable or not, the reader's error text, chapter titles) is the synchronous path's.",
+        "Until every file was read the workspace is unchanged and the import is still running: 'Reading tags… N of M files' with Cancel Import, and Import Folder, Add Files, Clear All Imports and the tool's actions are refused; no Book ever exists whose source is only pending.",
+        "Cancel Import or Close while the files are read adds nothing, and a reading that ends later changes nothing; a reading that fails says so, adds nothing and frees the tool. Messages and problem lines are logged in the order they always were.",
+        "MP3 Add Files puts the files into the Book it was pressed on, by identity, even if another Book is showing when the tags arrive (that page stays showing and a pasted Chapter Titles edit on it is kept); a Book removed meanwhile receives nothing.",
+        "Rendering numbers the Books in linear time, and the Metadata Editor labels each Book from its Title alone (page_values' own rule, unchanged), so a keystroke or a Book switch no longer costs 0.16-0.25 s at 5,000 Books.",
+        "Metadata Editor Add Files decides which Books give way (only a pristine Book: no source, nothing typed) without comparing Books with each other; adding beside 5,000 Books no longer spends about 1 s on Tk.",
+        "The MP3 Tool and M4B Maker leave a Book's track list and its selection alone when a render changed no track; moves, removals, navigation and imports redraw it as before.",
+        "The shared imported-file list selects, restores a selection and fills its rows in linear time with one Tk call per run of rows (Select All 0.68-0.75 s at 5,000 files before).",
+        "Cover Image's browser paints a selection with one set of the selected images, not one per row (Select All on 5,000 images: 0.86 s before, under 0.1 s after); what is shown selected is unchanged.",
+        "MP3 Tool's folder import seeds every new Book in one workspace snapshot, equal value for value (revision included) to replacing them one at a time: 2,341 one-file folders took 0.5 s on Tk and 5,000 took 4.2 s; now 35 ms and 83 ms."
+      ],
+      "selection": [
+        "files/tests/test_import_readback.py",
+        "files/tests/test_mp3_tool_ui.py",
+        "files/tests/test_m4b_metadata_editor_ui.py",
+        "files/tests/test_m4b_metadata_workflow.py",
+        "files/tests/test_job_ui.py",
+        "files/tests/test_cover_browser.py"
+      ],
+      "journeys": [],
+      "verification": {
+        "all_of": [
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_import_readback.py::test_each_distinct_path_is_read_once_in_order_and_duplicates_share_the_answer"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_import_readback.py::test_a_reader_failure_comes_back_as_the_same_exception_and_the_same_observation"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_import_readback.py::test_a_cancelled_readback_stops_between_files_and_never_finishes"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_import_readback.py::test_a_worker_that_stops_unexpectedly_is_failed_not_finished_and_not_left_running"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_import_readback.py::test_a_path_never_handed_over_is_read_on_the_callers_thread_and_counted"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_import_readback.py::test_the_readback_module_imports_no_tk_and_writes_nothing"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_import_readback.py::test_mp3_tags_are_read_off_tk_and_the_import_is_made_only_when_they_are_read"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_import_readback.py::test_mp3_cancel_import_while_reading_adds_nothing_and_the_late_result_is_ignored"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_import_readback.py::test_mp3_a_reading_that_fails_adds_nothing_and_frees_the_tool"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_import_readback.py::test_mp3_close_while_reading_never_adopts"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_import_readback.py::test_mp3_add_files_lands_in_the_book_it_was_pressed_on"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_import_readback.py::test_mp3_add_files_for_a_book_removed_meanwhile_adds_nothing"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_import_readback.py::test_a_slow_mp3_import_keeps_the_tk_heartbeat"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_import_readback.py::test_editor_sources_are_read_off_tk_and_observed_exactly_as_before"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_import_readback.py::test_editor_cancel_import_while_reading_adds_nothing"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_import_readback.py::test_editor_add_files_appends_only_after_reading_and_skips_what_it_already_holds"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_import_readback.py::test_a_slow_editor_import_keeps_the_tk_heartbeat"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_import_readback.py::test_a_shared_edit_keeps_the_track_list_and_its_selection_and_navigation_refills_it[mp3]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_import_readback.py::test_a_shared_edit_keeps_the_track_list_and_its_selection_and_navigation_refills_it[maker]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_import_readback.py::test_book_numbering_is_linear_and_keeps_retired_numbers_retired[mp3]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_import_readback.py::test_book_numbering_is_linear_and_keeps_retired_numbers_retired[maker]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_import_readback.py::test_book_numbering_is_linear_and_keeps_retired_numbers_retired[editor]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_import_readback.py::test_mp3_folder_import_seeds_every_book_in_one_snapshot_equal_to_the_per_book_loop"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_import_readback.py::test_the_editor_selector_hint_is_still_the_page_title_rule"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_import_readback.py::test_labelling_the_editor_selector_builds_no_whole_page_per_book"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_import_readback.py::test_editor_add_files_drops_only_the_pristine_book_and_compares_no_books"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_import_readback.py::test_select_all_and_moving_a_large_selection_are_linear"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_cover_browser.py::test_painting_a_selection_reads_it_once_not_once_per_row[details]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_cover_browser.py::test_painting_a_selection_reads_it_once_not_once_per_row[list]"
           }
         ]
       },
@@ -28411,7 +28661,7 @@
     "Setup_and_Run-audiobook-creation-tool.bat": "2bfcc00f681f505a313efe107592abb3655c035f07fdbdc1d3ddad3f9b27e06e",
     "Setup_and_Run-audiobook-creation-tool.command": "321814409658fd1ebdf655278a43a9a556bc3d721582cb7943fd8664ba6c1420",
     "scripts/artwork/__init__.py": "f80bd6a1c3c51bd518d6aecc063e654d4c629de6dc85c627483bda87485fb400",
-    "scripts/artwork/cover_resizer.py": "42b044cd63e47364baf6a118c1e6dc5337fa27fc5ac5652cf0e497d5fb07221a",
+    "scripts/artwork/cover_resizer.py": "54e6a6242a774e63abdef4c499ca1665ece7395e8d744b6a4f7b5874262c6214",
     "scripts/artwork/m4b_artwork.py": "3e509b1be7fcf736bc1509042531dedb4eaeb566195e897e6f6adc0e3bbc1b81",
     "scripts/artwork/m4b_artwork_ui.py": "d7f6f01e6f16136fe2b898670f6409e8fd5d9f8c16c4c8361613bacc30c8a2c1",
     "scripts/artwork/mp3_artwork.py": "2c3066ab4539c48a405a88c595e44d60539bd49e635f4f4d75cbc03ca6b8608e",
@@ -28434,22 +28684,22 @@
     "scripts/m4b/m4b_staging.py": "2bdd120d172aad9c8ab54cb535f778b0ce9e94e641992c849a6d2d90960296f1",
     "scripts/m4b/m4b_winaudio.py": "19cc9ea93c8e8abee622621be95d828fe0ec2f4cfad4fc341ca7dbb138378a69",
     "scripts/m4b/maker/__init__.py": "44b46ce022c1d44c62e24901c993d25fd5fd466748baab3ee6b62a6d2599a989",
-    "scripts/m4b/maker/m4b_maker.py": "180cdb73743bb2c7ac3b00e3f34c658c5ca25e0ead09acf657568e9d8423c2d3",
+    "scripts/m4b/maker/m4b_maker.py": "db13e2e7c9c1ca1f8fe3ef35c360227babb46eeaecf979d437f9f2b703e7339a",
     "scripts/m4b/maker/m4b_maker_batch.py": "3b9dc94dd901c0ef2a6cc31c631660d30ade67c392b32fb765bfb61304986860",
     "scripts/m4b/maker/m4b_maker_plan.py": "d739a9069d17ecc1915b7b770d4ffb70044f2c79ebe510d74b2bcb110f31cda7",
     "scripts/m4b/maker/m4b_maker_processing.py": "1e8ab335a300549d4708aa816a061ca36146d2cdcb4737e4d0dcf4bb7754c732",
     "scripts/m4b/maker/m4b_maker_workflow.py": "ed2e3f0528065683b02c8b7f5c0fcdc3725c6711b1eeaf3df884208af56e921e",
     "scripts/m4b/metadata/__init__.py": "b369c0a23a5a1ced497355f6119db888853e931a90c7265bae3c94cf923aaeaa",
     "scripts/m4b/metadata/m4b_metadata_batch.py": "cf0e2f55d68388f956b8c18732af5c020103dafed7ca1bc80b9fc8886dec117a",
-    "scripts/m4b/metadata/m4b_metadata_editor.py": "1eefadf338ad8423c143b01b20dea1117f2ff87f1e84c2e8cd1509fb6bbd7717",
+    "scripts/m4b/metadata/m4b_metadata_editor.py": "2ae365b3866076f8a402bcadac7ac4c26f0d91a2ac2aeb7ae76b57d3155b2dce",
     "scripts/m4b/metadata/m4b_metadata_plan.py": "69ccf5e8e9b17a0801c5f556664c59060fd916c320a9124ac417a60b5e0b3958",
     "scripts/m4b/metadata/m4b_metadata_processing.py": "58ddfd565b486a5af62ac001b44292ffc79daf9f3d6496ef65283c6482ec2609",
-    "scripts/m4b/metadata/m4b_metadata_workflow.py": "29ac484c8768ae0eb57f46d9d674e122f441a01d603f3ba999fcaf9000e24bd2",
+    "scripts/m4b/metadata/m4b_metadata_workflow.py": "b76204fc56999873377ba8857e7a4fc16e2bdb978a574590f5ea8f836a103766",
     "scripts/mp3/__init__.py": "9b509f0a549209fcf0dd27fed262cd09d2215315754f4bfcad4b63fd1d8ae8c2",
     "scripts/mp3/mp3_plan.py": "780c8bef0505895e3c4db4394a33a9bdd041135250d34e23a6d0f0203040bc55",
     "scripts/mp3/mp3_processing.py": "e932558f28de02191a953264afe86466718147b3be3d2128dd0dffda004f55d1",
-    "scripts/mp3/mp3_tool.py": "cbe3d337e8e702c216652c69ee73107799fedcda00c72d9b07fe4b0ca2f118cc",
-    "scripts/mp3/mp3_workflow.py": "66c99cb1c2963a9a667abc4008752aa460370caa5bc1fee12776e228f4a1f0df",
+    "scripts/mp3/mp3_tool.py": "f6e98fa569aef08ae2dd19564247a0440808d18f2e6ab97a3c093721d4854bb9",
+    "scripts/mp3/mp3_workflow.py": "84cfd92fa82b3c32468e8f38db083512eb830af32f8ff19ad7110edd0371fd11",
     "scripts/shared/__init__.py": "7cdb3a3d2a4b1c757d93646a31f9c8d2f64af265b4dfbd01e570a566ad4e72fc",
     "scripts/shared/appearance.py": "1083d4880cc44d146c4ee6682a3f00630f4ada1e1cfa298a33c04e5a502a2d71",
     "scripts/shared/artifact_store.py": "84ebb78a1787037d5feb64e5ffe0ef3a97edcda290c8ca8a359bffa3b306692c",
@@ -28479,7 +28729,7 @@
     "scripts/shared/import_coordination.py": "055cddf959b8dd7f7cc2b829763896ddf48cc62fdad099785991817e65939ad6",
     "scripts/shared/importing.py": "5a57e4ed22317e0eba1821fc5dabb9e6b86128b0c942015266fabf7ac3addfbb",
     "scripts/shared/job_control.py": "4efef28b6cdd6cead3f354042b2615f0567ddabd6ecd9627c7c475a1ac9d0143",
-    "scripts/shared/job_ui.py": "2aa44aa30d1da3ec2ced7946f079834d6d4318a66abf40141f63391c2a28f5d1",
+    "scripts/shared/job_ui.py": "603782e07f498818304d35ce95652508186fd9ae39c6b07fee1b56c0079f24e9",
     "scripts/shared/logging_setup.py": "4dcd19cf5528831d58d1afca51f0866ddf3f60c1bad7ade47f2976456bf53495",
     "scripts/shared/long_paths.py": "3c1caaa770166ddfef6ad9fc89292d2a2af49d8eefc4d9e642bcb8aee66c89a1",
     "scripts/shared/macho.py": "3edd3d499287a289a7e1f1fa468ccc5238b2b56bad0a2e1c595399132d5b0c09",
@@ -28504,6 +28754,7 @@
     "scripts/shared/preferences_ui.py": "a587859b3e8d0385baf8bf757c6bf669040d2edfa81bdb923375076377c62ef4",
     "scripts/shared/release.py": "bfdf0c5fc1830bdf47a3a6e96a4d3e5a5e16345c32bb32abe1492a01b2aa67d3",
     "scripts/shared/settings.py": "2f564a150ce9b5f0dce110d711e54e8c00f18dc59a017d59e31936bcc136f84f",
+    "scripts/shared/source_readback.py": "73b639ed4777cc1047fc40b7893c9dd292a112fe6ec7fb50a4b51991af0712a8",
     "scripts/shared/spacy_store.py": "089d966bc82296250c97fa98014ea8a269945f1a237064b24d26a050dd4d42f2",
     "scripts/shared/subprocess_utils.py": "0448a626eb11ca69e6be944810c7c412b12d77787aa991809b49707b119d1a3d",
     "scripts/shared/ui_theme.py": "6c60ddc9dbc0768e4fef051c38daa7e9979d790471c560cf4a56c1b58d46d2ef",
@@ -31670,6 +31921,15 @@
         "phase": "P7",
         "source": "owner decision, not the census",
         "why": "Not in the census: added on Windows in v0.8.2 Checkpoint 5 after the census SHA; no macOS test of it has run. Native macOS qualification is PENDING by owner decision (2026-11-21), owned by the macOS release qualification (P7); its Windows standing is unaffected."
+      },
+      "ACT.SHARED.WORKSPACE-SCALING": {
+        "tests": {},
+        "skipped_by": {},
+        "journeys": {},
+        "class": "pending",
+        "phase": "P7",
+        "source": "owner decision, not the census",
+        "why": "Not in the census: added on Windows in v0.8.2 Checkpoint 6 after the census SHA; no macOS test of it has run. Native macOS qualification is PENDING by owner decision (2026-11-21), owned by the macOS release qualification (P7); its Windows standing is unaffected."
       }
     }
   }

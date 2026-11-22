@@ -19,7 +19,8 @@ The M4B Metadata Editor changes the tags, chapter titles and cover art of audiob
 - **Import Folder** (dialog "Select a folder of M4B files") scans the folder and all its subfolders (hidden folders excluded) and replaces the workspace with one Book per `.m4b`/`.m4a`/`.mp4` file, in order. Two files in one folder are two Books. If any Book already holds a file or edits, it asks "Replace the current Books?" first.
 - **Add Files** (dialog "Select M4B file(s)") appends one Book per new file, skips files already in the workspace and makes the last added Book current.
 - Each file's tags, series information, cover presence and chapter titles are read once; nothing is written. The log says how many Books were made and how many were skipped.
-- Both buttons are ignored during a scan and disabled while an action runs.
+- Since v0.8.2 Checkpoint 6 the reading happens in the background after the scan: "Reading tags and chapters… N of M files" with Cancel Import (which adds nothing); the Books appear when every file was read (`ACT.SHARED.WORKSPACE-SCALING`).
+- Both buttons are ignored during a scan or while the files are read, and disabled while an action runs.
 - "Replace the current Books?" is asked only over Books that hold work; No keeps them all and opens no folder dialog (ACT72-053, v0.7.2 Phase 6). No journey drives the real folder dialog (only Add Files' dialog is driven natively).
 
 ### Import progress, Cancel Import and scan confirmations

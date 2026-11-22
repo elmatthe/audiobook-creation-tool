@@ -154,16 +154,34 @@ def tagged(path: Path, **frames: str) -> Path:
     return path
 
 
+def settle_reading(panel, timeout: float = 20.0) -> None:
+    """v0.8.2 Checkpoint 6: a committed import's files are read on a worker; the import ends when they are read.
+
+    With the suite's inline threads that happens inside the import call; with real ones (a panel built by the real
+    shell) pump until it has."""
+    import time
+
+    deadline = time.monotonic() + timeout
+    while panel.is_reading_tags:
+        if time.monotonic() > deadline:
+            raise AssertionError("the import's files were not read in time")
+        panel._pump.tick()
+        if panel.is_reading_tags:
+            time.sleep(0.003)
+
+
 def import_folder(panel, root: Path):
     panel._choose_folder = lambda: (str(root),)
     panel.import_folder()
     panel._pump.tick()
+    settle_reading(panel)
     return panel.workspace
 
 
 def add_files(panel, *paths: Path):
     panel._choose_files = lambda: tuple(str(p) for p in paths)
     panel.add_files()
+    settle_reading(panel)
     return panel.workspace
 
 
@@ -921,10 +939,12 @@ def wait_until_prepared(panel, timeout: float = 20.0) -> None:
 
 def conversion_workers(panel) -> list:
     """The processing workers (``mp3-<run id>``) the panel's thread factory made: not the preparation workers
-    (``mp3-prepare-N``, v0.8.2), not the workers that release an unused empty run (``mp3-release-N``, v0.8.2 R1)
-    and not the import scans (``import-...``)."""
+    (``mp3-prepare-N``, v0.8.2), not the workers that release an unused empty run (``mp3-release-N``, v0.8.2 R1),
+    not the workers that read an import's tags (``mp3-readback-N``, v0.8.2 CP6) and not the import scans
+    (``import-...``)."""
     return [made for made in panel._thread_factory.made
-            if made.name.startswith("mp3-") and not made.name.startswith(("mp3-prepare-", "mp3-release-"))]
+            if made.name.startswith("mp3-")
+            and not made.name.startswith(("mp3-prepare-", "mp3-release-", "mp3-readback-"))]
 
 
 def reservations_under(tmp_path, monkeypatch):

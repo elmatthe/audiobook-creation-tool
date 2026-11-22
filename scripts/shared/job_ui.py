@@ -903,10 +903,12 @@ class ImportedFileList:
         """Action key -> enabled. Derived, so the buttons cannot drift from the list."""
         self._guard.require("button_states")
         count = self._manager.count
-        selected = self.selection
+        # v0.8.2 Checkpoint 6: one set, not one per row -- rebuilt per row it made Select All quadratic (0.75 s at
+        # 5,000 imported files).
+        selected = set(self.selection)
         indices = tuple(
             index for index, occurrence in enumerate(self._order)
-            if occurrence in set(selected))
+            if occurrence in selected)
         usable = not self._locked and not self._closed
         return {
             "add_files": usable and self._on_add_files is not None,
@@ -929,8 +931,9 @@ class ImportedFileList:
         self._order = snapshot.occurrence_ids
         try:
             self.listbox.delete(0, "end")
-            for position, imported in enumerate(snapshot.files, start=1):
-                self.listbox.insert("end", _row_text(position, imported))
+            rows = [_row_text(position, imported) for position, imported in enumerate(snapshot.files, start=1)]
+            if rows:
+                self.listbox.insert("end", *rows)  # one Tk call for the whole list (v0.8.2 Checkpoint 6)
         except tk.TclError:
             return ()
         restored = self._apply_selection(wanted)
@@ -1080,11 +1083,20 @@ class ImportedFileList:
         self._manager.select(keep)
         if not _alive(self.listbox):
             return keep
+        chosen = set(keep)
         try:
             self.listbox.selection_clear(0, "end")
+            # v0.8.2 Checkpoint 6: one set (not one per row), and one Tk call per run of adjacent selected rows.
+            first = None
             for index, occurrence in enumerate(self._order):
-                if occurrence in set(keep):
-                    self.listbox.selection_set(index)
+                if occurrence in chosen:
+                    if first is None:
+                        first = index
+                elif first is not None:
+                    self.listbox.selection_set(first, index - 1)
+                    first = None
+            if first is not None:
+                self.listbox.selection_set(first, len(self._order) - 1)
         except tk.TclError:
             return keep
         return keep
