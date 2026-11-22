@@ -1221,10 +1221,15 @@ def test_a_clone_take_that_reads_back_wrongly_is_rejected_then_the_next_take_is_
 
 
 class FakeRecognizer:
-    """Stands in for the .venv-qwen3 whisper call: writes the JSON the real tool writes."""
+    """Stands in for the .venv-qwen3 whisper call: writes the JSON the real tool writes.
+
+    The read-back hands the recognizer ``qwen3_runtime.worker_environment()``, which creates the Qwen3 cache and scratch
+    folders it names. Under test those belong to ``tmp_path``: the Qwen3 runtime folder is redirected there, so nothing
+    is created in the checkout's real ``files/runtime-data/qwen3``."""
 
     def __init__(self, monkeypatch, text, tmp_path):
         self.text = text
+        self.env = None
         venv = tmp_path / "python.exe"
         venv.write_text("", encoding="utf-8")
         from tts import qwen3_runtime as rt
@@ -1232,11 +1237,14 @@ class FakeRecognizer:
 
         whisper = tmp_path / "whisper"
         whisper.mkdir()
+        runtime = tmp_path / "qwen3-runtime"
+        monkeypatch.setattr(rt, "runtime_dir", lambda: runtime)
         monkeypatch.setattr(rt, "venv_python", lambda: venv)
         monkeypatch.setattr(exp, "WHISPER_DIR", whisper)
         monkeypatch.setattr(vp.subprocess, "run", self.run)
 
     def run(self, command, **kwargs):
+        self.env = kwargs.get("env")
         out, wav = Path(command[-2]), command[-1]
         out.write_text(json.dumps({wav: self.text}), encoding="utf-8")
         return type("R", (), {"returncode": 0, "stderr": ""})()
@@ -1258,6 +1266,25 @@ def test_the_read_back_check_names_what_is_wrong_with_the_speech(monkeypatch, tm
     else:
         assert any(expected_fragment in p for p in problems), problems
     assert not list(tmp_path.glob("*.readback.json"))  # nothing is left behind
+
+
+def test_the_read_back_check_creates_nothing_in_the_real_qwen3_runtime_folder(monkeypatch, tmp_path):
+    """v0.8.2: the read-back tests used to leave empty ``files/runtime-data/qwen3/cache/{hf,numba,pip,torch,xdg}`` and
+    ``qwen3/tmp`` folders in the checkout. The recognizer's caches and scratch must lie in this test's own folder, and
+    none of those real folders may appear."""
+    from tts import qwen3_runtime as rt
+
+    real = rt.runtime_dir()
+    watched = [real, real / "tmp", real / "cache",
+               *(real / "cache" / name for name in ("hf", "torch", "numba", "xdg", "pip"))]
+    before = {path: path.exists() for path in watched}
+    recognizer = FakeRecognizer(monkeypatch, vp.SAMPLE_TEXT, tmp_path)
+    assert vp.read_back_problems(write_wav(tmp_path / "clip.wav")) == []
+    assert {path: path.exists() for path in watched} == before
+    assert recognizer.env is not None
+    for name in ("TEMP", "TMP", "HF_HOME", "TORCH_HOME", "NUMBA_CACHE_DIR", "XDG_CACHE_HOME"):
+        assert Path(recognizer.env[name]).is_relative_to(tmp_path), (name, recognizer.env[name])
+        assert Path(recognizer.env[name]).is_dir(), name  # the product still prepares them, inside the test's folder
 
 
 def test_the_read_back_check_cannot_pass_silently_when_the_recognizer_is_missing(monkeypatch, tmp_path):

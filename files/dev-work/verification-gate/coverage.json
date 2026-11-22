@@ -21564,6 +21564,30 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_import_edit_guard.py::test_editor_a_paste_nothing_reported_yet_is_committed_and_kept_at_completion"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_import_edit_guard.py::test_maker_an_edit_while_the_folder_is_scanned_is_kept[pasted_titles]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_import_edit_guard.py::test_maker_an_edit_while_the_folder_is_scanned_is_kept[move_track]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_import_edit_guard.py::test_maker_an_edit_while_the_folder_is_scanned_is_kept[remove_track]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_import_edit_guard.py::test_maker_an_edit_while_the_folder_is_scanned_is_kept[add_book]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_import_edit_guard.py::test_maker_an_edit_while_the_folder_is_scanned_is_kept[duplicate_book]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_import_edit_guard.py::test_maker_a_paste_nothing_reported_yet_is_committed_and_kept_at_completion"
           }
         ]
       },

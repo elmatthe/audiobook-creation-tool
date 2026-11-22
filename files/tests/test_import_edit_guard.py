@@ -320,11 +320,25 @@ def maker_scanning(make_maker_panel, tmp_path):
     return panel, release
 
 
-@pytest.mark.parametrize("edit", ["field", "remove_book", "navigate_only"])
+@pytest.mark.parametrize("edit", ["field", "pasted_titles", "move_track", "remove_track", "add_book",
+                                  "duplicate_book", "remove_book", "navigate_only"])
 def test_maker_an_edit_while_the_folder_is_scanned_is_kept(make_maker_panel, tmp_path, edit):
     panel, release = maker_scanning(make_maker_panel, tmp_path)
     if edit == "field":
         panel.set_book_field("title", "Typed while scanning")
+    elif edit == "pasted_titles":
+        panel.chapter_text.delete("1.0", "end")
+        panel.chapter_text.insert("1.0", "Pasted One\nPasted Two")  # no key release: only the flush sees it
+    elif edit == "move_track":
+        panel.select_tracks(1)
+        panel.move_up()
+    elif edit == "remove_track":
+        panel.select_tracks(0)
+        panel.remove_selected_tracks()
+    elif edit == "add_book":
+        panel.on_add()
+    elif edit == "duplicate_book":
+        panel.on_duplicate()
     elif edit == "remove_book":
         panel.on_remove(True)
     else:
@@ -342,3 +356,18 @@ def test_maker_an_edit_while_the_folder_is_scanned_is_kept(make_maker_panel, tmp
     assert summary(panel)[-1] == REFUSED and panel.import_status.text == REFUSED
     assert make_maker_panel.dialogs[-1] == ("warning", REFUSED)
     assert kwf  # the workflow is unchanged: the guard is the panel's
+
+
+def test_maker_a_paste_nothing_reported_yet_is_committed_and_kept_at_completion(make_maker_panel, tmp_path):
+    panel, release = maker_scanning(make_maker_panel, tmp_path)
+    owner = panel.workspace.current_book_id
+    panel.chapter_text.delete("1.0", "end")
+    panel.chapter_text.insert("1.0", "Unreported One\nUnreported Two")
+    panel.chapter_text.edit_modified(False)  # no key release and no flush: only the completion's check sees it
+    release.set()
+    pump_until(panel, lambda: not panel._coordinator.is_active)
+    panel._pump.tick()
+    books = {book.book_id: book for book in panel.workspace.books}
+    assert owner in books, "the Books were not replaced"
+    assert books[owner].configuration.get("chapter_titles") == "Unreported One\nUnreported Two"
+    assert summary(panel)[-1] == REFUSED and panel.import_status.text == REFUSED
