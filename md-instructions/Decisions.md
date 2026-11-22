@@ -2,6 +2,13 @@
 
 Append-only. Newest entries on top. Each entry: date, decision, why, signed by whoever made it.
 
+## 2026-11-22 — v0.8.2: Windows excuses the `files/dev-work/` "no colliding test basename" skip, and only that one
+
+Signed: Claude Code (Sonnet 5.5), HOME-PC, self-reviewed. Evidence: Handoff "v0.8.2 Windows skip-policy reconciliation".
+- **Decision.** Add one exact, anchored Windows skip rule (`windows-dev-work-local-fixture-absent`, max 1) for the reason "files/dev-work/ currently holds no colliding test basename".
+- **Why.** In a clean clone `files/dev-work/` exists but holds no local test copies, so the isolation test's `dev-work` case cannot find a collision and skips by design (its docstring: a fresh clone must not turn the suite red). macOS already excused the reason; Windows did not, so the Windows Full gate reported an unexpected skip.
+- **Not widened.** The `files/runtime-data/` twin stays under the existing generic rule; the Qwen3 absence is still not excused on Windows (macOS-only rule, owner decision Q2=A); no pattern was loosened and no production check changed.
+
 ## 2026-11-22 — v0.8.2 Windows qualification: Import Folder replaces only the Books the user agreed to replace; a Book changed while the import ran is kept and the replacement refused
 
 Signed: Claude Code (Opus 5.5), HOME-PC, self-reviewed (not independently reviewed). Evidence: Handoff "v0.8.2 Windows qualification"; `files/dev-work/v0.8.2-qual-evidence/` (ignored, local).

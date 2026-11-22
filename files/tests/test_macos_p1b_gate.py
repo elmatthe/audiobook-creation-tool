@@ -184,6 +184,45 @@ def test_the_isolation_guards_link_skip_has_its_own_exact_rule_and_the_generic_o
     assert problems and problems[0].startswith("unexpected skip")
 
 
+#: v0.8.2 skip-policy reconciliation: a clean Windows clone has files/dev-work/ (tracked gate and feature-map trees) but no
+#: local test copies, so test_dev_work_isolation's dev-work case skips with exactly this reason. macOS already excused it.
+DEV_WORK_REASON = "files/dev-work/ currently holds no colliding test basename"
+RUNTIME_DATA_REASON = "files/runtime-data/ currently holds no colliding test basename"
+QWEN3_REASON = "no Qwen3 environment or Base model on this machine"
+
+
+def test_windows_excuses_only_the_dev_work_local_fixture_absence_and_nothing_wider():
+    windows, darwin = POLICY["skip_policy"]["win32"], POLICY["skip_policy"]["darwin"]
+    rules = {rule["id"]: rule for rule in windows}
+    own, generic = rules["windows-dev-work-local-fixture-absent"], rules["local-fixture-absent"]
+    assert own["max"] == 1 and len(own["why"]) > 120 and own["pattern"].startswith("^") and own["pattern"].endswith("$")
+    assert generic["max"] == 6 and not re.search(generic["pattern"], DEV_WORK_REASON), "the generic rule is unchanged"
+    assert re.search(generic["pattern"], RUNTIME_DATA_REASON), "the sibling workspace stays with the generic rule"
+    assert not re.search(own["pattern"], RUNTIME_DATA_REASON)
+    # The exact expected skip is accepted, counted once, and a second is over the ceiling.
+    one =[{"id": "test_dev_work_isolation.py::test_the_hazard_is_real_where_the_workspace_exists[dev-work]",
+            "reason": DEV_WORK_REASON}]
+    problems, tally = pytest_reports.skip_policy_problems(one, [], windows)
+    assert problems == [] and tally == {own["id"]: 1}
+    problems, _ = pytest_reports.skip_policy_problems(one + [{"id": "t::two", "reason": DEV_WORK_REASON}], [], windows)
+    assert any("more than" in problem and own["id"] in problem for problem in problems)
+    # Nothing near it is excused: the sibling workspace, a loose or prefixed reason, the Qwen3 absence, an unrelated reason.
+    for other in (QWEN3_REASON, "files/dev-work/ currently holds no colliding test basename.",
+                  "x files/dev-work/ currently holds no colliding test basename", "files/dev-work/ is local-only and not present here",
+                  "files/dev-work/", "a reason nobody reviewed", ""):
+        problems, _ = pytest_reports.skip_policy_problems([{"id": "t::x", "reason": other}], [], windows)
+        assert problems and problems[0].startswith("unexpected skip"), other
+    for rule in windows:
+        if rule is not own:
+            assert not re.search(rule["pattern"], DEV_WORK_REASON), rule["id"]
+    # Windows still has no Qwen3 allowance; the macOS rule that excuses it (and the dev-work reason) is untouched.
+    assert not any(re.search(rule["pattern"], QWEN3_REASON) for rule in windows)
+    darwin_rules = {rule["id"]: rule for rule in darwin}
+    assert darwin_rules["qwen3-windows-only"]["max"] == 8 and re.search(darwin_rules["qwen3-windows-only"]["pattern"], QWEN3_REASON)
+    assert darwin_rules["local-fixture-absent"]["max"] == 4 and re.search(darwin_rules["local-fixture-absent"]["pattern"], DEV_WORK_REASON)
+    assert "windows-dev-work-local-fixture-absent" not in darwin_rules
+
+
 def test_fresh_macos_is_a_darwin_scenario_and_windows_keeps_its_frozen_set():
     verify = load_gate("act_verify_p1b_gate")
 

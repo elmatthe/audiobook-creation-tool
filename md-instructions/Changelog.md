@@ -15,6 +15,9 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [0.8.2] - unreleased (development branch `0.8.2`; nothing is tagged, merged or published)
 
+**Changed (Windows verification policy; the app is unchanged)**
+- The Windows skip policy now excuses exactly one more reason, "files/dev-work/ currently holds no colliding test basename" (max 1), which a clean clone produces because it holds no local test copies. Qwen3 absence and every other unreviewed skip remain failures on Windows. One focused policy test added (`test_macos_p1b_gate.py`).
+
 **Fixed (Windows full-gate closeout; tests only, the app is unchanged)**
 - A developer test no longer leaves empty folders in the app's runtime data. Four cases of `test_voice_previews` (the voice-preview tool's speech read-back) built the Qwen3 engine's process environment, which creates `files/runtime-data/qwen3/cache/{hf,numba,pip,torch,xdg}` and `qwen3/tmp`, in the checkout's real runtime data; on a computer without Qwen3 the suite's own production-state guard then failed the next test that looked. The test now points the Qwen3 runtime folder at its own temporary folder, and a new test proves nothing appears in the real one and that the engine's caches and scratch lie in the test's folder (it fails, and the guard fires, when the redirect is removed). The tool and the app keep their behaviour: the folders are still prepared, inside the test's folder.
 - The tests of Import Folder's edit protection now cover the M4B Maker as fully as the MP3 Tool: pasted Chapter Titles, a track moved or removed, a Book added or duplicated while the folder is scanned, and a paste no key release reported (6 new cases; the protection itself is unchanged).

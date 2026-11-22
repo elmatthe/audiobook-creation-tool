@@ -193,6 +193,12 @@
         "why": "v0.8.1 review R2: test_suite_isolation.py::test_a_link_in_the_bundled_cache_is_not_excused creates one real symbolic link inside a synthetic bundled-Python cache to prove the runtime-data guard still records a link named like a .pyc. Windows allows that only to an account with SeCreateSymbolicLinkPrivilege or Developer Mode. The test skips on exactly OSError.winerror 1314, re-raises every other error and never simulates a link; the same predicate is also proved without any link by the separate passing stub-entry test. On a privileged account the test runs and this skip does not occur. It has its own rule so it can neither raise nor consume the generic no-symlink-privilege allowance."
       },
       {
+        "id": "windows-dev-work-local-fixture-absent",
+        "pattern": "^files/dev\\-work/\\ currently\\ holds\\ no\\ colliding\\ test\\ basename$",
+        "max": 1,
+        "why": "v0.8.2 skip-policy reconciliation: test_dev_work_isolation.py::test_the_hazard_is_real_where_the_workspace_exists[dev-work] skips with exactly this reason when files/dev-work/ exists but holds no test_*.py whose basename collides with a files/tests module. In a clean clone only the tracked files/dev-work/verification-gate and feature-map trees exist, so no collision is present; the owner's checkout always holds local copies and the test runs there. The test's own docstring says a fresh clone must not turn the suite red, and the macOS policy already excuses this reason. This rule mirrors it for Windows for the dev-work parametrisation only: files/runtime-data/ stays under the existing generic local-fixture-absent rule, which is unchanged, and no other reason is widened. Qwen3 absence is still not excused on Windows."
+      },
+      {
         "id": "case-insensitive-filesystem",
         "pattern": "^(this filesystem is case-insensitive, so the two names are one file|the Windows path layer is case-blind by definition)$",
         "max": 3
