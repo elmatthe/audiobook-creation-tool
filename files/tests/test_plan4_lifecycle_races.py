@@ -49,6 +49,7 @@ from __future__ import annotations
 
 import queue
 import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -278,9 +279,17 @@ class ParkedScan:
 
 
 def start_cover_run(panel, size: int = 256):
-    """Accept one Cover run without touching a single image. 256 is the smallest size Cover Image makes (ACT72-025)."""
+    """Accept one Cover run without touching a single image. 256 is the smallest size Cover Image makes (ACT72-025).
+
+    v0.8.2 CP5: a standard Start is prepared off Tk (on the panel's thread factory, real threads here) and adopted by
+    the pump, so this ticks the pump until the preparation has been adopted (bounded)."""
     panel.var_size.set(size)
     panel.start_resize()
+    deadline = time.monotonic() + WAIT
+    while panel._preparing is not None and time.monotonic() < deadline:
+        panel._pump.tick()
+        time.sleep(0.002)
+    assert panel._preparing is None, "the Cover preparation was never adopted"
     return panel.job_controller
 
 

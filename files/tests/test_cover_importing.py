@@ -1061,10 +1061,23 @@ def test_the_processing_worker_and_its_queue_protocol_are_unchanged():
 
 
 def test_the_start_of_a_resize_still_reserves_only_after_validation():
-    """The run directory is created on a validated start, never at panel build."""
-    start = method_named("start_resize")
-    body = ast.unparse(start)
-    assert body.index("showwarning") < body.index("reserve_run_directory")
+    """The run directory is created on a validated start, never at panel build.
+
+    v0.8.2 Checkpoint 5: the reservation moved from the press into the preparation worker's body, ``prepare_run``,
+    which only ``_start_preparation`` starts, and which ``start_resize`` reaches only after its validation (the empty
+    list and the typed size) and only for standard output.
+    """
+    start = ast.unparse(method_named("start_resize"))
+    assert start.index("showwarning") < start.index("_start_preparation")
+    assert start.index("Bad size") < start.index("_start_preparation")
+    assert "reserve_run_directory" not in start
+    tree = ast.parse(PANEL_SOURCE.read_text(encoding="utf-8"))
+    reservers = {node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)
+                 and "reserve_run_directory" in ast.unparse(node)}
+    assert reservers == {"prepare_run"}, reservers
+    starters = {node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)
+                and "prepare_run(" in ast.unparse(node) and node.name != "prepare_run"}
+    assert starters == {"_start_preparation"}, starters
     build = method_named("__init__")
     assert "reserve_run_directory" not in ast.unparse(build)
 

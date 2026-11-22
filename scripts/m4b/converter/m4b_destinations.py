@@ -42,9 +42,9 @@ from pathlib import Path
 from shared.importing import ImportedFile, planning_groups
 from shared.output_paths import (
     DestinationPlanner,
+    InputIndex,
     sanitize_component,
     UnsafePathError,
-    assert_not_input,
     plan_flat,
     plan_mirrored,
     plan_multi_root,
@@ -257,6 +257,7 @@ def plan_outputs(
     run_root: Path,
     planner: DestinationPlanner,
     split: bool = False,
+    inputs: InputIndex | None = None,
 ) -> tuple[PlannedOccurrence, ...]:
     """Plan every output of one run, in the frozen queue's own order.
 
@@ -271,11 +272,19 @@ def plan_outputs(
     cannot plan onto the same path.
 
     Every destination is checked against every source in the run, so no output
-    can overwrite a file being read.
+    can overwrite a file being read. *inputs* is the run's one
+    :class:`~shared.output_paths.InputIndex` (``m4b_plan.assemble_plan`` builds it over
+    **every** frozen occurrence, usable or not); without it one is built here from
+    *entries*. v0.8.2 Checkpoint 5: each destination is one lookup. The one-shot
+    ``assert_not_input`` normalised every source again for every destination, so a
+    run of D outputs from N books cost D·(N+1) path resolutions here and as many
+    again in ``assemble_plan`` (250 whole books: 126,000, 20.9 s).
     """
     entries = tuple(entries)
     if not entries:
         return ()
+    if inputs is None:
+        inputs = InputIndex(entry.path for entry in entries)
 
     direct, grouped = _bucket(entries)
     _cross_check(direct, grouped, entries)
@@ -302,9 +311,8 @@ def plan_outputs(
             for name in _expand([entry], requested):
                 planned[entry.occurrence_id].append(
                     planner.plan(name[1], subdir=subdir))
-        sources = tuple(entry.path for entry in entries)
         for destination in (p for paths in planned.values() for p in paths):
-            assert_not_input(destination, sources)
+            inputs.assert_not_input(destination)
         return tuple(
             PlannedOccurrence(
                 occurrence_id=entry.occurrence_id,
@@ -345,9 +353,8 @@ def plan_outputs(
         absorb(pairs, plan_multi_root(
             run_root, expanded, planner=planner, rename=_renamer(pairs)))
 
-    sources = tuple(entry.path for entry in entries)
     for destination in (path for paths in planned.values() for path in paths):
-        assert_not_input(destination, sources)
+        inputs.assert_not_input(destination)
 
     return tuple(
         PlannedOccurrence(

@@ -124,6 +124,7 @@ Source: `scripts/artwork/cover_resizer.py` (the panel `CoverResizerUI`, the brow
 - **Behaviour:** after validation, one new folder `<output base>/Cover-Image-Outputs/Cover-Image-N` is reserved and everything is written inside it. Individually added files land flat; one imported folder keeps its sub-folders; several imported folders each get their own container. Name clashes are resolved before the run starts (cover.jpg, cover-1.jpg). Once the run starts the Output field shows the run folder.
 - **Failure/retry:** if the run folder cannot be reserved, an "Output folder" error is shown and nothing starts. Retried images go to the paths planned for them originally and never overwrite an earlier success.
 - A run folder that cannot be made, and a destination plan refused after the folder was reserved, each show the "Output folder" message and start nothing; the refused plan also gives the empty folder back (ACT72-050, ACT72-061, fixed in v0.7.2 Phase 6).
+- Since v0.8.2 Checkpoint 5 the folder is reserved and the destinations planned on a background thread after the press (`ACT.COVER.PREPARATION`); the message, the release of the empty folder and the destinations are unchanged.
 
 ### Create numbered copies beside the source
 `ACT.COVER.NUMBERED-COPIES`
@@ -156,6 +157,7 @@ Source: `scripts/artwork/cover_resizer.py` (the panel `CoverResizerUI`, the brow
 
 - **Purpose:** only the confirmed Replace route may change an original.
 - **Behaviour:** in standard and numbered-copy modes no destination is ever an imported file, and every source is unchanged after the run, including a file imported twice. Removing or clearing rows never deletes files, and showing details or thumbnails never writes to an image.
+- Each image's destination is checked against one list of the run's inputs made at its first image (v0.8.2 Checkpoint 5); before, every image re-read every input's location (about 25 million look-ups over 5,000 images). An output that is an input, in any letter case, is still refused for that image and the input is untouched.
 
 ### Resize Covers (start a run)
 `ACT.COVER.RUN`
@@ -164,6 +166,14 @@ Source: `scripts/artwork/cover_resizer.py` (the panel `CoverResizerUI`, the brow
 - **How to reach it:** 3. Output & Run, Resize Covers (the panel's default button).
 - **Behaviour:** with an empty list it shows "No files: Please import images first." and starts nothing. The list, size, crop/letterbox choice and mode are fixed when the run starts; later edits or imports cannot change it. Only one run at a time. During the run the list, import options and resize options are disabled; Cancel Import and the view switch stay usable; everything unlocks when the run ends.
 - **States:** running, pause requested, paused, cancel requested, then succeeded, completed with failures, or cancelled.
+
+### Preparing a standard-output run
+`ACT.COVER.PREPARATION`
+
+- **Purpose:** keep the window responsive between pressing Resize Covers and the first image starting, however many images are queued (v0.8.2 Checkpoint 5). Before, a standard-output Start reserved the run folder and planned every destination on the window's thread: 0.13 s at 250 images, 1.17 s at 2,341, 2.43 s at 5,000, 3.89 s for 5,000 images in sub-folders and 4.53 s for three imported folders (HOME-PC, fee286f).
+- **Behaviour:** the press checks and freezes everything exactly as before (`ACT.COVER.RUN`), takes the output Preferences in force, shows "Preparing job…" with Cancel available and Pause disabled, locks the list and the options, and returns at once. One short-lived background thread then reserves the numbered run folder and plans every image's destination, with every containment and link check; it never touches the window and waits up to 0.25 s for the window to paint the press first. When the plan is ready the resize starts as before, and the Output field shows the run folder. Destinations are exactly the ones the synchronous Start chose.
+- **Only the standard route prepares.** Numbered copies and Replace original files reserve nothing and plan nothing at Start, so they start as before; the replacement's checks and its confirmation are still made on the window, in the same order, and nothing prepared can ever replace an original.
+- **Cancel or closing the tool during preparation** starts nothing and leaves no run folder ("Cancelled — nothing was started"); Cancel is acknowledged at once ("Cancelling preparation…") and the panel frees itself when the background thread reaches its next image. A refused or failed preparation (output folder, a destination that cannot be planned, an unexpected error) shows the same "Output folder" message as before, or "Resize not started", and starts nothing; the previous run's result, output folder and Retry Failed stay usable and Resize Covers works again. A result that arrives after Cancel, after a newer press or twice is released and never run. Changing Preferences after the press does not change where the run goes. Retry Failed is not re-planned. A job area that cannot be built, or a resize that cannot be started, no longer leaves the panel locked.
 
 ### Progress, estimate and run report
 `ACT.COVER.RUN-REPORT`
@@ -242,6 +252,8 @@ Source: `scripts/artwork/cover_resizer.py` (the panel `CoverResizerUI`, the brow
 - Display scaling at 125%, 150% and 200%, and approval of the captured visual baselines (owner).
 - The replacement confirmation answered with real input in the running app, and real HEIC files through the real dialog (no native journey).
 - Behaviour when the disk fills or the output base is unwritable during a run.
-- Very large batches (thousands of images) for memory and responsiveness beyond the decoding caps.
+- Very large batches (thousands of images) for memory and responsiveness beyond the decoding caps, except the standard Start (measured to 5,000 synthetic images in v0.8.2 Checkpoint 5, `ACT.COVER.PREPARATION`).
+- With Replace original files, the checks made before the confirmation still run on the window: about 0.6 s at 2,341 images and 1.2 s at 5,000 (measured in v0.8.2 Checkpoint 5, not changed: it is the destructive path's gate).
+- `ACT.COVER.PREPARATION` on macOS (pending, P7).
 - The standalone `main()` window.
 - macOS and Windows versions other than the gate machine.

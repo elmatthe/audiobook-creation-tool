@@ -734,6 +734,7 @@ def convert_segment(
     cancelled: Callable[[], bool],
     measure: Callable[[Path], float | None],
     sources: Iterable[Path] = (),
+    inputs: output_paths.InputIndex | None = None,
     poll_seconds: float = DEFAULT_POLL_SECONDS,
     grace_seconds: float = DEFAULT_GRACE_SECONDS,
     popen=None,
@@ -757,6 +758,10 @@ def convert_segment(
     replaces anything: a destination taken since the plan was made, even in the
     instant before the move, is refused and left as it is.
 
+    *inputs* (v0.8.2 Checkpoint 5) is the attempt's one index of *sources*, built once by the caller when the
+    attempt begins: the "never one of the inputs" check is then one lookup instead of normalising every source again
+    for every output. Without it the one-shot guard runs over *sources* exactly as before.
+
     *measure* reads a produced file's duration; it is injected so the drift
     guard can be exercised without media. *on_command* is a transcript hook —
     it renders nothing and decides nothing. *feed* supplies the audio of a pass
@@ -779,7 +784,10 @@ def convert_segment(
                               detail=detail, commands=tuple(commands_run))
 
     try:
-        output_paths.assert_not_input(destination, tuple(sources))
+        if inputs is not None:
+            inputs.assert_not_input(destination)
+        else:
+            output_paths.assert_not_input(destination, tuple(sources))
     except output_paths.OutputPathError as exc:
         return refuse(getattr(exc, "message", str(exc)), str(exc))
 

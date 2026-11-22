@@ -24,6 +24,8 @@ Checkpoint 1 review remediation R1 (same branch): a pasted Chapter Titles edit i
 
 Checkpoints 2–4 (same branch): the M4B Maker and Metadata Editor (Checkpoint 2) and the TTS Audiobook Start (Checkpoint 4) prepare their jobs on a short-lived worker the same way, with "Preparing job…" and Cancel, so a large job no longer freezes the window; Checkpoint 3 made the shared collision search linear with names unchanged. Each verdict is a self-review (Handoff). The three `*.PREPARATION` features are recorded as pending on macOS by owner decision.
 
+Checkpoint 5 (same branch): the M4B Converter checks "never one of the inputs" through one `InputIndex` per plan and per attempt instead of re-reading every book for every output (1,000 whole books planned in 0.93 s instead of 348 s; names unchanged), and Cover Image's standard-output Start prepares its run on a short-lived worker with "Preparing job…" and Cancel, as the other tools now do; numbered copies and Replace original files are unchanged (the replacement confirmation stays on the window). Self-reviewed (Handoff). `ACT.COVER.PREPARATION` is recorded as pending on macOS.
+
 ## v0.8.0 OmniVoice integration — released for Windows 2026-11-14 on maintainer-accepted verification evidence; macOS v0.8.0 not supported or published
 
 Branch `feature/0.8.0-omnivoice-integration`, from the released v0.7.3 `master` (`dbf38f7`). Plan:

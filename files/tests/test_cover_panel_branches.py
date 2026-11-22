@@ -45,6 +45,9 @@ def test_a_run_folder_that_cannot_be_reserved_starts_nothing_and_says_why(make_p
 
     monkeypatch.setattr(output_paths, "reserve_run_directory", refuse)
     assert panel.start_resize() is None
+    # v0.8.2 CP5: the reservation is made by the preparation worker (inline here); its refusal is shown when the pump
+    # drains the worker's ending, with the same title and text.
+    panel._pump.tick()
     assert errors == [("Output folder", "The output folder cannot be created.")]
     assert runner.calls == [], "no worker was handed a run"
     assert not panel._busy.is_set() and panel._last_run_dir is None and panel.var_outdir.get() == shown
@@ -65,6 +68,7 @@ def test_a_plan_refused_after_reserving_gives_the_empty_run_folder_back(make_pan
 
     monkeypatch.setattr(cr, "plan_destinations", refuse)
     assert panel.start_resize() is None
+    panel._pump.tick()  # v0.8.2 CP5: the preparation worker's ending is shown when the pump drains it
     assert errors == [("Output folder", "A destination could not be planned.")]
     assert runner.calls == [] and panel._last_run_dir is None
     tool = output_base / "Cover-Image-Outputs"

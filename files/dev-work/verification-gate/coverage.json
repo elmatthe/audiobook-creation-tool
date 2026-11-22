@@ -12104,7 +12104,14 @@
           "path": "scripts/m4b/converter/m4b_plan.py",
           "symbols": [
             "ItemPlan",
-            "assemble_plan"
+            "assemble_plan",
+            "ConversionPlan"
+          ]
+        },
+        {
+          "path": "scripts/m4b/converter/m4b_destinations.py",
+          "symbols": [
+            "plan_outputs"
           ]
         }
       ],
@@ -12115,13 +12122,15 @@
         "An eligible split book is decoded once by FFmpeg and its chapters are cut from that decode (v0.7.2 Phase 7B, ACT72-012): split mode, a chaptered book, FFmpeg's own decoder, one AAC-LC stream in fltp, a sample rate LAME takes as it is, mono or stereo with that layout, time base 1/rate, start 0, one AAC frame of priming or none, a packet timeline proven to be the running sample count with the declared total, a qualified FFmpeg build (by fingerprint), and an estimated saving, the prefix less PREFIX_PER_BOOK_SECOND times the duration, of at least the calibrated MIN_SAVED_PREFIX_SECONDS. The route is decided once at preflight and frozen into the plan; a retry keeps it with a fresh decoder.",
         "Every other book, every whole-book output and every chapterless book keeps the seeking route, unchanged; anything that cannot be proven keeps it too.",
         "The continuous route holds at most 1 MiB of audio, writes no decoded audio to disk, and changes only the audio pass: the encoder settings, the cover pass, the measurement and drift guard, staging and publication are the seeking route's, and every output is byte-identical to it.",
-        "A short feed, a stream ending part-way through a sample, a decoder that failed, was killed or produced other than the declared sample count fails the chapter, which takes its book back; nothing falls back to the seeking route part-way through a book."
+        "A short feed, a stream ending part-way through a sample, a decoder that failed, was killed or produced other than the declared sample count fails the chapter, which takes its book back; nothing falls back to the seeking route part-way through a book.",
+        "One run's 'never one of the inputs' check is one lookup per output (v0.8.2 Checkpoint 5): assemble_plan builds one InputIndex over every frozen occurrence, usable or not, before reserving, and plan_outputs and the final plan check both use it; each attempt builds one more for execution, which convert_segment uses. Destinations, chapter order, book containers and every refusal are the one-shot check's (1,000 whole books planned in 0.93 s instead of 348 s at fee286f)."
       ],
       "selection": [
         "files/tests/test_m4b_timeline_partition.py",
         "files/tests/test_m4b_winaudio.py",
         "files/tests/test_m4b_converter_jobs.py",
-        "files/tests/test_m4b_continuous.py"
+        "files/tests/test_m4b_continuous.py",
+        "files/tests/test_m4b_converter_input_index.py"
       ],
       "journeys": [],
       "verification": {
@@ -12241,6 +12250,46 @@
           {
             "kind": "qualification",
             "scenario": "m4b-scaling"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_converter_input_index.py::test_the_indexed_plan_is_the_one_shot_plan[direct-6x0-whole]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_converter_input_index.py::test_the_indexed_plan_is_the_one_shot_plan[direct-5x7-split]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_converter_input_index.py::test_the_indexed_plan_is_the_one_shot_plan[same-name-5x4-split]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_converter_input_index.py::test_the_indexed_plan_is_the_one_shot_plan[mixed-9x4-split]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_converter_input_index.py::test_the_indexed_plan_is_the_one_shot_plan[folder-7x5-split]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_converter_input_index.py::test_every_alias_of_an_input_is_refused_exactly_as_before"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_converter_input_index.py::test_planning_normalises_each_path_a_bounded_number_of_times[direct-300-0-False]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_converter_input_index.py::test_planning_normalises_each_path_a_bounded_number_of_times[direct-40-30-True]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_converter_input_index.py::test_a_conversion_checks_each_output_with_one_index_per_attempt"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_m4b_converter_input_index.py::test_execution_refuses_an_input_through_the_index_as_through_the_sources[case]"
           }
         ]
       },
@@ -18367,19 +18416,22 @@
         {
           "path": "scripts/shared/output_paths.py",
           "symbols": [
-            "assert_not_input"
+            "assert_not_input",
+            "InputIndex"
           ]
         }
       ],
       "contracts": [
         "In standard and numbered-copy modes no planned destination is ever an imported file, and every source is byte-identical after the run.",
         "Two imports of one file in numbered mode never overwrite each other or the source.",
-        "Removing or clearing rows never deletes files, and reading Details or thumbnails never writes to an image."
+        "Removing or clearing rows never deletes files, and reading Details or thumbnails never writes to an image.",
+        "The resize worker checks each image's destination against one index of its attempt's inputs, normalised once (v0.8.2 Checkpoint 5; before, every image normalised every input again); an output that is an input, in any spelling, is still refused for that image and the input is untouched."
       ],
       "selection": [
         "files/tests/test_cover_jobs.py",
         "files/tests/test_cover_source_side.py",
-        "files/tests/test_cover_importing.py"
+        "files/tests/test_cover_importing.py",
+        "files/tests/test_cover_preparation.py"
       ],
       "journeys": [
         "cover.letterbox-numbered-run",
@@ -18411,6 +18463,22 @@
           {
             "kind": "media",
             "scenario": "cover.corrupt-image"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_cover_preparation.py::test_the_resize_worker_normalises_each_input_once[standard]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_cover_preparation.py::test_the_resize_worker_normalises_each_input_once[numbered]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_cover_preparation.py::test_an_output_that_is_an_input_is_still_refused_per_image[exact]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_cover_preparation.py::test_an_output_that_is_an_input_is_still_refused_per_image[case]"
           }
         ]
       },
@@ -18478,6 +18546,174 @@
           {
             "kind": "native",
             "scenario": "cover.letterbox-numbered-run"
+          }
+        ]
+      },
+      "exceptions": []
+    },
+    {
+      "id": "ACT.COVER.PREPARATION",
+      "tool": "cover-image",
+      "title": "Preparing a standard-output run off the Tk thread",
+      "release_required": true,
+      "applicability": {
+        "platforms": [
+          "windows"
+        ]
+      },
+      "source": [
+        {
+          "path": "scripts/artwork/cover_resizer.py",
+          "symbols": [
+            "PreparedRun",
+            "_Preparation",
+            "_Preparation.checkpoint",
+            "_Preparation.offer",
+            "_Preparation.adopt",
+            "_Preparation.withdraw",
+            "_Preparation.wait_until_painted",
+            "_PreparationMessage",
+            "prepare_run",
+            "_AttemptNotStarted",
+            "_daemon_thread",
+            "plan_destinations",
+            "CoverResizerUI.start_resize",
+            "CoverResizerUI._start_preparation",
+            "CoverResizerUI._show_preparing",
+            "CoverResizerUI._drain_worker_queue",
+            "CoverResizerUI._post_preparation",
+            "CoverResizerUI._release_painted",
+            "CoverResizerUI._handle_preparation",
+            "CoverResizerUI._on_preparation",
+            "CoverResizerUI._end_preparation",
+            "CoverResizerUI._adopt",
+            "CoverResizerUI._release_unadopted",
+            "CoverResizerUI._not_started",
+            "CoverResizerUI._settle_unstarted",
+            "CoverResizerUI._launch",
+            "CoverResizerUI._install_jobs",
+            "CoverResizerUI._retire_adapter",
+            "CoverResizerUI.cancel",
+            "CoverResizerUI.close",
+            "CoverResizerUI.retry_failed",
+            "CoverResizerUI.resize_worker"
+          ]
+        },
+        {
+          "path": "scripts/shared/output_paths.py",
+          "symbols": [
+            "InputIndex"
+          ]
+        }
+      ],
+      "contracts": [
+        "A standard-output Resize Covers validates and freezes the run on Tk exactly as before, takes the output configuration in force, shows 'Preparing job…' with Cancel available and Pause disabled, locks the list and options, and returns at once; reserving the run folder and planning every destination run on one short-lived worker that touches no Tk and waits up to 0.25 s for the press to be painted.",
+        "Destinations are exactly the synchronous planner's (flat, mirrored, multi-root, duplicates, written-as-jpg), with every containment and link check; Retry Failed reuses the frozen destinations and is never re-planned.",
+        "Numbered copies and Replace original files never prepare: they reserve nothing, numbered copies are planned by the resize worker as before, and the replacement confirmation is still asked on the Tk thread; declining it changes nothing.",
+        "Cancel or Close during preparation starts nothing and leaves no run folder; Cancel is acknowledged at once and the panel frees itself at the worker's next image; an offered plan nobody adopts is released off the Tk thread; a stale or duplicate result is released and never run.",
+        "A refused or failed preparation (reservation, planning, an unexpected fault, a worker that cannot start) shows why, keeps the previous result, output folder and Retry Failed, and a later Start works. A job area that cannot be built changes nothing and releases the reservation; a resize worker that cannot start fails the run, releases its empty folder and frees the panel.",
+        "Preferences changed after the press do not move the run."
+      ],
+      "selection": [
+        "files/tests/test_cover_preparation.py",
+        "files/tests/test_cover_jobs.py",
+        "files/tests/test_cover_panel_branches.py",
+        "files/tests/test_plan4_lifecycle_races.py"
+      ],
+      "journeys": [],
+      "verification": {
+        "all_of": [
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_cover_preparation.py::test_the_press_reserves_and_plans_nothing_on_tk_and_shows_preparing"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_cover_preparation.py::test_the_press_returns_at_once_and_tk_keeps_its_heartbeat_while_the_job_is_prepared[direct-same-2341-False]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_cover_preparation.py::test_the_press_returns_at_once_and_tk_keeps_its_heartbeat_while_the_job_is_prepared[folder-unique-2341-False]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_cover_preparation.py::test_the_press_returns_at_once_and_tk_keeps_its_heartbeat_while_the_job_is_prepared[direct-same-2341-True]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_cover_preparation.py::test_the_prepared_destinations_are_exactly_the_synchronous_planners[duplicates]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_cover_preparation.py::test_the_prepared_destinations_are_exactly_the_synchronous_planners[two-roots]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_cover_preparation.py::test_the_prepared_destinations_are_exactly_the_synchronous_planners[mixed]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_cover_preparation.py::test_the_worker_side_names_no_tk_and_no_panel_state"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_cover_preparation.py::test_no_worker_ever_calls_tk"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_cover_preparation.py::test_cancel_while_planning_stops_at_the_next_image_and_releases_the_run"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_cover_preparation.py::test_a_plan_offered_just_before_cancel_is_never_adopted"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_cover_preparation.py::test_close_during_preparation_starts_nothing_and_leaves_no_run[before-offer]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_cover_preparation.py::test_close_during_preparation_starts_nothing_and_leaves_no_run[after-offer]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_cover_preparation.py::test_releasing_an_unadopted_run_never_waits_on_the_storage"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_cover_preparation.py::test_a_stale_ending_of_an_earlier_press_is_ignored_and_its_plan_released"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_cover_preparation.py::test_a_duplicate_ending_starts_one_run_and_its_extra_reservation_is_released"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_cover_preparation.py::test_a_failed_preparation_keeps_the_previous_result_and_a_following_start_works[plan-fault]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_cover_preparation.py::test_a_preparation_worker_that_cannot_start_unlocks_the_panel"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_cover_preparation.py::test_a_job_area_that_cannot_be_built_changes_nothing_and_releases_the_run"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_cover_preparation.py::test_a_resize_worker_that_cannot_start_settles_the_run_as_failed"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_cover_preparation.py::test_preferences_changed_after_the_press_do_not_move_the_run"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_cover_preparation.py::test_numbered_copies_never_prepare_and_still_write_beside_each_source"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_cover_preparation.py::test_replacement_is_confirmed_on_tk_and_a_refusal_changes_nothing[False]"
           }
         ]
       },
@@ -26671,11 +26907,15 @@
       "binding:scripts/tts/qwen3_clone_setup_ui.py::build_dialog::protocol:WM_DELETE_WINDOW": "ACT.TTS.SETUP.QWEN3-CLONE",
       "binding:scripts/tts/qwen3_install_ui.py::build_dialog::bind:<Escape>": "ACT.TTS.SETUP.QWEN3",
       "binding:scripts/tts/qwen3_install_ui.py::build_dialog::protocol:WM_DELETE_WINDOW": "ACT.TTS.SETUP.QWEN3",
+      "dialog:scripts/artwork/cover_resizer.py::CoverResizerUI._adopt::messagebox.showerror:Resize not started": "ACT.COVER.PREPARATION",
       "dialog:scripts/artwork/cover_resizer.py::CoverResizerUI._choose_files::filedialog.askopenfilenames:Select cover images": "ACT.COVER.IMPORT",
       "dialog:scripts/artwork/cover_resizer.py::CoverResizerUI._choose_folder::filedialog.askdirectory:Select a folder of cover images": "ACT.COVER.IMPORT",
       "dialog:scripts/artwork/cover_resizer.py::CoverResizerUI._gate_replacement::messagebox.showerror:Cannot replace originals": "ACT.COVER.REPLACE",
+      "dialog:scripts/artwork/cover_resizer.py::CoverResizerUI._not_started::messagebox.showerror:Resize not started": "ACT.COVER.RUN",
+      "dialog:scripts/artwork/cover_resizer.py::CoverResizerUI._on_preparation::messagebox.showerror:Output folder": "ACT.COVER.STANDARD-OUTPUT",
+      "dialog:scripts/artwork/cover_resizer.py::CoverResizerUI._on_preparation::messagebox.showerror:Resize not started": "ACT.COVER.PREPARATION",
+      "dialog:scripts/artwork/cover_resizer.py::CoverResizerUI._start_preparation::messagebox.showerror:Resize not started": "ACT.COVER.PREPARATION",
       "dialog:scripts/artwork/cover_resizer.py::CoverResizerUI.start_resize::messagebox.showerror:Bad size": "ACT.COVER.SIZE",
-      "dialog:scripts/artwork/cover_resizer.py::CoverResizerUI.start_resize::messagebox.showerror:Output folder": "ACT.COVER.STANDARD-OUTPUT",
       "dialog:scripts/artwork/cover_resizer.py::CoverResizerUI.start_resize::messagebox.showwarning:No files": "ACT.COVER.RUN",
       "dialog:scripts/artwork/m4b_artwork_ui.py::ask_artwork::filedialog.askopenfilename:title": "ACT.MAKER.ARTWORK",
       "dialog:scripts/m4b/converter/m4b_converter.py::M4BConverterUI._choose_files::filedialog.askopenfilenames:Select .m4b files": "ACT.CONVERTER.IMPORT",
@@ -28171,21 +28411,21 @@
     "Setup_and_Run-audiobook-creation-tool.bat": "2bfcc00f681f505a313efe107592abb3655c035f07fdbdc1d3ddad3f9b27e06e",
     "Setup_and_Run-audiobook-creation-tool.command": "321814409658fd1ebdf655278a43a9a556bc3d721582cb7943fd8664ba6c1420",
     "scripts/artwork/__init__.py": "f80bd6a1c3c51bd518d6aecc063e654d4c629de6dc85c627483bda87485fb400",
-    "scripts/artwork/cover_resizer.py": "85be3a4648ebd1ff039218bd3ab3c3e2b20df1488c10b332a63f72d553919166",
+    "scripts/artwork/cover_resizer.py": "42b044cd63e47364baf6a118c1e6dc5337fa27fc5ac5652cf0e497d5fb07221a",
     "scripts/artwork/m4b_artwork.py": "3e509b1be7fcf736bc1509042531dedb4eaeb566195e897e6f6adc0e3bbc1b81",
     "scripts/artwork/m4b_artwork_ui.py": "d7f6f01e6f16136fe2b898670f6409e8fd5d9f8c16c4c8361613bacc30c8a2c1",
     "scripts/artwork/mp3_artwork.py": "2c3066ab4539c48a405a88c595e44d60539bd49e635f4f4d75cbc03ca6b8608e",
     "scripts/launcher.py": "c7b92b82c15715cd2b94f1c329a190f22c2da27a8ce51ecaa56d0eddfdca6e76",
     "scripts/m4b/__init__.py": "37d58cfa7a545cf9b301a6085b72b3f1b2d406b92b2fdd039355df7bfd9df088",
     "scripts/m4b/converter/__init__.py": "bf3f0e0a418cce997b167e32ef449b1d152f9c9086dab1a5bf9b9018f8e8c142",
-    "scripts/m4b/converter/m4b_converter.py": "509a471633bd4ce1d05ecc19d2292611551b7817e797d6ec341c5c6c2664e060",
-    "scripts/m4b/converter/m4b_destinations.py": "ee7bdeee0707b4ebfcd345d887b7bea86decc328c90628fd4aa1b7871013348a",
+    "scripts/m4b/converter/m4b_converter.py": "fd0a8920bb66589fb1982f5a83e10bb384319f917b4f2c7c30cf00e52feb74cd",
+    "scripts/m4b/converter/m4b_destinations.py": "d757bb756a175cb9592cd72391cb73c584ef4209a3394d8a201596e03d2e37f5",
     "scripts/m4b/converter/m4b_metadata.py": "a357d1a289b9b7af3d7173af3868ae20170bc5af740f8861d128af4aa2c3b4d7",
-    "scripts/m4b/converter/m4b_plan.py": "890d063b6a40a7e54b4828d7e420445ac114f72ee9c0a113fbc5f20c9c2e4770",
+    "scripts/m4b/converter/m4b_plan.py": "a2d92f8013294e422112aad61e8bf163e23c3e93f11a53cdaf6416a19b325fbb",
     "scripts/m4b/m4b_chapters.py": "6a5739d481d85f6b1334cf3f6266496bf3076dff940eda4971d68096456b93f9",
     "scripts/m4b/m4b_commands.py": "9de21c6bc897d28aee8a06550376383a58416ec78f764d3e1d5287159ba0ab0b",
     "scripts/m4b/m4b_continuous.py": "b8ca599150bbe078bc51c01090b430b395e143831835fc825708469633c5c56b",
-    "scripts/m4b/m4b_execution.py": "df4fadc9f31dcae12e0a87838be7d9b84aa6e6609d99110b77539d8b68f6a452",
+    "scripts/m4b/m4b_execution.py": "43fdfb3d1169b4c0f5c32d098ae9a5bde8a8fb73155431c49db19e2a3fdcecff",
     "scripts/m4b/m4b_naming.py": "aa699d7863537d9c50ef382af25ec47ed1f7998ce5b0699884b414d170065e00",
     "scripts/m4b/m4b_nero.py": "705105c650dff2b3989d957368a83af79aab39626b4e973938713c75bf16c3bc",
     "scripts/m4b/m4b_numbering.py": "8085e2cd7b3acae2db8addbaffc0da483ce1a459953a6382161f38682ab988a1",
@@ -31421,6 +31661,15 @@
         "phase": "P7",
         "source": "owner decision, not the census",
         "why": "Not in the census: added on Windows in v0.8.2 Checkpoint 4 after the census SHA; no macOS test of it has run. Native macOS qualification is PENDING by owner decision (2026-11-21), owned by the macOS release qualification (P7); its Windows standing is unaffected."
+      },
+      "ACT.COVER.PREPARATION": {
+        "tests": {},
+        "skipped_by": {},
+        "journeys": {},
+        "class": "pending",
+        "phase": "P7",
+        "source": "owner decision, not the census",
+        "why": "Not in the census: added on Windows in v0.8.2 Checkpoint 5 after the census SHA; no macOS test of it has run. Native macOS qualification is PENDING by owner decision (2026-11-21), owned by the macOS release qualification (P7); its Windows standing is unaffected."
       }
     }
   }

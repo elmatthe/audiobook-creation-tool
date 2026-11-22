@@ -1875,6 +1875,12 @@ class M4BConverterUI(ttk.Frame):
             commit_gate = m4b_execution.CommitGate(
                 authorize=authorize_publication, finished=publication_finished)
 
+            # Every frozen occurrence's path, normalised once for this attempt (v0.8.2 Checkpoint 5): each output's
+            # "never one of the inputs" check is then one lookup. Before, every output normalised every source again
+            # (D outputs from N books: D·(N+1) path resolutions per attempt). Same sources, same key, same refusal.
+            sources = tuple(entry.path for entry in imported)
+            inputs = output_paths.InputIndex(sources)
+
             def announce(argv) -> None:
                 """One command, into the transcript and the Details pane."""
                 line = " ".join(str(part) for part in argv)
@@ -2070,7 +2076,8 @@ class M4BConverterUI(ttk.Frame):
                         ffmpeg=ffmpeg_utils.ffmpeg_cmd(),
                         cancelled=interrupted,
                         measure=measured_duration,
-                        sources=tuple(entry.path for entry in imported),
+                        sources=sources,
+                        inputs=inputs,
                         on_command=announce,
                         feed=feed,
                         stop_feed=None if decoder is None else decoder.close,

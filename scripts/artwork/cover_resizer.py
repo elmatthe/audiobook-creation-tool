@@ -92,7 +92,10 @@ from shared.importing import (
 from shared.job_control import (
     FailureLog,
     FailureRecord,
+    JobAction,
     JobState,
+    ProgressMode,
+    ProgressView,
     RunResult,
     capture_run,
 )
@@ -1795,7 +1798,7 @@ def _pair(occurrence_ids, plan, sources, lookup) -> dict:
     return mapping
 
 
-def plan_destinations(snapshot, run_root: Path, *, planner=None) -> dict:
+def plan_destinations(snapshot, run_root: Path, *, planner=None, checkpoint=None) -> dict:
     """Where every occurrence of *snapshot* writes inside *run_root*.
 
     :func:`~shared.importing.planning_groups` is the only bridge from an imported
@@ -1810,25 +1813,34 @@ def plan_destinations(snapshot, run_root: Path, *, planner=None) -> dict:
     flat file and a mirrored file can never be planned onto the same path, and
     ``Cover.jpg`` twice becomes ``Cover.jpg`` and ``Cover-1.jpg``. Nothing is
     created here: this reserves no directory and opens no file.
+
+    *checkpoint* (optional, v0.8.2 Checkpoint 5) is called once before each
+    source is named, so the preparation worker can stop at Cancel or Close and
+    report progress; it may raise to stop planning. It changes no name.
     """
     root = Path(run_root)
     tracker = output_paths.DestinationPlanner(root) if planner is None else planner
+    rename = written_name
+    if checkpoint is not None:
+        def rename(source):
+            checkpoint()
+            return written_name(source)
     groups = planning_groups(snapshot)
     direct_ids, grouped_ids = _identity_buckets(snapshot)
     lookup = {entry.occurrence_id: entry.path for entry in snapshot.files}
 
     mapping: dict = {}
     if groups.direct:
-        plan = plan_flat(root, groups.direct, planner=tracker, rename=written_name)
+        plan = plan_flat(root, groups.direct, planner=tracker, rename=rename)
         mapping.update(_pair(direct_ids, plan, groups.direct, lookup))
     if groups.grouped:
         if groups.needs_multi_root:
             plan = plan_multi_root(
-                root, groups.grouped, planner=tracker, rename=written_name)
+                root, groups.grouped, planner=tracker, rename=rename)
         else:
             source_root, sources = groups.grouped[0]
             plan = plan_mirrored(
-                root, sources, source_root, planner=tracker, rename=written_name)
+                root, sources, source_root, planner=tracker, rename=rename)
         flattened_ids = tuple(entry for group in grouped_ids for entry in group)
         flattened_sources = tuple(
             entry for _root, sources in groups.grouped for entry in sources)
@@ -1844,6 +1856,204 @@ def freeze_cover_options(size: int, letterbox: bool, mode: str) -> dict:
     a word and is turned into paths by this module alone.
     """
     return {"size": int(size), "letterbox": bool(letterbox), "mode": str(mode)}
+
+
+# --------------------------------------------------------------------------- #
+# Preparation off the Tk thread (v0.8.2 Checkpoint 5)
+# --------------------------------------------------------------------------- #
+#
+# A standard-output Start used to reserve the run folder and plan every destination inside the button's Tk callback:
+# one shared-planner pass, with a containment and link check (two OS path resolutions) per image. The press now
+# validates and freezes on Tk exactly as before, shows "Preparing job…" and returns; one short-lived worker reserves
+# and plans from the frozen values alone and hands the result back through the panel's preparation queue; the pump
+# adopts it on Tk and only then creates the run's controller and job area and starts the resize worker. Every check is
+# still made, on the worker. The two source-side modes reserve nothing and plan nothing at Start, so they are
+# unchanged: numbered copies are planned by the resize worker, and a replacement is validated and confirmed on Tk.
+
+#: What the job area says between an accepted Start and the plan's adoption.
+STATUS_PREPARING = "Preparing job…"
+STATUS_CANCELLING_PREPARATION = "Cancelling preparation…"
+STATUS_PREPARATION_CANCELLED = "Cancelled — nothing was started"
+STATUS_PREPARATION_FAILED = "Not started"
+
+#: The queue message that carries one :class:`_PreparationMessage`. It travels on the panel's existing worker queue
+#: beside "log", "progress", "timing", "result" and "done", drained by the panel's one drain: no second queue, drain
+#: or callback chain.
+PREPARATION_MESSAGE = "preparation"
+
+#: Seconds between two progress messages of one preparation (the first always goes).
+PREPARATION_PROGRESS_INTERVAL = 0.25
+
+#: The longest the worker waits for Tk to paint "Preparing job…" before it starts work anyway: CPU-bound planning
+#: competes with Tk for the GIL, so the first repaint goes first (the v0.8.2 Checkpoint 2 measurement).
+PREPARATION_PAINT_WAIT = 0.25
+
+
+@dataclass(frozen=True)
+class PreparedRun:
+    """What one preparation hands the panel: the reserved run and every occurrence's destination in it."""
+
+    reservation: output_paths.RunReservation
+    destinations: dict
+
+
+class _Preparation:
+    """One accepted standard-output Start, from the press until its plan is adopted or it ends.
+
+    Everything the worker reads was frozen on Tk at the press: the run snapshot (sources and settings) and the output
+    configuration in force at the press (the reservation's base, even if Preferences change while the worker runs).
+    It reads no widget, no Tk variable and no panel state.
+
+    **Who owns the reservation.** The worker, from the moment it reserves until :meth:`offer` hands the finished plan
+    over; when the offer is refused (Cancel or Close came first), planning fails, or anything else goes wrong, the
+    worker releases the still-empty run folder itself before posting its one ending. Once offered, the panel owns it:
+    :meth:`adopt` takes it to run it, :meth:`withdraw` takes it back for the panel to release. One lock makes offer,
+    adopt and withdraw one decision each, so exactly one side releases a reservation and a plan nobody adopted can
+    never start a resize. The source-side modes never come here, so no preparation can replace or write beside an
+    original.
+    """
+
+    def __init__(self, *, snapshot, run_config, number: int) -> None:
+        self.snapshot = snapshot
+        self.file_count = len(snapshot.item_ids)
+        self.run_config = run_config
+        self.number = number
+        self.cancel_requested = threading.Event()
+        #: Set by the panel's pump once Tk has painted the press, or when the panel stops wanting the result.
+        self.painted = threading.Event()
+        self._lock = threading.Lock()
+        self._offered: PreparedRun | None = None
+        self._handed_over = False
+
+    def checkpoint(self) -> None:
+        """The worker's cooperative stop: raises once Cancel or Close asked for it."""
+        if self.cancel_requested.is_set():
+            raise ConversionCancelled("preparation cancelled")
+
+    def offer(self, prepared: PreparedRun) -> bool:
+        """Worker: hand the finished plan to the panel. False when the panel no longer wants it.
+
+        Once only: a second offer for the same press (a replayed worker body) is refused, so that worker releases its
+        own reservation instead of replacing -- and leaking -- the one already handed over.
+        """
+        with self._lock:
+            if self.cancel_requested.is_set() or self._handed_over:
+                return False
+            self._handed_over = True
+            self._offered = prepared
+            return True
+
+    def adopt(self) -> PreparedRun | None:
+        """Panel: take the offered plan to run it, or ``None`` when there is none or Cancel came first."""
+        with self._lock:
+            if self.cancel_requested.is_set():
+                return None
+            prepared, self._offered = self._offered, None
+            return prepared
+
+    def withdraw(self) -> PreparedRun | None:
+        """Panel: stop wanting this preparation. Returns an offered plan whose reservation the caller must release."""
+        with self._lock:
+            self.cancel_requested.set()
+            self.painted.set()  # nothing is left to wait for
+            prepared, self._offered = self._offered, None
+            return prepared
+
+    def wait_until_painted(self) -> None:
+        """Worker: let Tk paint the press before CPU-bound planning competes with it for the GIL (bounded).
+
+        A body running on the main thread itself (a test's inline thread) cannot wait for the thread it is blocking.
+        """
+        if threading.current_thread() is not threading.main_thread():
+            self.painted.wait(PREPARATION_PAINT_WAIT)
+
+
+class _PreparationMessage:
+    """What the preparation worker tells the panel: ``progress``, ``prepared``, ``cancelled``, ``refused`` or
+    ``fault``. Exactly one non-progress message per preparation, always the last it sends."""
+
+    __slots__ = ("preparation", "kind", "title", "text", "detail", "done", "total")
+
+    def __init__(self, preparation: _Preparation, kind: str, *, title: str = "", text: str = "", detail: str = "",
+                 done: int = 0, total: int = 0) -> None:
+        self.preparation = preparation
+        self.kind = kind
+        self.title = title
+        self.text = text
+        self.detail = detail
+        self.done = done
+        self.total = total
+
+
+#: What a preparation that could not finish says, and the dialog it shows.
+_NOT_PREPARED = "The resize could not be prepared, so it was not started and nothing was created."
+
+
+def prepare_run(preparation: _Preparation, post) -> None:
+    """Reserve the run folder and plan every destination. **The preparation worker's whole body**; never raises.
+
+    Reads only the frozen *preparation*; speaks only through *post* (the panel's worker queue). The reservation
+    uses the configuration frozen at the press, and the destinations are :func:`plan_destinations`' own, unchanged,
+    with every containment and link check. Its last message is always exactly one ending, and a reservation it made
+    but did not hand over is released (only while still empty) before that ending is posted.
+    """
+    reservation = None
+    ending: _PreparationMessage | None = None
+    total = preparation.file_count
+    count = {"done": 0, "last": float("-inf")}
+
+    def tick() -> None:
+        preparation.checkpoint()
+        count["done"] += 1
+        now = time.monotonic()
+        if now - count["last"] >= PREPARATION_PROGRESS_INTERVAL:
+            count["last"] = now
+            post(_PreparationMessage(preparation, "progress", done=min(count["done"], total), total=total))
+
+    try:
+        preparation.wait_until_painted()
+        preparation.checkpoint()
+        reservation = output_paths.reserve_run_directory(TOOL_KEY, effective=preparation.run_config)
+        destinations = plan_destinations(
+            preparation.snapshot.files, reservation.run_directory,
+            planner=reservation.planner(), checkpoint=tick)
+        preparation.checkpoint()
+        if preparation.offer(PreparedRun(reservation=reservation, destinations=destinations)):
+            reservation = None  # the panel owns it now
+            ending = _PreparationMessage(preparation, "prepared")
+        else:
+            ending = _PreparationMessage(preparation, "cancelled")
+    except ConversionCancelled:
+        ending = _PreparationMessage(preparation, "cancelled")
+    except output_paths.OutputPathError as exc:
+        # The press's own "Output folder" refusal, unchanged; the empty folder is not left behind (released below,
+        # v0.7.2 ACT72-061).
+        ending = _PreparationMessage(preparation, "refused", title="Output folder", text=exc.message,
+                                     detail=exc.detail)
+    except BaseException as exc:  # noqa: BLE001 - deliberately everything: the panel must hear an ending
+        ending = _PreparationMessage(preparation, "fault", title="Resize not started", text=_NOT_PREPARED,
+                                     detail=f"{type(exc).__name__}: {exc}")
+    finally:
+        if reservation is not None:
+            try:
+                output_paths.release_if_empty(reservation)
+            except Exception:  # noqa: BLE001 - release_if_empty never raises; the ending must still go
+                pass
+        post(ending if ending is not None else _PreparationMessage(
+            preparation, "fault", title="Resize not started", text=_NOT_PREPARED,
+            detail="the preparation ended without a result"))
+
+
+class _AttemptNotStarted(Exception):
+    """An attempt's job area could not be built, and nothing changed hands (v0.8.2 Checkpoint 5).
+
+    Raised by ``CoverResizerUI._install_jobs`` only while the previous job area, run, result and Retry Failed are all
+    still exactly as they were, so the caller can report it and carry on as if the press had been refused.
+    """
+
+    def __init__(self, detail: str) -> None:
+        super().__init__(detail)
+        self.detail = detail
 
 
 # ---------- GUI ----------
@@ -1978,6 +2188,14 @@ class CoverResizerUI(ttk.Frame):
                                   if effective_config is None else effective_config)
         self._job_runner = job_runner
         self._worker = None
+        # v0.8.2 Checkpoint 5: a standard Start's reservation and planning run on a short-lived preparation worker. The
+        # worker speaks only through the panel's worker queue (PREPARATION_MESSAGE), which the one drain handles;
+        # ``_preparing`` is the current press, and a message from any other preparation is stale. The same thread
+        # factory seam the importer uses starts it (and the release workers); production makes daemon threads.
+        self._thread_factory = _daemon_thread if thread_factory is None else thread_factory
+        self._preparing: _Preparation | None = None
+        self._preparations = 0
+        self._releases = 0
         self._run_count = 0
         # Every acceptance of a run, first attempt or retry. A retry re-uses the
         # original snapshot id, so this — not the run id — is what tells a
@@ -2336,58 +2554,122 @@ class CoverResizerUI(ttk.Frame):
 
         A run owns its event stream and its estimate, and neither can be rebound,
         so a new run gets a new adapter in the same container. The retired one is
-        closed first, which is what drops its drain — the pump keeps exactly one
-        job drain however many runs a session performs.
+        closed once the new one is in place, which is what drops its drain — the
+        pump keeps exactly one job drain however many runs a session performs.
+
+        v0.8.2 Checkpoint 5: **build, swap, retire** (the MP3 Tool's and TTS's
+        order). The new adapter is built completely -- constructed, dressed,
+        placed, rendered and registered -- while the previous one is untouched and
+        live; only then do plain assignments make it the panel's, and the previous
+        one is retired as cleanup. If building fails, :class:`_AttemptNotStarted`
+        is raised and nothing has changed: the previous job area, its run, its
+        result and its Retry Failed are exactly as they were.
         """
         previous = getattr(self, "jobs", None)
-        if previous is not None:
-            previous.close()
-            previous.frame.destroy()
-        self._event_q = queue.Queue()
-        self._estimator = job_control.EtaEstimator(run_id, clock=self._clock)
+        event_q: queue.Queue = queue.Queue()
+        estimator = job_control.EtaEstimator(run_id, clock=self._clock)
         bundle = self.appearance_bundle
-        self.jobs = job_ui.JobAdapter(
-            self.job_area,
-            run_id=run_id,
-            pump=self._pump,
-            theme=bundle,
-            pull=job_ui.queue_pull(self._event_q),
-            estimator=self._estimator,
-            item_ids=item_ids,
-            on_pause=self.pause,
-            on_resume=self.resume,
-            on_cancel=self.cancel,
-            on_retry=self.retry_failed,
-            # The panel's one persistent Summary/Detailed log in Activity, not a
-            # fresh view per adapter: the adapter renders into it, and neither
-            # places nor closes it.
-            views=self.log,
-        )
-        self.jobs.frame.grid(row=0, column=0, sticky="nsew")
-        # One progress model, not two: the panel's indicator *is* the shared
-        # status view's, so nothing can draw a second, disagreeing bar.
-        self.progress = self.jobs.status.indicator
-        # Per-instance restyling only, the way MP3 Tool and the M4B Metadata
-        # Editor do it: the shared indicator stays generic for every panel that
-        # has not adopted the compact system, but inside this one an unstyled
-        # native frame would be a light island in Dark. Aqua's names inherit
-        # native control layouts, with the same semantic surface colors.
-        self.progress.frame.configure(style=job_ui.style_name(bundle, "card"))
-        self.progress.bar.configure(style=job_ui.style_name(bundle, "progressbar"),
-                                    length=PROGRESS_BAR_LENGTH)
-        self.progress.label.configure(style=job_ui.style_name(bundle, "secondary_label"))
-        # Same rule as the import status: long run text wraps, never widens.
-        # The status line sits on the section surface, so it takes the same
-        # secondary-label style as its neighbours rather than the shared
-        # view's window-toned status style (a visible sliver otherwise).
-        for label in (self.jobs.status.label_stage, self.jobs.status.label_status):
-            label.configure(wraplength=STATUS_WRAP)
-        self.jobs.status.label_status.configure(
-            style=job_ui.style_name(bundle, "secondary_label"))
-        self._arrange_job_controls()
-        self.jobs.register_inputs(self.importer, self.browser)
-        self.jobs.register_options(self)
-        self.jobs.render()
+        # --- BUILD -------------------------------------------------------------- #
+        try:
+            jobs = job_ui.JobAdapter(
+                self.job_area,
+                run_id=run_id,
+                pump=self._pump,
+                theme=bundle,
+                pull=job_ui.queue_pull(event_q),
+                estimator=estimator,
+                item_ids=item_ids,
+                on_pause=self.pause,
+                on_resume=self.resume,
+                on_cancel=self.cancel,
+                on_retry=self.retry_failed,
+                # The panel's one persistent Summary/Detailed log in Activity, not a
+                # fresh view per adapter: the adapter renders into it, and neither
+                # places nor closes it.
+                views=self.log,
+            )
+        except Exception as exc:  # noqa: BLE001 - JobAdapter undoes its own failed construction
+            raise _AttemptNotStarted(f"the job area could not be built ({type(exc).__name__}: {exc})") from exc
+        try:
+            jobs.frame.grid(row=0, column=0, sticky="nsew")
+            # One progress model, not two: the panel's indicator *is* the shared
+            # status view's, so nothing can draw a second, disagreeing bar.
+            progress = jobs.status.indicator
+            # Per-instance restyling only, the way MP3 Tool and the M4B Metadata
+            # Editor do it: the shared indicator stays generic for every panel that
+            # has not adopted the compact system, but inside this one an unstyled
+            # native frame would be a light island in Dark. Aqua's names inherit
+            # native control layouts, with the same semantic surface colors.
+            progress.frame.configure(style=job_ui.style_name(bundle, "card"))
+            progress.bar.configure(style=job_ui.style_name(bundle, "progressbar"),
+                                   length=PROGRESS_BAR_LENGTH)
+            progress.label.configure(style=job_ui.style_name(bundle, "secondary_label"))
+            # Same rule as the import status: long run text wraps, never widens.
+            # The status line sits on the section surface, so it takes the same
+            # secondary-label style as its neighbours rather than the shared
+            # view's window-toned status style (a visible sliver otherwise).
+            for label in (jobs.status.label_stage, jobs.status.label_status):
+                label.configure(wraplength=STATUS_WRAP)
+            jobs.status.label_status.configure(
+                style=job_ui.style_name(bundle, "secondary_label"))
+            jobs.render()
+            # Registered after the adapter's own render (as TTS does since v0.8.2 CP4): a run's job area first applies
+            # the lock matrix at the run's first state, so a run accepted from a locked preparation is never unlocked
+            # and locked again in between. The job area built at construction renders once more with them.
+            jobs.register_inputs(self.importer, self.browser)
+            jobs.register_options(self)
+            if previous is None:
+                jobs.render()
+        except Exception as exc:  # noqa: BLE001 - the half-built adapter goes; the previous one stays
+            self._retire_adapter(jobs)
+            raise _AttemptNotStarted(f"the job area could not be built ({type(exc).__name__}: {exc})") from exc
+        # --- SWAP: plain assignments, nothing that can fail half-way ------------ #
+        self.jobs = jobs
+        self._event_q = event_q
+        self._estimator = estimator
+        self.progress = progress
+        # --- RETIRE: cleanup, never a decision ---------------------------------- #
+        problems: list[str] = []
+        if previous is not None:
+            problems.extend(self._retire_adapter(previous))
+        try:
+            self._arrange_job_controls()
+        except Exception as exc:  # noqa: BLE001 - layout only; the job area works without it
+            problems.append(f"layout: {type(exc).__name__}: {exc}")
+        if problems:
+            self.log.append_detail(f"The previous job area was not fully retired: {'; '.join(problems)}")
+
+    def _retire_adapter(self, adapter) -> tuple[str, ...]:
+        """Close an adapter the panel does not (or no longer) own and take its frame down. Main thread; never raises.
+
+        Each step is tried on its own, so one failure cannot skip the next: ``close`` drops the adapter's pump drain
+        first (one pump, one job drain), then the frame is destroyed; a frame Tk will not destroy is taken out of the
+        layout and its progress bar stopped. Returns one line per failed step for the caller to report once.
+        """
+        problems: list[str] = []
+        try:
+            adapter.close()
+        except Exception as exc:  # noqa: BLE001 - reported by the caller; the frame must still go
+            problems.append(f"close: {type(exc).__name__}: {exc}")
+            try:
+                self._pump.remove_drain(adapter.drain)
+            except Exception:  # noqa: BLE001
+                pass
+        try:
+            adapter.frame.destroy()
+        except Exception as exc:  # noqa: BLE001 - reported by the caller
+            problems.append(f"destroy: {type(exc).__name__}: {exc}")
+            for fallback in (adapter.frame.grid_forget, adapter.frame.lower):
+                try:
+                    fallback()
+                    break
+                except Exception:  # noqa: BLE001 - try the next way of getting it out of sight
+                    continue
+            try:
+                adapter.status.indicator.bar.stop()
+            except Exception:  # noqa: BLE001
+                pass
+        return tuple(problems)
 
     def _publish(self, event) -> None:
         """Hand one produced event to the queue the shared adapter drains.
@@ -2431,10 +2713,15 @@ class CoverResizerUI(ttk.Frame):
         landed, and what stops it overwriting an output that already succeeded.
         """
         result = self._result
-        if result is None or self._busy.is_set() or not result.has_retryable:
+        if (result is None or self._closed or self._busy.is_set() or self._preparing is not None
+                or not result.has_retryable):
             return None
         request = result.retry()
-        return self._launch(request.snapshot, request.item_ids)
+        try:
+            return self._launch(request.snapshot, request.item_ids)
+        except _AttemptNotStarted as exc:
+            self._not_started(exc)
+            return None
 
     def set_locked(self, locked: bool) -> None:
         """The shared lock matrix's hook onto this panel's own option controls."""
@@ -2576,7 +2863,7 @@ class CoverResizerUI(ttk.Frame):
         return validated
 
     def start_resize(self):
-        if self._busy.is_set():
+        if self._closed or self._busy.is_set() or self._preparing is not None:
             return
         # The manager's snapshot is the input, captured here on the main thread.
         # Everything below works on this frozen copy.
@@ -2606,33 +2893,239 @@ class CoverResizerUI(ttk.Frame):
             created_at=float(self._clock()),
         )
 
-        destinations: dict = {}
         if mode == MODE_STANDARD:
             # Only the standard route reserves a run; an exception-mode
             # operation must not leave an unused numbered folder behind.
-            reservation = None
+            # v0.8.2 Checkpoint 5: the reservation and every destination are
+            # decided on the preparation worker (:func:`prepare_run`), from this
+            # frozen snapshot, through the same planners; the pump adopts the plan.
+            self._start_preparation(snapshot)
+            return None
+
+        where = ("beside each source image"
+                 if mode == ACTION_NUMBERED else "over each original")
+        self._log_q.put(("log", f"\nWriting {where}.\n"))
+        try:
+            return self._launch(snapshot, snapshot.item_ids, destinations={})
+        except _AttemptNotStarted as exc:
+            self._not_started(exc)
+            return None
+
+    # ------- the preparation: Tk side (v0.8.2 Checkpoint 5) -------
+
+    def _start_preparation(self, snapshot) -> bool:
+        """Show "Preparing job…" and hand the standard run's reservation and planning to a worker. Main thread.
+
+        The configuration in force at the press is the one the reservation resolves its base from, even if
+        Preferences change while the worker prepares (the press used to reserve at once, with the same answer).
+        """
+        run_config = shared_config.get_effective()
+        self._preparations += 1
+        preparation = _Preparation(snapshot=snapshot, run_config=run_config, number=self._preparations)
+        self._preparing = preparation
+        try:
+            self._show_preparing(preparation)
+            thread = self._thread_factory(lambda: prepare_run(preparation, self._post_preparation),
+                                          f"cover-prepare-{self._preparations}")
+            # The worker waits (bounded) until the pump's next tick has painted the press (_release_painted).
+            thread.start()
+        except Exception as exc:  # noqa: BLE001 - nothing was reserved yet; the panel must not stay locked
+            if self._preparing is preparation:
+                self._preparing = None
+                left = preparation.withdraw()
+                if left is not None:  # an inline body may already have offered its plan
+                    self._release_unadopted(left)
+                self._end_preparation(STATUS_PREPARATION_FAILED,
+                                      "The resize could not be prepared, so it was not started.",
+                                      f"preparation worker could not start: {type(exc).__name__}: {exc}")
+                messagebox.showerror("Resize not started", _NOT_PREPARED)
+            return False
+        return True
+
+    def _show_preparing(self, preparation: _Preparation) -> None:
+        """Lock the workspace and options, offer Cancel, and say "Preparing job…". Main thread only.
+
+        The job area keeps the previous run's adapter: its stream, result and Retry Failed stay untouched behind this
+        presentation and come back with one ``jobs.render()`` if the preparation ends without a run.
+        """
+        jobs = self.jobs
+        jobs.locks.apply(JobState.RUNNING)
+        jobs.controls.apply(JobState.RUNNING)
+        # Cancel is the one control a preparation honours; Pause has no checkpoint to wait at here.
+        pause = jobs.controls.buttons.get(JobAction.PAUSE)
+        if pause is not None:
             try:
-                reservation = output_paths.reserve_run_directory(TOOL_KEY)
-                destinations = plan_destinations(
-                    snapshot.files, reservation.run_directory,
-                    planner=reservation.planner())
-            except output_paths.OutputPathError as exc:
-                # A plan refused after reserving gives the empty run folder back, as every other tool does (v0.7.2, ACT72-061).
-                if reservation is not None:
-                    output_paths.release_if_empty(reservation)
-                messagebox.showerror("Output folder", exc.message)
+                pause.configure(state="disabled")
+            except tk.TclError:
+                pass
+        jobs.status.apply(ProgressView(ProgressMode.INDETERMINATE, label=STATUS_PREPARING),
+                          stage=f"Preparing {preparation.file_count} image(s): planning output names")
+        jobs.status.set_eta("")
+        jobs.status.set_status(STATUS_PREPARING)
+
+    def _post_preparation(self, message: _PreparationMessage) -> None:
+        """The preparation worker's one way to speak: the panel's existing worker queue (any thread)."""
+        self._log_q.put((PREPARATION_MESSAGE, message))
+
+    def _release_painted(self) -> None:
+        """Let a waiting preparation worker start, once Tk has painted the press. Main thread, from the one drain.
+
+        The first drain after a press flushes Tk's pending redraw of "Preparing job…" and then tells the worker the
+        press is painted: CPU-bound planning competes with Tk for the GIL, so the repaint goes first (v0.8.2
+        Checkpoint 2's measurement). Through the one pump, so this panel schedules no callback of its own.
+        """
+        waiting = self._preparing
+        if waiting is not None and not waiting.painted.is_set():
+            try:
+                self.update_idletasks()
+            except tk.TclError:
+                pass
+            waiting.painted.set()
+
+    def _handle_preparation(self, message: _PreparationMessage) -> None:
+        """One message of a preparation worker, from the one drain. Main thread only; never raises."""
+        current = message.preparation is self._preparing
+        try:
+            self._on_preparation(message)
+        except Exception as exc:  # noqa: BLE001 - one bad message must not stop the drain that frees the panel
+            # The current preparation's ending must free the panel even if handling it failed part-way, as long as no
+            # run took over; a plan it offered is released off Tk.
+            if current and not self._busy.is_set() and not self._closed:
+                if self._preparing is message.preparation:
+                    self._preparing = None
+                left = message.preparation.withdraw()
+                if left is not None:
+                    self._release_unadopted(left)
+                try:
+                    self._end_preparation(STATUS_PREPARATION_FAILED,
+                                          "The resize could not be prepared, so it was not started.",
+                                          f"{type(exc).__name__}: {exc}")
+                except Exception:  # noqa: BLE001 - the drain must keep running
+                    pass
+
+    def _on_preparation(self, message: _PreparationMessage) -> None:
+        """Adopt a finished plan and start the run, or end the preparation. Main thread only.
+
+        A message from any preparation but the current one is stale: it is never acted on, and a plan it offered is
+        taken back and its reservation released. A plan Cancel or Close withdrew is never adopted, so no resize
+        starts.
+        """
+        preparation = message.preparation
+        if self._closed or preparation is not self._preparing:
+            left = preparation.withdraw()
+            if left is not None:
+                self._release_unadopted(left)
+            return
+        kind = message.kind
+        if kind == "progress":
+            if message.total and not preparation.cancel_requested.is_set():
+                percent = min(100, int(100 * message.done / message.total))
+                # Only the stage line changes: one Tcl call, which must win the GIL back from the planning worker.
+                try:
+                    self.jobs.status.var_stage.set(
+                        f"Preparing {preparation.file_count} image(s): planning output names ({percent}%)")
+                except tk.TclError:
+                    pass
+            return
+        self._preparing = None
+        if kind == "prepared":
+            prepared = preparation.adopt()
+            if prepared is not None:
+                self._adopt(preparation, prepared)
                 return
-            self.var_outdir.set(str(reservation.run_directory))
-            self._last_run_dir = reservation.run_directory
-            self._log_q.put(("log", f"\nOutput folder: {reservation.run_directory}\n"))
+            kind = "cancelled"
+        if kind == "cancelled" or preparation.cancel_requested.is_set():
+            self._end_preparation(STATUS_PREPARATION_CANCELLED,
+                                  "Cancelled before anything was started; nothing was created.",
+                                  "preparation cancelled")
+            return
+        self._end_preparation(STATUS_PREPARATION_FAILED, f"Resize not started: {message.text}",
+                              message.detail or message.text)
+        # The same dialog title and text the press showed when it reserved and planned on Tk.
+        if message.title == "Output folder":
+            messagebox.showerror("Output folder", message.text)
         else:
-            where = ("beside each source image"
-                     if mode == ACTION_NUMBERED else "over each original")
-            self._log_q.put(("log", f"\nWriting {where}.\n"))
+            messagebox.showerror("Resize not started", message.text)
 
-        return self._launch(snapshot, snapshot.item_ids, destinations=destinations)
+    def _end_preparation(self, status: str, line: str, detail: str) -> None:
+        """Put the job area back exactly as the previous run left it, then say why nothing started."""
+        self.jobs.render()
+        self.jobs.status.set_status(status)
+        self.log.append(line, detail)
 
-    def _launch(self, snapshot, item_ids, *, destinations=None):
+    def _adopt(self, preparation: _Preparation, prepared: PreparedRun) -> None:
+        """The prepared plan becomes the run. Main thread only; never raises.
+
+        If the new attempt's job area cannot be built, nothing changed hands: the preparation ends as a failed one
+        does -- the previous run, its result, its output folder and Retry Failed untouched, the panel unlocked, the
+        error shown -- and the reservation nobody will use is released off the Tk thread.
+        """
+        try:
+            self._launch(preparation.snapshot, preparation.snapshot.item_ids,
+                         destinations=prepared.destinations, reservation=prepared.reservation)
+        except Exception as exc:  # noqa: BLE001 - _AttemptNotStarted, or anything before the run took over
+            if self._busy.is_set():
+                raise  # the attempt owns the run: _launch settles its own failures from there on
+            self._release_unadopted(prepared)
+            text = "The resize could not be started, so nothing was created."
+            detail = exc.detail if isinstance(exc, _AttemptNotStarted) else f"{type(exc).__name__}: {exc}"
+            self._end_preparation(STATUS_PREPARATION_FAILED, text, detail)
+            messagebox.showerror("Resize not started", text)
+
+    def _release_unadopted(self, prepared: PreparedRun) -> None:
+        """Release the still-empty run folder of a plan nobody will run, **off the Tk thread**. Main thread.
+
+        A plan offered and then withdrawn (Cancel, Close, a stale ending) or one whose run could not be set up hands
+        its reservation here exactly once -- :meth:`_Preparation.withdraw` and :meth:`_Preparation.adopt` decide that
+        under the preparation's lock -- and a short-lived worker removes the folder only while it is still empty
+        (``output_paths.release_if_empty``: links and anything inside are left alone; no source is ever touched). The
+        call returns at once whatever the storage does; the worker needs neither Tk nor the pump.
+        """
+        reservation = prepared.reservation
+        self._releases += 1
+
+        def release() -> None:
+            try:
+                output_paths.release_if_empty(reservation)
+            except Exception:  # noqa: BLE001 - release_if_empty never raises; still, a worker must not
+                pass
+
+        try:
+            self._thread_factory(release, f"cover-release-{self._releases}").start()
+        except Exception as exc:  # noqa: BLE001 - an empty folder left behind is harmless; a frozen window is not
+            if not self._closed:
+                self.log.append_detail(
+                    f"An unused, empty run folder was left in place: {reservation.run_directory} "
+                    f"({type(exc).__name__}: {exc})")
+
+    def _not_started(self, exc: _AttemptNotStarted) -> None:
+        """A numbered, replacement or retry attempt whose job area could not be built. Nothing changed; say so."""
+        text = "The resize could not be started, so nothing was changed."
+        self.log.append(text, exc.detail)
+        messagebox.showerror("Resize not started", text)
+
+    def _settle_unstarted(self, snapshot, controller, reporter, exc: BaseException) -> None:
+        """The resize worker could not be started (v0.8.2 Checkpoint 5). A job failure, never retryable.
+
+        Main thread. No image was read and nothing was written, so the attempt settles FAILED through the same
+        result and ``done`` messages a finished worker sends, and the drain unlocks the panel.
+        """
+        detail = f"the resize worker could not be started: {type(exc).__name__}: {exc}"
+        message = "The resize run could not be started."
+        if controller.state is JobState.IDLE:
+            controller.start()  # a run that never started cannot fail; IDLE -> RUNNING -> FAILED
+        fatal = FailureRecord(
+            item_id=None, stage=STAGE_RESIZE, display_message=message,
+            technical_detail=detail, retryable=False, snapshot_id=snapshot.snapshot_id)
+        settled = RunResult.settle(
+            snapshot, FailureLog(snapshot_id=snapshot.snapshot_id, records=(fatal,)), completed_ids=())
+        reporter.failure(message, detail, stage=STAGE_RESIZE)
+        final = controller.fail(message, detail)
+        reporter.completed(final)
+        self._log_q.put((RESULT_MESSAGE, settled))
+        self._log_q.put(("done", f"\n{message}\n"))
+
+    def _launch(self, snapshot, item_ids, *, destinations=None, reservation=None):
         """Accept one run — first attempt or retry — and hand it to a worker.
 
         The frozen snapshot decides everything: which occurrences run, in which
@@ -2640,6 +3133,14 @@ class CoverResizerUI(ttk.Frame):
         re-uses the destinations its original run planned, so a retried item
         lands exactly where it would have landed and cannot take a name an
         earlier success already occupies.
+
+        v0.8.2 Checkpoint 5: nothing of the panel's run state changes until the
+        new attempt's job area is built (:meth:`_install_jobs` raises
+        :class:`_AttemptNotStarted` before that, with the previous run, result,
+        output folder and Retry Failed untouched). *reservation* is the adopted
+        standard run's, whose folder becomes the run's output folder only then.
+        After that the attempt owns the run: a resize worker that cannot start
+        settles it FAILED and unlocks the panel.
         """
         wanted = tuple(item_ids)
         sources = {entry.occurrence_id: entry.path for entry in snapshot.files.files}
@@ -2652,16 +3153,24 @@ class CoverResizerUI(ttk.Frame):
                 return None
             files = validated
 
+        controller = job_control.JobController(
+            snapshot.snapshot_id, listener=self._on_state, cancel_clock=time.monotonic)
+        reporter = job_control.JobReporter.for_run(
+            snapshot, clock=self._clock, publish=self._publish)
+        # BUILD (raises _AttemptNotStarted with nothing changed), SWAP, RETIRE.
+        self._install_jobs(snapshot.snapshot_id, snapshot.item_ids)
+        # From here the attempt owns the run.
         if destinations is not None:
             self._destinations = dict(destinations)
+        if reservation is not None:
+            self._last_run_dir = reservation.run_directory
+            self.var_outdir.set(str(reservation.run_directory))
+            self._log_q.put(("log", f"\nOutput folder: {reservation.run_directory}\n"))
         self._snapshot = snapshot
         self._result = None
         self._attempt += 1
-        self._controller = job_control.JobController(
-            snapshot.snapshot_id, listener=self._on_state, cancel_clock=time.monotonic)
-        self._install_jobs(snapshot.snapshot_id, snapshot.item_ids)
-        self._reporter = job_control.JobReporter.for_run(
-            snapshot, clock=self._clock, publish=self._publish)
+        self._controller = controller
+        self._reporter = reporter
 
         params = {
             "size": snapshot.tool_options["size"],
@@ -2687,15 +3196,23 @@ class CoverResizerUI(ttk.Frame):
 
         self._busy.set()
         self._cancel_event.clear()
-        self._controller.start()
-        if mode == MODE_STANDARD and self._last_run_dir is not None:
-            self._reporter.output_location(self._last_run_dir)
-        self._reporter.progress(0, len(files), stage=STAGE_RESIZE)
-        self.disable_inputs(True)
-
         runner = self._job_runner
-        self._worker = (self.run_resize_in_thread(params) if runner is None
-                        else runner(self, params))
+        try:
+            self._controller.start()
+            if mode == MODE_STANDARD and self._last_run_dir is not None:
+                self._reporter.output_location(self._last_run_dir)
+            self._reporter.progress(0, len(files), stage=STAGE_RESIZE)
+            self.disable_inputs(True)
+            self._worker = (self.run_resize_in_thread(params) if runner is None
+                            else runner(self, params))
+        except Exception as exc:  # noqa: BLE001 - a worker that never started must still end the attempt
+            if self._controller is not controller or controller.is_terminal:
+                raise  # an inline runner that ran (and ended) the attempt itself failed afterwards
+            self._worker = None
+            self._settle_unstarted(snapshot, controller, reporter, exc)
+            if reservation is not None:
+                self._release_unadopted(PreparedRun(reservation=reservation, destinations={}))
+            return None
         return self._worker
 
     def run_resize_in_thread(self, params: dict):
@@ -2706,6 +3223,21 @@ class CoverResizerUI(ttk.Frame):
         return worker
 
     def cancel(self):
+        # v0.8.2 Checkpoint 5: during a preparation there is no run yet. Cancel asks the preparation worker to stop at
+        # its next checkpoint and says so at once; the panel ends the preparation when the worker acknowledges (its
+        # empty run folder released, nothing started, the previous run as it was). A plan already offered is taken
+        # back here and its empty folder released off Tk, so it can never start.
+        preparation = self._preparing
+        if preparation is not None:
+            if preparation.cancel_requested.is_set():
+                return
+            left = preparation.withdraw()
+            if left is not None:
+                self._release_unadopted(left)  # off Tk: Cancel never waits on the output storage
+            if not self._closed:
+                self.jobs.controls.apply(JobState.CANCEL_REQUESTED)
+                self.jobs.status.set_status(STATUS_CANCELLING_PREPARATION)
+            return
         if not self._busy.is_set() or self._cancel_event.is_set():
             return
         self._cancel_event.set()
@@ -2795,10 +3327,13 @@ class CoverResizerUI(ttk.Frame):
         :class:`~shared.job_ui.MainThreadPump` calls it on every tick, alongside
         the import poller, so exactly one Tk callback is ever outstanding.
         """
+        self._release_painted()
         try:
             while True:
                 kind, payload = self._log_q.get_nowait()
-                if kind == "log":
+                if kind == PREPARATION_MESSAGE:
+                    self._handle_preparation(payload)
+                elif kind == "log":
                     self.log_write(payload)
                 elif kind == "progress":
                     try:
@@ -3193,6 +3728,14 @@ class CoverResizerUI(ttk.Frame):
         if self._closed:
             return
         self._closed = True
+        # v0.8.2 Checkpoint 5: a preparation still going stops at its next checkpoint and releases its own empty run
+        # folder; a plan it already offered is taken back here and released off Tk, so nothing it planned can start
+        # after the panel closed. Close never waits for the preparation worker.
+        preparation, self._preparing = self._preparing, None
+        if preparation is not None:
+            left = preparation.withdraw()
+            if left is not None:
+                self._release_unadopted(left)
         controller = self._controller
         if controller is not None and not controller.is_terminal:
             self._cancel_event.set()
@@ -3264,6 +3807,17 @@ class CoverResizerUI(ttk.Frame):
         replaced = 0
         completed: list = []
         failures: list = []
+        # This attempt's inputs, normalised once (v0.8.2 Checkpoint 5): each image's "never one of the inputs" check
+        # is one lookup. Before, every image normalised every input again (5,000 images: about 25 million path
+        # resolutions over the run). Same inputs (this attempt's files), same key, same refusal. Built at the first
+        # image that asks, inside that image's own error handling, so a failure to build it fails images exactly as
+        # the one-shot check's failure did; a replacement writes over its own validated source and never asks.
+        index: list = []
+
+        def not_an_input(destination: Path) -> None:
+            if not index:
+                index.append(output_paths.InputIndex(files))
+            index[0].assert_not_input(destination)
 
         for idx, (item_id, in_file) in enumerate(zip(item_ids, files), start=1):
             # The one cooperative boundary, and it sits between images: a pause
@@ -3298,16 +3852,16 @@ class CoverResizerUI(ttk.Frame):
                     final_out = in_file
                 elif mode == ACTION_NUMBERED:
                     final_out = source_planner.plan_beside(in_file, name=planned_name)
-                    output_paths.assert_not_input(final_out, files)
+                    not_an_input(final_out)
                 elif item_id is not None and item_id in destinations:
                     # The destination this run planned before it started, which
                     # is also the one a retry of this item will use.
                     final_out = destinations[item_id]
-                    output_paths.assert_not_input(final_out, files)
+                    not_an_input(final_out)
                     final_out.parent.mkdir(parents=True, exist_ok=True)
                 else:
                     final_out = planner.plan(planned_name)
-                    output_paths.assert_not_input(final_out, files)
+                    not_an_input(final_out)
 
                 # Every mode writes a complete private sibling first (v0.8.0 macOS
                 # Revision 1). Nothing carries its final name until the image is
@@ -3442,6 +3996,11 @@ class CoverResizerUI(ttk.Frame):
             self._log_q.put(("done", "\nCancelled. " + tail))
         else:
             self._log_q.put(("done", "\nAll done. " + tail))
+
+
+def _daemon_thread(target, name: str) -> threading.Thread:
+    """The production thread factory for the panel's short-lived preparation and release workers."""
+    return threading.Thread(target=target, name=name, daemon=True)
 
 
 def build_ui(parent: tk.Misc) -> CoverResizerUI:

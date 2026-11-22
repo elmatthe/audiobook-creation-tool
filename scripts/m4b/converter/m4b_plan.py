@@ -47,7 +47,7 @@ from pathlib import Path
 from types import MappingProxyType
 
 from shared.importing import ImportRoot
-from shared.output_paths import assert_not_input
+from shared.output_paths import InputIndex
 
 from m4b.converter import m4b_destinations
 from m4b.m4b_chapters import ChapterSpan, ChapterUsability, plan_timeline, validate_chapters
@@ -423,6 +423,13 @@ def assemble_plan(
         for entry, report, chaptered, _route in usable
     }
 
+    # **One index of the run's inputs, for the whole plan** (v0.8.2 Checkpoint 5). Every frozen occurrence, usable
+    # or not -- an unusable book is still a file on disk that must not be written over -- normalised once, in queue
+    # order, with the one-shot guard's key and refusal. Built before the reservation, so a source that cannot be
+    # normalised refuses the plan with nothing reserved. Both checks below are one lookup per output; before, each
+    # normalised every source again for every output (D outputs from N books: 2·D·(N+1) path resolutions).
+    inputs = InputIndex(Path(entry.path) for entry in entries)
+
     run_directory, planner = reserve()
     planned = m4b_destinations.plan_outputs(
         [entry for entry, _report, _chaptered, _route in usable],
@@ -434,6 +441,7 @@ def assemble_plan(
         # split run produces one output and still belongs in its own book
         # folder alongside the books that produced many.
         split=bool(options.split),
+        inputs=inputs,
     )
     destinations = {item.occurrence_id: item.destinations for item in planned}
 
@@ -486,10 +494,9 @@ def assemble_plan(
 
     # Checked against **every** source in the run, not only the usable ones: an
     # unusable book is still a file on disk that must not be written over.
-    sources = tuple(Path(entry.path) for entry in entries)
     for item in items:
         for segment in item.segments:
-            assert_not_input(segment.destination, sources)
+            inputs.assert_not_input(segment.destination)
 
     return ConversionPlan(
         snapshot_id=snapshot_id,

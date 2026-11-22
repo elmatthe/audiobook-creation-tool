@@ -957,18 +957,31 @@ def test_a_source_already_named_like_an_output_is_never_overwritten(tmp_path):
 
 
 def test_every_planned_destination_is_checked_against_every_source(tmp_path, monkeypatch):
-    """The guard is applied, and to the *whole* run -- unusable books included."""
+    """The guard is applied, and to the *whole* run -- unusable books included.
+
+    v0.8.2 Checkpoint 5: the run's sources are indexed once (``InputIndex``, same key and refusal as the one-shot
+    guard) and both planning checks -- ``plan_outputs`` and the final one -- look every destination up in it.
+    """
     good = book(tmp_path / "src", "A.m4b")
     bad = book(tmp_path / "src", "B.m4b")
     entries = direct(good, bad)
     seen: list = []
-    real = m4b_plan.assert_not_input
+    built: list = []
+    real = m4b_plan.InputIndex
 
-    def watched(destination, sources):
-        seen.append((Path(destination), tuple(Path(s) for s in sources)))
-        return real(destination, sources)
+    class Watched(real):
+        __slots__ = ()
 
-    monkeypatch.setattr(m4b_plan, "assert_not_input", watched)
+        def __init__(self, inputs, **kwargs):
+            inputs = tuple(inputs)
+            built.append(tuple(Path(s) for s in inputs))
+            super().__init__(inputs, **kwargs)
+
+        def assert_not_input(self, destination):
+            seen.append((Path(destination), built[-1]))
+            return super().assert_not_input(destination)
+
+    monkeypatch.setattr(m4b_plan, "InputIndex", Watched)
     plan = plan_for(entries, {
         entries[0].occurrence_id: report(duration=600.0,
                                          chapter_list=chapters(0.0, 300.0)),
@@ -977,7 +990,8 @@ def test_every_planned_destination_is_checked_against_every_source(tmp_path, mon
     }, tmp_path / "run", mode=ConversionMode.SPLIT)
 
     planned = [s.destination for i in plan.items for s in i.segments]
-    assert [entry[0] for entry in seen] == planned
+    assert len(built) == 1, "one index for the whole plan"
+    assert [entry[0] for entry in seen] == planned + planned, "plan_outputs, then the final check"
     for _destination, sources in seen:
         assert set(sources) == {good, bad}, "the unusable book is still a source"
 
