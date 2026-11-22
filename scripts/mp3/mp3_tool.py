@@ -266,6 +266,12 @@ DIVIDER_MARK = "────"
 #: multi-Book tools (v0.6.4 Phase 12 maintainer amendment).
 CLEAR_IMPORTS_LABEL = "Clear All Imports"
 
+#: v0.8.2 qualification: Import Folder replaces only the Books the user agreed to replace. If a Book was changed while
+#: the import ran (the scan, then the reading of the tags), nothing is replaced and this is said. The same sentence in
+#: the three multi-Book tools.
+REPLACEMENT_REFUSED = ("Import Folder: the Books were changed while the import was running, so they were not "
+                       "replaced and your changes were kept. Choose Import Folder again to replace them.")
+
 #: What the user is told when a worker dies with the run unfinished.
 FAULT_MESSAGE = "The run stopped unexpectedly and was not completed."
 
@@ -548,16 +554,19 @@ class _PendingImport:
     Nothing of it is in the workspace yet: the Books (Import Folder) or tracks (Add Files) are made from the committed
     snapshot only when :attr:`readback` has finished, through the unchanged workflow functions. ``target`` is the Book
     Add Files was pressed on, by identity, so navigating while the tags are read cannot send the files elsewhere.
+    ``replacing`` is, for Import Folder, the Books the user agreed to replace when they pressed it (v0.8.2
+    qualification): the import replaces them only if the workspace still holds exactly those Books.
     """
 
-    __slots__ = ("readback", "kind", "outcome", "target", "shown")
+    __slots__ = ("readback", "kind", "outcome", "target", "replacing", "shown")
 
     def __init__(self, readback: source_readback.SourceReadback, kind: str | None, outcome: ImportOutcome,
-                 target: str) -> None:
+                 target: str, replacing: tuple | None = None) -> None:
         self.readback = readback
         self.kind = kind
         self.outcome = outcome
         self.target = target
+        self.replacing = replacing
         self.shown = -1
 
 
@@ -938,6 +947,8 @@ class MP3ToolUI(ttk.Frame):
         # v0.8.2 Checkpoint 6: the committed import whose tags a worker is reading, and how many were started.
         self._pending_import: _PendingImport | None = None
         self._readbacks = 0
+        # v0.8.2 qualification: the Books an Import Folder in progress was pressed to replace (None otherwise).
+        self._replacing: tuple | None = None
 
         # Where the next run will go, shown read-only. Reserving the numbered
         # run folder is the processing phases' job; nothing is created here.
@@ -2213,11 +2224,14 @@ class MP3ToolUI(ttk.Frame):
             for order, entry in enumerate(chosen))
         self._manager.clear()
         self._import_kind = "folder"
+        # What the user agreed to replace: the Books as they are at this press (navigation does not change them).
+        self._replacing = self.workspace.books
         report = self._coordinator.start(self._request(roots))
         if report.outcome is StartOutcome.STARTED:
             self.import_status.set_scanning(0)
             self._poller.start()
             return
+        self._replacing = None
         self._pending_input_dir = None  # a declined or refused scan is not remembered
         self._import_kind = None
         self.import_status.set_idle(report.display_message)
@@ -2327,10 +2341,11 @@ class MP3ToolUI(ttk.Frame):
         if status in TERMINAL_STATUSES or status is OutcomeStatus.CLOSED:
             self._poller.stop()
             kind, self._import_kind = self._import_kind, None
+            replacing, self._replacing = self._replacing, None
             if status is OutcomeStatus.COMMITTED and outcome.commit is not None:
                 # v0.8.2 Checkpoint 6: the tags are read off Tk; the Books are made when the reading is done, and the
                 # outcome's message and problems are reported then, in the order they always were.
-                self._begin_readback(kind, outcome)
+                self._begin_readback(kind, outcome, replacing if kind == "folder" else None)
                 return outcome
             self.import_status.set_idle(outcome.display_message)
             label = "Import Folder" if kind == "folder" else "Add Files"
@@ -2358,19 +2373,20 @@ class MP3ToolUI(ttk.Frame):
     def is_reading_tags(self) -> bool:
         return self._pending_import is not None
 
-    def _begin_readback(self, kind: str | None, outcome: ImportOutcome) -> None:
+    def _begin_readback(self, kind: str | None, outcome: ImportOutcome,
+                        replacing: tuple | None = None) -> None:
         """Read the committed files' tags on a worker; the import is finished when they are read.
 
         The workspace does not change yet: what the workflow will make of the commit is decided in
         :meth:`_finish_readback`, from the workspace as it is then. A worker that cannot start leaves the reading to
-        this thread, exactly as before.
+        this thread, exactly as before. *replacing* is what an Import Folder was pressed to replace.
         """
         self.flush_pending_editor_state()
         commit = outcome.commit
         entries = commit.snapshot.files if kind == "folder" else commit.added
         readback = source_readback.SourceReadback(
             "mp3", (entry.path for entry in entries), {"reader": self._reader})
-        pending = _PendingImport(readback, kind, outcome, self.workspace.current_book_id)
+        pending = _PendingImport(readback, kind, outcome, self.workspace.current_book_id, replacing)
         self._pending_import = pending
         self._show_reading(pending)
         self._readbacks += 1
@@ -2420,9 +2436,33 @@ class MP3ToolUI(ttk.Frame):
         if self._pending_import is not pending or self._closed or not pending.readback.finished:
             return  # cancelled, closed or replaced: a stale reading changes nothing
         self._pending_import = None
+        if pending.kind == "folder" and self._books_changed_since(pending.replacing):
+            self._refuse_replacement(pending.outcome)
+            return
         self.import_status.set_idle(pending.outcome.display_message)
         self._project_import(pending)
         self._say_problems(pending.outcome)
+
+    def _books_changed_since(self, replacing: tuple | None) -> bool:
+        """Whether a Book changed after Import Folder was pressed to replace *replacing* (v0.8.2 qualification).
+
+        Books are immutable values and every edit makes a new one, so the comparison is exact: a field, Chapter
+        Titles (a paste no key release reported is committed first), a track moved or removed, a Book added,
+        duplicated or removed. Navigation and Shared fields leave the Books as they were (Shared Metadata is carried
+        through a replacement); an edit put back to the identical value is no change. Main thread.
+        """
+        if replacing is None:
+            return False
+        self.flush_pending_editor_state()
+        return self.workspace.books != replacing
+
+    def _refuse_replacement(self, outcome: ImportOutcome) -> None:
+        """Keep the Books the user changed while Import Folder ran, and say so: nothing is replaced or added."""
+        self.render()
+        self.import_status.set_idle(REPLACEMENT_REFUSED)
+        self._say(REPLACEMENT_REFUSED)
+        self._say_problems(outcome)
+        messagebox.showwarning(APP_TITLE, REPLACEMENT_REFUSED, parent=self)
 
     def _project_import(self, pending: _PendingImport) -> None:
         """The committed snapshot becomes Books (folder) or tracks (files), observed from what the worker read."""

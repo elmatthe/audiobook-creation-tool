@@ -21254,7 +21254,10 @@
             "MP3ToolUI.close",
             "MP3ToolUI.is_reading_tags",
             "MP3ToolUI._assign_book_numbers",
-            "MP3ToolUI._render_tracks"
+            "MP3ToolUI._render_tracks",
+            "MP3ToolUI.import_folder",
+            "MP3ToolUI._books_changed_since",
+            "MP3ToolUI._refuse_replacement"
           ]
         },
         {
@@ -21274,7 +21277,10 @@
             "M4BMetadataEditorUI.close",
             "M4BMetadataEditorUI.is_reading_sources",
             "M4BMetadataEditorUI._start_action",
-            "M4BMetadataEditorUI._assign_book_numbers"
+            "M4BMetadataEditorUI._assign_book_numbers",
+            "M4BMetadataEditorUI.import_folder",
+            "M4BMetadataEditorUI._books_changed_since",
+            "M4BMetadataEditorUI._refuse_replacement"
           ]
         },
         {
@@ -21290,7 +21296,11 @@
           "path": "scripts/m4b/maker/m4b_maker.py",
           "symbols": [
             "M4BMakerUI._assign_book_numbers",
-            "M4BMakerUI._render_tracks"
+            "M4BMakerUI._render_tracks",
+            "M4BMakerUI.import_folder",
+            "M4BMakerUI._handle_outcome",
+            "M4BMakerUI._books_changed_since",
+            "M4BMakerUI._refuse_replacement"
           ]
         },
         {
@@ -21324,7 +21334,8 @@
         "The MP3 Tool and M4B Maker leave a Book's track list and its selection alone when a render changed no track; moves, removals, navigation and imports redraw it as before.",
         "The shared imported-file list selects, restores a selection and fills its rows in linear time with one Tk call per run of rows (Select All 0.68-0.75 s at 5,000 files before).",
         "Cover Image's browser paints a selection with one set of the selected images, not one per row (Select All on 5,000 images: 0.86 s before, under 0.1 s after); what is shown selected is unchanged.",
-        "MP3 Tool's folder import seeds every new Book in one workspace snapshot, equal value for value (revision included) to replacing them one at a time: 2,341 one-file folders took 0.5 s on Tk and 5,000 took 4.2 s; now 35 ms and 83 ms."
+        "MP3 Tool's folder import seeds every new Book in one workspace snapshot, equal value for value (revision included) to replacing them one at a time: 2,341 one-file folders took 0.5 s on Tk and 5,000 took 4.2 s; now 35 ms and 83 ms.",
+        "Import Folder replaces only the Books the user agreed to replace when they pressed it: if a Book was changed while the import ran (MP3 Tool and Metadata Editor: the scan and the reading; M4B Maker: the scan) -- a field, pasted Chapter Titles, a track moved or removed, a Book added, duplicated or removed -- nothing is replaced, every change is kept, and the tool says why and what to do (status line, Summary, one warning) and is free again. Navigation, Shared fields and an edit put back to the identical value are no change; Add Files is a merge and is not refused."
       ],
       "selection": [
         "files/tests/test_import_readback.py",
@@ -21332,7 +21343,8 @@
         "files/tests/test_m4b_metadata_editor_ui.py",
         "files/tests/test_m4b_metadata_workflow.py",
         "files/tests/test_job_ui.py",
-        "files/tests/test_cover_browser.py"
+        "files/tests/test_cover_browser.py",
+        "files/tests/test_import_edit_guard.py"
       ],
       "journeys": [],
       "verification": {
@@ -21452,6 +21464,106 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_cover_browser.py::test_painting_a_selection_reads_it_once_not_once_per_row[list]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_import_edit_guard.py::test_mp3_an_edit_while_the_tags_are_read_is_kept_and_nothing_is_replaced[field]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_import_edit_guard.py::test_mp3_an_edit_while_the_tags_are_read_is_kept_and_nothing_is_replaced[pasted_titles]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_import_edit_guard.py::test_mp3_an_edit_while_the_tags_are_read_is_kept_and_nothing_is_replaced[move_track]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_import_edit_guard.py::test_mp3_an_edit_while_the_tags_are_read_is_kept_and_nothing_is_replaced[remove_track]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_import_edit_guard.py::test_mp3_an_edit_while_the_tags_are_read_is_kept_and_nothing_is_replaced[add_book]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_import_edit_guard.py::test_mp3_an_edit_while_the_tags_are_read_is_kept_and_nothing_is_replaced[duplicate_book]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_import_edit_guard.py::test_mp3_an_edit_while_the_tags_are_read_is_kept_and_nothing_is_replaced[remove_book]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_import_edit_guard.py::test_mp3_an_edit_in_a_workspace_that_needed_no_confirmation_is_kept"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_import_edit_guard.py::test_mp3_the_replacement_goes_ahead_when_no_book_was_changed[nothing]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_import_edit_guard.py::test_mp3_the_replacement_goes_ahead_when_no_book_was_changed[navigate]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_import_edit_guard.py::test_mp3_the_replacement_goes_ahead_when_no_book_was_changed[select]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_import_edit_guard.py::test_mp3_the_replacement_goes_ahead_when_no_book_was_changed[shared]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_import_edit_guard.py::test_mp3_the_replacement_goes_ahead_when_no_book_was_changed[edit_and_revert]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_import_edit_guard.py::test_mp3_cancel_import_after_an_edit_keeps_it"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_import_edit_guard.py::test_mp3_a_reading_that_fails_after_an_edit_keeps_it"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_import_edit_guard.py::test_mp3_add_files_is_a_merge_and_keeps_the_target_books_edits"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_import_edit_guard.py::test_editor_an_edit_while_the_sources_are_read_is_kept[field]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_import_edit_guard.py::test_editor_an_edit_while_the_sources_are_read_is_kept[pasted_titles]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_import_edit_guard.py::test_editor_an_edit_while_the_sources_are_read_is_kept[remove_book]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_import_edit_guard.py::test_editor_an_edit_while_the_sources_are_read_is_kept[navigate_only]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_import_edit_guard.py::test_maker_an_edit_while_the_folder_is_scanned_is_kept[field]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_import_edit_guard.py::test_maker_an_edit_while_the_folder_is_scanned_is_kept[remove_book]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_import_edit_guard.py::test_maker_an_edit_while_the_folder_is_scanned_is_kept[navigate_only]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_import_edit_guard.py::test_mp3_a_paste_nothing_reported_yet_is_committed_and_kept_at_completion"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_import_edit_guard.py::test_editor_a_paste_nothing_reported_yet_is_committed_and_kept_at_completion"
           }
         ]
       },
@@ -27182,6 +27294,7 @@
       "dialog:scripts/m4b/maker/m4b_maker.py::M4BMakerUI._ask_folder::filedialog.askdirectory:Select a folder of MP3 audiobooks": "ACT.MAKER.IMPORT-FOLDER",
       "dialog:scripts/m4b/maker/m4b_maker.py::M4BMakerUI._on_preparation::messagebox.showerror:APP_TITLE": "ACT.MAKER.PREPARATION",
       "dialog:scripts/m4b/maker/m4b_maker.py::M4BMakerUI._on_preparation::messagebox.showwarning:APP_TITLE": "ACT.MAKER.PREPARATION",
+      "dialog:scripts/m4b/maker/m4b_maker.py::M4BMakerUI._refuse_replacement::messagebox.showwarning:APP_TITLE": "ACT.SHARED.WORKSPACE-SCALING",
       "dialog:scripts/m4b/maker/m4b_maker.py::M4BMakerUI.build::messagebox.showerror:APP_TITLE": "ACT.MAKER.SILENCE",
       "dialog:scripts/m4b/maker/m4b_maker.py::M4BMakerUI.build::messagebox.showerror:APP_TITLE#2": "ACT.MAKER.SERIES",
       "dialog:scripts/m4b/maker/m4b_maker.py::M4BMakerUI.build::messagebox.showerror:APP_TITLE#3": "ACT.MAKER.BUILD",
@@ -27195,6 +27308,7 @@
       "dialog:scripts/m4b/metadata/m4b_metadata_editor.py::M4BMetadataEditorUI._ask_folder::filedialog.askdirectory:Select a folder of M4B files": "ACT.METADATA.IMPORT",
       "dialog:scripts/m4b/metadata/m4b_metadata_editor.py::M4BMetadataEditorUI._on_preparation::messagebox.showerror:APP_TITLE": "ACT.METADATA.PREPARATION",
       "dialog:scripts/m4b/metadata/m4b_metadata_editor.py::M4BMetadataEditorUI._on_preparation::messagebox.showwarning:APP_TITLE": "ACT.METADATA.UNREADABLE",
+      "dialog:scripts/m4b/metadata/m4b_metadata_editor.py::M4BMetadataEditorUI._refuse_replacement::messagebox.showwarning:APP_TITLE": "ACT.SHARED.WORKSPACE-SCALING",
       "dialog:scripts/m4b/metadata/m4b_metadata_editor.py::M4BMetadataEditorUI._start_action::messagebox.showerror:APP_TITLE": "ACT.METADATA.AUTO-NUMBER",
       "dialog:scripts/m4b/metadata/m4b_metadata_editor.py::M4BMetadataEditorUI._start_action::messagebox.showerror:APP_TITLE#2": "ACT.METADATA.RUN-START",
       "dialog:scripts/m4b/metadata/m4b_metadata_editor.py::M4BMetadataEditorUI._start_action::messagebox.showwarning:APP_TITLE": "ACT.METADATA.RUN-START",
@@ -27206,6 +27320,7 @@
       "dialog:scripts/mp3/mp3_tool.py::MP3ToolUI._ask_files::filedialog.askopenfilenames:Select MP3 files": "ACT.MP3.ADD-FILES",
       "dialog:scripts/mp3/mp3_tool.py::MP3ToolUI._ask_folder::filedialog.askdirectory:Select a folder of MP3 audiobooks": "ACT.MP3.IMPORT-FOLDER",
       "dialog:scripts/mp3/mp3_tool.py::MP3ToolUI._on_preparation::messagebox.showerror:APP_TITLE": "ACT.MP3.OUTPUT-RUN",
+      "dialog:scripts/mp3/mp3_tool.py::MP3ToolUI._refuse_replacement::messagebox.showwarning:APP_TITLE": "ACT.SHARED.WORKSPACE-SCALING",
       "dialog:scripts/mp3/mp3_tool.py::MP3ToolUI._request_operation::messagebox.showerror:APP_TITLE": "ACT.MP3.INVALID-VALUES",
       "dialog:scripts/mp3/mp3_tool.py::MP3ToolUI._request_operation::messagebox.showerror:APP_TITLE#2": "ACT.MP3.INVALID-VALUES",
       "dialog:scripts/mp3/mp3_tool.py::MP3ToolUI._request_operation::messagebox.showerror:APP_TITLE#3": "ACT.MP3.WRITE-AND-COMBINE",
@@ -28684,21 +28799,21 @@
     "scripts/m4b/m4b_staging.py": "2bdd120d172aad9c8ab54cb535f778b0ce9e94e641992c849a6d2d90960296f1",
     "scripts/m4b/m4b_winaudio.py": "19cc9ea93c8e8abee622621be95d828fe0ec2f4cfad4fc341ca7dbb138378a69",
     "scripts/m4b/maker/__init__.py": "44b46ce022c1d44c62e24901c993d25fd5fd466748baab3ee6b62a6d2599a989",
-    "scripts/m4b/maker/m4b_maker.py": "db13e2e7c9c1ca1f8fe3ef35c360227babb46eeaecf979d437f9f2b703e7339a",
+    "scripts/m4b/maker/m4b_maker.py": "1e7dfd3125aebfc734c2f9e6a05d121c8ac52a0cd42fa312e55f12f51039a2b9",
     "scripts/m4b/maker/m4b_maker_batch.py": "3b9dc94dd901c0ef2a6cc31c631660d30ade67c392b32fb765bfb61304986860",
     "scripts/m4b/maker/m4b_maker_plan.py": "d739a9069d17ecc1915b7b770d4ffb70044f2c79ebe510d74b2bcb110f31cda7",
     "scripts/m4b/maker/m4b_maker_processing.py": "1e8ab335a300549d4708aa816a061ca36146d2cdcb4737e4d0dcf4bb7754c732",
     "scripts/m4b/maker/m4b_maker_workflow.py": "ed2e3f0528065683b02c8b7f5c0fcdc3725c6711b1eeaf3df884208af56e921e",
     "scripts/m4b/metadata/__init__.py": "b369c0a23a5a1ced497355f6119db888853e931a90c7265bae3c94cf923aaeaa",
     "scripts/m4b/metadata/m4b_metadata_batch.py": "cf0e2f55d68388f956b8c18732af5c020103dafed7ca1bc80b9fc8886dec117a",
-    "scripts/m4b/metadata/m4b_metadata_editor.py": "2ae365b3866076f8a402bcadac7ac4c26f0d91a2ac2aeb7ae76b57d3155b2dce",
+    "scripts/m4b/metadata/m4b_metadata_editor.py": "647e0bcbe5c393120b9fef5a614eb30efe19e457bb84953a6f55fd9561a5a471",
     "scripts/m4b/metadata/m4b_metadata_plan.py": "69ccf5e8e9b17a0801c5f556664c59060fd916c320a9124ac417a60b5e0b3958",
     "scripts/m4b/metadata/m4b_metadata_processing.py": "58ddfd565b486a5af62ac001b44292ffc79daf9f3d6496ef65283c6482ec2609",
     "scripts/m4b/metadata/m4b_metadata_workflow.py": "b76204fc56999873377ba8857e7a4fc16e2bdb978a574590f5ea8f836a103766",
     "scripts/mp3/__init__.py": "9b509f0a549209fcf0dd27fed262cd09d2215315754f4bfcad4b63fd1d8ae8c2",
     "scripts/mp3/mp3_plan.py": "780c8bef0505895e3c4db4394a33a9bdd041135250d34e23a6d0f0203040bc55",
     "scripts/mp3/mp3_processing.py": "e932558f28de02191a953264afe86466718147b3be3d2128dd0dffda004f55d1",
-    "scripts/mp3/mp3_tool.py": "f6e98fa569aef08ae2dd19564247a0440808d18f2e6ab97a3c093721d4854bb9",
+    "scripts/mp3/mp3_tool.py": "48b8b8e5d4495cf19f32c56e1b1a116e0c888c2789312cb04778c57ec79b64ff",
     "scripts/mp3/mp3_workflow.py": "84cfd92fa82b3c32468e8f38db083512eb830af32f8ff19ad7110edd0371fd11",
     "scripts/shared/__init__.py": "7cdb3a3d2a4b1c757d93646a31f9c8d2f64af265b4dfbd01e570a566ad4e72fc",
     "scripts/shared/appearance.py": "1083d4880cc44d146c4ee6682a3f00630f4ada1e1cfa298a33c04e5a502a2d71",

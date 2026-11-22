@@ -353,6 +353,11 @@ def _build_refusal(exc: BaseException) -> prep.Refusal | None:
 #: multi-Book tools (v0.6.4 Phase 12 maintainer amendment).
 CLEAR_IMPORTS_LABEL = "Clear All Imports"
 
+#: v0.8.2 qualification: Import Folder replaces only the Books the user agreed to replace. If a Book was changed while
+#: the import ran (the scan), nothing is replaced and this is said. The same sentence in the three multi-Book tools.
+REPLACEMENT_REFUSED = ("Import Folder: the Books were changed while the import was running, so they were not "
+                       "replaced and your changes were kept. Choose Import Folder again to replace them.")
+
 #: The numbered Family-B hierarchy (frozen UI contract §2), and Activity below.
 SECTION_TITLES = ("1. Import & Books", "2. Book Settings",
                   "3. Tracks, Chapters & Build", "Activity")
@@ -599,6 +604,8 @@ class M4BMakerUI(ttk.Frame):
             self._coordinator, self._pump.schedule, cancel=self._pump.cancel,
             interval_ms=self._pump.interval_ms, on_outcome=self._handle_outcome)
         self._import_kind: str | None = None
+        # v0.8.2 qualification: the Books an Import Folder in progress was pressed to replace (None otherwise).
+        self._replacing: tuple | None = None
 
         # Where the next standard run will go, shown read-only.
         self.var_outdir = tk.StringVar(value=output_paths.destination_hint(TOOL_KEY))
@@ -1938,11 +1945,14 @@ class M4BMakerUI(ttk.Frame):
             for order, entry in enumerate(chosen))
         self._manager.clear()
         self._import_kind = "folder"
+        # What the user agreed to replace: the Books as they are at this press (navigation does not change them).
+        self._replacing = self.workspace.books
         report = self._coordinator.start(self._request(roots))
         if report.outcome is StartOutcome.STARTED:
             self.import_status.set_scanning(0)
             self._poller.start()
             return
+        self._replacing = None
         self._pending_input_dir = None  # a declined or refused scan is not remembered
         self._import_kind = None
         self.import_status.set_idle(report.display_message)
@@ -2039,6 +2049,11 @@ class M4BMakerUI(ttk.Frame):
         if status in TERMINAL_STATUSES or status is OutcomeStatus.CLOSED:
             self._poller.stop()
             kind, self._import_kind = self._import_kind, None
+            replacing, self._replacing = self._replacing, None
+            if (status is OutcomeStatus.COMMITTED and outcome.commit is not None and kind == "folder"
+                    and self._books_changed_since(replacing)):
+                self._refuse_replacement(outcome)
+                return outcome
             self.import_status.set_idle(outcome.display_message)
             if status is OutcomeStatus.COMMITTED and outcome.commit is not None:
                 self._project_import(kind, outcome)
@@ -2053,6 +2068,29 @@ class M4BMakerUI(ttk.Frame):
         if status in (OutcomeStatus.BUSY, OutcomeStatus.NO_TYPES_SELECTED):
             self.import_status.set_message(outcome.display_message)
         return outcome
+
+    def _books_changed_since(self, replacing: tuple | None) -> bool:
+        """Whether a Book changed after Import Folder was pressed to replace *replacing* (v0.8.2 qualification).
+
+        Books are immutable values and every edit makes a new one, so the comparison is exact: a field, Chapter
+        Titles (a paste no key release reported is committed first), a track moved or removed, a Book added,
+        duplicated or removed. Navigation and Shared fields leave the Books as they were (Shared Metadata is carried
+        through a replacement); an edit put back to the identical value is no change. Main thread.
+        """
+        if replacing is None:
+            return False
+        self.flush_pending_editor_state()
+        return self.workspace.books != replacing
+
+    def _refuse_replacement(self, outcome: ImportOutcome) -> None:
+        """Keep the Books the user changed while Import Folder ran, and say so: nothing is replaced or added."""
+        self.render()
+        self.import_status.set_idle(REPLACEMENT_REFUSED)
+        self._say(REPLACEMENT_REFUSED)
+        for problem in outcome.problems:
+            self._say(f"  {problem.display_message}",
+                      f"  {problem.technical_detail or problem.display_message}")
+        messagebox.showwarning(APP_TITLE, REPLACEMENT_REFUSED, parent=self)
 
     def _project_import(self, kind: str | None, outcome: ImportOutcome) -> None:
         """The committed snapshot becomes Books (folder) or tracks (files)."""
