@@ -101,6 +101,7 @@ The launcher (`scripts/launcher.py`) is the one window of the Audiobook Creation
 - Run buttons, log tabs, progress/status and Open Output are never locked.
 - Tab is meant to reach every visible core control in workflow order at 920x600 and 1024x720 and never stop on a hidden one.
 - Every option a run freezes is registered for locking in all six tools (audited in v0.7.2 Phase 6, ACT72-014: the TTS Resume, Edge rate and Kokoro speed and the MP3 Chapter Titles box were added).
+- The imported list's lock reaches the window only when it changes (v0.8.2 Checkpoint 4): re-sending an unchanged lock made Tk re-measure every row, about 40 ms at 5,000 files. Locked and unlocked mean exactly what they did.
 
 ### Progress bar, stage line and time remaining
 `ACT.SHARED.PROGRESS`

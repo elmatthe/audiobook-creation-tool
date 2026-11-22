@@ -46,6 +46,7 @@ from tts import epub2tts_gui as panel_module
 
 from test_tts_importing import (  # noqa: F401 - fixtures are used by name
     PANEL_SOURCE,
+    adopt_preparation,
     make_panel,
     output_base,
     sources,
@@ -299,6 +300,7 @@ def test_toggling_mid_run_leaves_the_running_job_alone(
     panel = make_panel(appearance_bundle=light, choose_files=lambda: chosen)
     panel.importer.add_files()
     panel.run_job()
+    adopt_preparation(panel)  # v0.8.2 CP4: the pump adopts the prepared plan
     worker, controller, jobs = panel._worker, panel._controller, panel.jobs
     try:
         assert gated_stubs.entered.wait(WAIT), "the engine never started"

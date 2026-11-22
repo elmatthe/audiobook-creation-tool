@@ -236,6 +236,178 @@
       "exceptions": []
     },
     {
+      "id": "ACT.TTS.PREPARATION",
+      "tool": "tts-audiobook",
+      "title": "Preparing a conversion run off the Tk thread",
+      "release_required": true,
+      "applicability": {
+        "platforms": [
+          "windows"
+        ]
+      },
+      "source": [
+        {
+          "path": "scripts/tts/epub2tts_gui.py",
+          "symbols": [
+            "voice_readiness",
+            "PreparedRun",
+            "_Preparation",
+            "_Preparation.checkpoint",
+            "_Preparation.offer",
+            "_Preparation.adopt",
+            "_Preparation.withdraw",
+            "_Preparation.wait_until_painted",
+            "_PreparationMessage",
+            "prepare_run",
+            "_AttemptNotStarted",
+            "_default_thread",
+            "plan_destinations",
+            "TtsPanel.run_job",
+            "TtsPanel._start_frozen",
+            "TtsPanel._readiness_question",
+            "TtsPanel._voice_projection",
+            "TtsPanel._show_preparing",
+            "TtsPanel._show_preparation_progress",
+            "TtsPanel._drain_preparation",
+            "TtsPanel._on_preparation",
+            "TtsPanel._end_preparation",
+            "TtsPanel._adopt",
+            "TtsPanel._release_unadopted",
+            "TtsPanel._launch",
+            "TtsPanel._install_jobs",
+            "TtsPanel._retire_adapter",
+            "TtsPanel.cancel_job",
+            "TtsPanel.close",
+            "TtsPanel.retry_failed",
+            "_RunContext.settle_unstarted"
+          ]
+        },
+        {
+          "path": "scripts/tts/output_names.py",
+          "symbols": [
+            "plan_named"
+          ]
+        },
+        {
+          "path": "scripts/shared/job_ui.py",
+          "symbols": [
+            "ImportedFileList.set_locked"
+          ]
+        }
+      ],
+      "contracts": [
+        "Start validates, checks the voice (Install & Continue included) and freezes the run on Tk exactly as before, takes the output configuration in force, shows 'Preparing job…' with Cancel available and Pause disabled, locks the queue and options, and returns at once; reserving the run folder and planning every output run on one short-lived worker that touches no Tk and waits up to 0.25 s for the press to be painted.",
+        "Output names are exactly the synchronous planner's (direct, mirrored, multi-root, duplicates), with every containment and link check; Retry Failed reuses the frozen destinations and is never re-planned.",
+        "Cancel or Close during preparation starts nothing and leaves no run folder; Cancel is acknowledged at once and the panel frees itself at the worker's next file; an offered plan nobody adopts is released off the Tk thread.",
+        "A plan is adopted only if it belongs to the current press and no Cancel came first; a stale or duplicate result is released and never run.",
+        "A refused or failed preparation (reservation, naming, a voice no longer available, an unexpected fault, a worker that cannot start) shows why, keeps the previous result and Retry Failed, and a later Start works.",
+        "The new job area is built before the previous one is retired; a failure to build it changes nothing and releases the reservation; a conversion worker that cannot start fails the run and frees the panel.",
+        "Preferences changed after the press do not move the run.",
+        "Measured on HOME-PC (median of 3, 1 ms timer): 2,341 identical direct titles, the press returns in 25 ms and the window keeps a 45 ms largest heartbeat gap while the plan is made (4.16 s frozen at de62430); 5,000 files in sub-folders, 46 ms and 68 ms (12.1 s frozen before)."
+      ],
+      "selection": [
+        "files/tests/test_tts_preparation.py",
+        "files/tests/test_tts_jobs.py",
+        "files/tests/test_tts_importing.py",
+        "files/tests/test_tts_output_names.py",
+        "files/tests/test_plan4_lifecycle_races.py"
+      ],
+      "journeys": [],
+      "verification": {
+        "all_of": [
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_preparation.py::test_the_press_reserves_and_plans_nothing_on_tk_and_shows_preparing"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_preparation.py::test_the_press_returns_at_once_and_tk_keeps_its_heartbeat_while_the_job_is_prepared[direct-identical-2341]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_preparation.py::test_the_press_returns_at_once_and_tk_keeps_its_heartbeat_while_the_job_is_prepared[folder-2341]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_preparation.py::test_the_press_returns_at_once_and_tk_keeps_its_heartbeat_while_the_job_is_prepared[direct-identical-5000]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_preparation.py::test_the_prepared_names_are_exactly_the_synchronous_planners[direct]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_preparation.py::test_the_prepared_names_are_exactly_the_synchronous_planners[two roots]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_preparation.py::test_the_prepared_names_are_exactly_the_synchronous_planners[duplicates]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_preparation.py::test_the_worker_side_names_no_tk_and_no_panel_state"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_preparation.py::test_no_worker_ever_calls_tk"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_preparation.py::test_cancel_while_planning_stops_at_the_next_file_and_releases_the_run"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_preparation.py::test_a_plan_offered_just_before_cancel_is_never_adopted"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_preparation.py::test_close_during_preparation_starts_nothing_and_leaves_no_run[before the worker]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_preparation.py::test_a_stale_ending_of_an_earlier_press_is_ignored_and_its_plan_released"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_preparation.py::test_a_duplicate_ending_starts_one_run_and_its_extra_reservation_is_released"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_preparation.py::test_a_failed_preparation_keeps_the_previous_result_and_a_following_start_works[planning]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_preparation.py::test_a_job_area_that_cannot_be_built_changes_nothing_and_releases_the_run[constructor]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_preparation.py::test_a_conversion_worker_that_cannot_start_settles_the_run_as_failed"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_preparation.py::test_preferences_changed_after_the_press_do_not_move_the_run"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_preparation.py::test_a_voice_made_unavailable_while_preparing_stops_the_run_before_synthesis"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_preparation.py::test_retry_failed_after_a_partial_run_keeps_its_destinations_and_the_finished_file"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_preparation.py::test_an_unexpected_error_before_the_run_takes_over_releases_the_run_and_frees_the_panel"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_tts_preparation.py::test_the_imported_list_is_reconfigured_only_when_its_lock_really_changes"
+          }
+        ]
+      },
+      "exceptions": []
+    },
+    {
       "id": "ACT.TTS.DIRECT",
       "tool": "tts-audiobook",
       "title": "Narrate a directly added file with the Edge chapter engine",
@@ -26561,18 +26733,22 @@
       "dialog:scripts/shared/job_ui.py::ask_folder::filedialog.askdirectory:title": "ACT.SHARED.IMPORTING",
       "dialog:scripts/shared/preferences_ui.py::PreferencesDialog._default_browse::filedialog.askdirectory:Choose an output folder": "ACT.SHARED.PREFERENCES.OUTPUT-LOCATION",
       "dialog:scripts/shared/preferences_ui.py::PreferencesDialog._default_confirm::messagebox.askyesno:title": "ACT.SHARED.CONFIRMATIONS",
+      "dialog:scripts/tts/epub2tts_gui.py::TtsPanel._adopt::messagebox.showerror:Conversion not started": "ACT.TTS.PREPARATION",
       "dialog:scripts/tts/epub2tts_gui.py::TtsPanel._choose_files::filedialog.askopenfilenames:Source files": "ACT.TTS.IMPORT",
       "dialog:scripts/tts/epub2tts_gui.py::TtsPanel._choose_folder::filedialog.askdirectory:Folder of PDF / TXT files": "ACT.TTS.IMPORT",
       "dialog:scripts/tts/epub2tts_gui.py::TtsPanel._install_and_continue::messagebox.showinfo:Conversion not started": "ACT.TTS.INSTALL-AND-CONTINUE",
       "dialog:scripts/tts/epub2tts_gui.py::TtsPanel._install_and_continue::messagebox.showinfo:Conversion not started#2": "ACT.TTS.INSTALL-AND-CONTINUE",
       "dialog:scripts/tts/epub2tts_gui.py::TtsPanel._install_and_continue::messagebox.showwarning:Voice unavailable": "ACT.TTS.INSTALL-AND-CONTINUE",
+      "dialog:scripts/tts/epub2tts_gui.py::TtsPanel._on_preparation::messagebox.showerror:Conversion not started": "ACT.TTS.PREPARATION",
+      "dialog:scripts/tts/epub2tts_gui.py::TtsPanel._on_preparation::messagebox.showerror:Output folder": "ACT.TTS.OUTPUT-FOLDER",
+      "dialog:scripts/tts/epub2tts_gui.py::TtsPanel._on_preparation::messagebox.showwarning:Voice unavailable": "ACT.TTS.PREPARATION",
       "dialog:scripts/tts/epub2tts_gui.py::TtsPanel._sentence_data_ready_or_installed::messagebox.askyesno:SENTENCE_DATA_TITLE": "ACT.TTS.SENTENCE-DATA",
       "dialog:scripts/tts/epub2tts_gui.py::TtsPanel._sentence_data_ready_or_installed::messagebox.showinfo:Conversion not started": "ACT.TTS.SENTENCE-DATA",
       "dialog:scripts/tts/epub2tts_gui.py::TtsPanel._sentence_data_ready_or_installed::messagebox.showwarning:Sentence data not installed": "ACT.TTS.SENTENCE-DATA",
-      "dialog:scripts/tts/epub2tts_gui.py::TtsPanel._start_frozen::messagebox.showerror:Output folder": "ACT.TTS.OUTPUT-FOLDER",
-      "dialog:scripts/tts/epub2tts_gui.py::TtsPanel._start_frozen::messagebox.showerror:Output folder#2": "ACT.TTS.OUTPUT-NAMES",
+      "dialog:scripts/tts/epub2tts_gui.py::TtsPanel._start_frozen::messagebox.showerror:Conversion not started": "ACT.TTS.PREPARATION",
       "dialog:scripts/tts/epub2tts_gui.py::TtsPanel.open_output_folder::messagebox.showerror:Output folder": "ACT.TTS.OUTPUT-FOLDER",
       "dialog:scripts/tts/epub2tts_gui.py::TtsPanel.open_qwen3_setup::messagebox.showinfo:Conversion in progress": "ACT.TTS.SETUP.QWEN3",
+      "dialog:scripts/tts/epub2tts_gui.py::TtsPanel.retry_failed::messagebox.showerror:Retry not started": "ACT.TTS.RETRY",
       "dialog:scripts/tts/epub2tts_gui.py::TtsPanel.retry_failed::messagebox.showwarning:Voice unavailable": "ACT.TTS.ENGINE-POLICY",
       "dialog:scripts/tts/epub2tts_gui.py::TtsPanel.run_job::messagebox.showwarning:Edge speech rate": "ACT.TTS.EDGE-RATE",
       "dialog:scripts/tts/epub2tts_gui.py::TtsPanel.run_job::messagebox.showwarning:Kokoro speed": "ACT.TTS.ENGINE.KOKORO",
@@ -28063,7 +28239,7 @@
     "scripts/shared/import_coordination.py": "055cddf959b8dd7f7cc2b829763896ddf48cc62fdad099785991817e65939ad6",
     "scripts/shared/importing.py": "5a57e4ed22317e0eba1821fc5dabb9e6b86128b0c942015266fabf7ac3addfbb",
     "scripts/shared/job_control.py": "4efef28b6cdd6cead3f354042b2615f0567ddabd6ecd9627c7c475a1ac9d0143",
-    "scripts/shared/job_ui.py": "c58ec1930e76fcc5a33b38501033dcfca38de482d4f3d638add7f27977c8cc40",
+    "scripts/shared/job_ui.py": "2aa44aa30d1da3ec2ced7946f079834d6d4318a66abf40141f63391c2a28f5d1",
     "scripts/shared/logging_setup.py": "4dcd19cf5528831d58d1afca51f0866ddf3f60c1bad7ade47f2976456bf53495",
     "scripts/shared/long_paths.py": "3c1caaa770166ddfef6ad9fc89292d2a2af49d8eefc4d9e642bcb8aee66c89a1",
     "scripts/shared/macho.py": "3edd3d499287a289a7e1f1fa468ccc5238b2b56bad0a2e1c595399132d5b0c09",
@@ -28106,7 +28282,7 @@
     "scripts/tts/epub2tts_edge/__init__.py": "7074e99d0681b82f6e709a94d1c009f9fe6920d8e7eb16a2b48ebdded15b23b6",
     "scripts/tts/epub2tts_edge/epub2tts_edge.py": "d764b140cd4b36eb950e42c49a4a19ddbef7f7098c84f73b75cffbade2bb5766",
     "scripts/tts/epub2tts_edge/runner.py": "39856844dcca17b495eb74fbec57c75ee56ee72fcb0d8f3a076904ad88a04230",
-    "scripts/tts/epub2tts_gui.py": "92ba1360afcafee899b81b9f715a838ec2be4163e3b9e0f00515b5db53ba46fc",
+    "scripts/tts/epub2tts_gui.py": "930d0eff722329a9042b513274746fd253f041937628df5df1130b0efb51d98e",
     "scripts/tts/ffmpeg_watch.py": "cb4a685e0c3e56c3967abae95a87389c355dd1fbfdf88357b1a5923b3dddc192",
     "scripts/tts/generate_voice_samples.py": "a8dcf9947fb3a215f51f14c0544d0df836817a48f207c431454df3704866a72e",
     "scripts/tts/kokoro_synth.py": "43547792ab50d9b394af0e78810c317cddef243aa5acdc6bbbb7c82aa6965226",
@@ -28125,7 +28301,7 @@
     "scripts/tts/optional_setup_planning_worker_v3.py": "4111a4c45702c700c80e5a15bbfde54c15b87a169634bf8a902e296743ca5e5b",
     "scripts/tts/optional_setup_readonly_worker_v3.py": "6fa9c0cf53ce267eb70c0a4cf12a17185b07d96b757173e8017ef1a57ffb862a",
     "scripts/tts/optional_setup_worker.py": "1875161eca60b92efc3cf749114c70d30724bad936656e6eeaf533855b6bb0d9",
-    "scripts/tts/output_names.py": "daa986300100f9fca00c58a344768dde3d1c3712512a75c42f4c0ddb03cedf5c",
+    "scripts/tts/output_names.py": "f07e71c43fbc278831f7839ec1d7110a6b697c853a998008f365b884242d4d08",
     "scripts/tts/pdf_extractor.py": "dc1396d0459a4ca9d281a5abb6a7f32dda0c164953b98982af6f38ebac176562",
     "scripts/tts/publication.py": "18c8636a7f80b84f42a7f736b033f2c8fdb8c9a89f10f5f1d8f530b4fdfc12dd",
     "scripts/tts/quality_corpus.py": "48f9526c5c8d2dd608c4cdf773e19419ffd12defb9d6f246aab1d736a592699a",
@@ -28157,7 +28333,7 @@
     "scripts/tts/worker_limits.py": "c86609598b3baae6d42c3151b459fa65a4b3ea9dd590e27c761f07dc3e33a13d"
   },
   "macos": {
-    "about": "v0.8.x P1B (MAC-027): each feature's macOS standing, derived from the per-file census of the P1B-affected suites on macOS at the SHA below (files/dev-work/macos-p1b/tools/macos_feature_map.py), never asserted. native: its routine tests ran natively and passed. native-with-failures: they ran and some fail (baseline failures, listed). pending: a later phase owns it on macOS (the phase). not-applicable: a Windows-only mechanism, with a reviewed reason. Counts are of the feature's routine behaviour test ids; skips are named by their darwin skip rule. This block is evidence for the macOS programme; the Windows gate does not read it.",
+    "about": "v0.8.x P1B (MAC-027): each feature's macOS standing, derived from the per-file census of the P1B-affected suites on macOS at the SHA below (files/dev-work/macos-p1b/tools/macos_feature_map.py), never asserted. native: its routine tests ran natively and passed. native-with-failures: they ran and some fail (baseline failures, listed). pending: a later phase owns it on macOS (the phase). not-applicable: a Windows-only mechanism, with a reviewed reason. Counts are of the feature's routine behaviour test ids; skips are named by their darwin skip rule. This block is evidence for the macOS programme; the Windows gate does not read it. Exception (v0.8.2): a feature added on Windows after the census SHA has no census row; it is recorded pending with 'source': 'owner decision, not the census', no test counts and the owning phase, until a macOS census includes it.",
     "census": {
       "sha": "abd938bd9c09faa5302103bfa0c80381e9e451cd",
       "summary": "files/dev-work/macos-p1b/perfile-p1b-final/summary-overlay.json"
@@ -31218,6 +31394,33 @@
         "skipped_by": {},
         "class": "native",
         "why": "macOS P4C: the policy's own suite runs natively on this Mac and passes (37 passed, 0 skipped, in the P4C focused run); its Windows rows are the shared logic through the policy's platform seam, not Windows-native evidence"
+      },
+      "ACT.MAKER.PREPARATION": {
+        "tests": {},
+        "skipped_by": {},
+        "journeys": {},
+        "class": "pending",
+        "phase": "P7",
+        "source": "owner decision, not the census",
+        "why": "Not in the census: added on Windows in v0.8.2 Checkpoint 2 after the census SHA; no macOS test of it has run. Native macOS qualification is PENDING by owner decision (2026-11-21), owned by the macOS release qualification (P7); its Windows standing is unaffected."
+      },
+      "ACT.METADATA.PREPARATION": {
+        "tests": {},
+        "skipped_by": {},
+        "journeys": {},
+        "class": "pending",
+        "phase": "P7",
+        "source": "owner decision, not the census",
+        "why": "Not in the census: added on Windows in v0.8.2 Checkpoint 2 after the census SHA; no macOS test of it has run. Native macOS qualification is PENDING by owner decision (2026-11-21), owned by the macOS release qualification (P7); its Windows standing is unaffected."
+      },
+      "ACT.TTS.PREPARATION": {
+        "tests": {},
+        "skipped_by": {},
+        "journeys": {},
+        "class": "pending",
+        "phase": "P7",
+        "source": "owner decision, not the census",
+        "why": "Not in the census: added on Windows in v0.8.2 Checkpoint 4 after the census SHA; no macOS test of it has run. Native macOS qualification is PENDING by owner decision (2026-11-21), owned by the macOS release qualification (P7); its Windows standing is unaffected."
       }
     }
   }

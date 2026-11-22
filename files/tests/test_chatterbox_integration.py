@@ -830,8 +830,13 @@ def test_no_second_queue_controller_publisher_or_planner_was_added():
     body = unparse_panel()
     tree = panel_tree()
     classes = {n.name for n in tree.body if isinstance(n, ast.ClassDef)}
+    # v0.8.2 Checkpoint 4 added the preparation hand-off: a record of one press (``_Preparation``), its messages, the
+    # prepared plan and one exception -- none of them a queue, controller, publisher or planner.
     assert classes == {"TimingSample", "PlannedOutput", "RunPublisher", "TtsPanel",
-                       "_RunContext", "QueueWriter"}, classes
+                       "_RunContext", "QueueWriter", "_Preparation", "_PreparationMessage", "PreparedRun",
+                       "_AttemptNotStarted"}, classes
+    preparation = ast.unparse(next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "_Preparation"))
+    assert "JobController" not in preparation and "RunPublisher" not in preparation
     assert body.count("capture_run(") == 1
     assert "plan_multi_root" in body and body.count("def plan_destinations") == 1
 
@@ -1101,7 +1106,12 @@ def test_no_second_cancellation_event_exists_for_chatterbox():
     a third, engine-specific one.
     """
     body = unparse_panel()
-    assert body.count("threading.Event()") == 2, "the busy and retirement flags"
+    # v0.8.2 Checkpoint 4: a preparation (before any run or controller exists) has its own Cancel and paint flags,
+    # inside ``_Preparation`` only -- the MP3 Tool's and M4B tools' pattern, never an engine's.
+    assert body.count("threading.Event()") == 4, "the busy and retirement flags, and a preparation's two"
+    preparation = ast.unparse(next(n for n in panel_tree().body
+                                   if isinstance(n, ast.ClassDef) and n.name == "_Preparation"))
+    assert preparation.count("threading.Event()") == 2
     for forbidden in ("cancel_event", "_cancel_flag", "cancel_requested_event"):
         assert forbidden not in body, forbidden
     run_context = ast.unparse(

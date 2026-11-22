@@ -16,7 +16,7 @@ tk = pytest.importorskip("tkinter")
 from shared.job_control import ControlKind  # noqa: E402
 
 from test_tts_jobs import direct_panel, gated_stubs, wait_for  # noqa: E402,F401  (fixtures are collected by name)
-from test_tts_importing import WAIT, make_panel, output_base, tk_root  # noqa: E402,F401
+from test_tts_importing import WAIT, adopt_preparation, make_panel, output_base, tk_root  # noqa: E402,F401
 
 FROZEN = ("chk_resume", "entry_rate", "spin_kokoro_speed")
 ALWAYS_AVAILABLE = ("btn_open_out", "btn_clear_log")
@@ -36,6 +36,7 @@ def test_resume_edge_rate_and_kokoro_speed_lock_with_a_run_and_keep_what_was_cho
     assert {name: state_of(panel, name) for name in FROZEN} == {name: "normal" for name in FROZEN}
 
     panel.run_job()
+    adopt_preparation(panel)  # v0.8.2 CP4: the pump adopts the prepared plan
     worker = panel._worker
     try:
         assert gated_stubs.entered.wait(WAIT), "the run is inside the engine"

@@ -464,12 +464,19 @@ def test_the_label_is_frozen_with_the_other_run_options():
 
 
 def test_destinations_are_planned_from_the_frozen_label_not_the_live_dropdown():
-    run_job = next(n for n in ast.walk(ast.parse((SCRIPTS / "tts" / "epub2tts_gui.py").read_text(encoding="utf-8")))
-                   if isinstance(n, ast.FunctionDef) and n.name == "_start_frozen")  # v0.7.0: run_job's second half
-    call = next(n for n in ast.walk(run_job)
+    # v0.8.2 Checkpoint 4: planning runs on the preparation worker (``prepare_run``), from the label its
+    # ``_Preparation`` took from the frozen snapshot at the press -- never from the dropdown.
+    tree = ast.parse((SCRIPTS / "tts" / "epub2tts_gui.py").read_text(encoding="utf-8"))
+    worker = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "prepare_run")
+    call = next(n for n in ast.walk(worker)
                 if isinstance(n, ast.Call) and getattr(n.func, "id", None) == "plan_destinations")
     label = next(k.value for k in call.keywords if k.arg == "label")
-    assert ast.unparse(label) == "snapshot.tool_options['label']"
+    assert ast.unparse(label) == "preparation.label"
+    record = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "_Preparation")
+    init = next(n for n in record.body if isinstance(n, ast.FunctionDef) and n.name == "__init__")
+    assigned = {ast.unparse(n.targets[0]): ast.unparse(n.value) for n in ast.walk(init) if isinstance(n, ast.Assign)}
+    assert assigned["self.label"] == "str(snapshot.tool_options['label'])"
+    assert "selected_voice_label" not in ast.unparse(worker) + ast.unparse(record)
 
 
 # --------------------------------------------------------------------------- #

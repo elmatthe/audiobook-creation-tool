@@ -110,10 +110,30 @@ OmniVoice voices use the same run, queue and output rules, with their own synthe
 - **Behaviour:** an empty queue warns "Missing input". Otherwise every setting the run uses is frozen at that moment
   (queue, voice identity and label, bitrate, workers, rate, Resume, Overwrite, the voice's pauses, speech preparation);
   changing anything afterwards cannot affect the run. The run folder is reserved only after validation, every output is
-  planned, and one worker thread runs the queue.
+  planned (on a background thread since v0.8.2 Checkpoint 4, `ACT.TTS.PREPARATION`), and one worker thread runs the queue.
 - **Endings:** Succeeded, Completed with failures, Cancelled or Failed, reported once. One file failing is a retryable
   item failure and the run continues; a broken run is a non-retryable job failure. The panel always returns to idle.
 - **Persistence:** nothing is saved; the last result is kept in memory for Retry Failed.
+
+### Preparing a conversion run
+`ACT.TTS.PREPARATION`
+
+- **Purpose:** keep the window responsive between pressing Start and the first file starting, however many files are
+  queued (v0.8.2 Checkpoint 4).
+- **Behaviour:** the press checks and freezes everything exactly as before (`ACT.TTS.RUN`), including the voice's
+  readiness and Install & Continue, takes the output Preferences in force, shows "Preparing job…" with Cancel available
+  and Pause disabled, locks the queue and the options, and returns at once. One short-lived background thread then
+  reserves the numbered run folder and plans every file's output name, with every containment and link check; it never
+  touches the window and waits up to 0.25 s for the window to paint the press first. It asks once more whether the voice
+  can still run. When the plan is ready the run starts as before. Output names are exactly the ones the synchronous
+  Start chose.
+- **Cancel or closing the tool during preparation** starts nothing and leaves no run folder ("Cancelled — nothing was
+  started"); Cancel is acknowledged at once ("Cancelling preparation…") and the panel frees itself when the background
+  thread reaches its next file. A refused or failed preparation (output folder, naming, a voice no longer available, an
+  unexpected error) says why and starts nothing; the previous run's result and Retry Failed stay usable and Start works
+  again. A result that arrives after Cancel, after a newer press or twice is released and never run. Changing
+  Preferences after the press does not change where the run goes. Retry Failed is not re-planned: it reuses the run's
+  frozen destinations.
 
 ### Ask before downloading the English sentence data
 `ACT.TTS.SENTENCE-DATA`

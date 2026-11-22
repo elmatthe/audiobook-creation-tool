@@ -77,6 +77,8 @@ from test_tts_importing import (  # noqa: E402,F401
     PANEL_SOURCE,
     WAIT,
     _Stubs,
+    adopt_preparation,
+    conversion_only,
     make_panel,
     method_named,
     output_base,
@@ -125,8 +127,10 @@ def accept(panel, action=None) -> dict:
     captured: dict = {}
     real_thread = panel_module.threading.Thread
     try:
-        panel_module.threading.Thread = lambda **kw: _FakeThread(kw, captured)
+        panel_module.threading.Thread = conversion_only(captured, _FakeThread)
         (panel.run_job if action is None else action)()
+        # v0.8.2 CP4: a Start prepares on a worker; the pump adopts the plan and only then starts the run's thread.
+        adopt_preparation(panel)
     finally:
         panel_module.threading.Thread = real_thread
     return captured
@@ -472,6 +476,7 @@ def test_pause_is_a_request_until_the_worker_acknowledges_it(
     # with "gate.txt" -- this test is about the pause boundary, not worker count.
     panel.workers_var.set("1")
     panel.run_job()
+    adopt_preparation(panel)  # v0.8.2 CP4: the pump adopts the prepared plan
     worker = panel._worker
     controller = panel._controller
     try:
@@ -505,6 +510,7 @@ def test_cancel_while_paused_wakes_the_worker_and_outranks_the_pause(
     # worker count.
     panel.workers_var.set("1")
     panel.run_job()
+    adopt_preparation(panel)  # v0.8.2 CP4: the pump adopts the prepared plan
     worker = panel._worker
     controller = panel._controller
     try:
@@ -581,7 +587,9 @@ def test_the_existing_pump_owns_every_drain_and_no_second_after_loop_exists(
     drains = list(panel._pump._drains)
     assert panel._drain_worker_queue in drains
     assert panel.jobs.drain in drains
-    assert len(drains) == 2, drains
+    # v0.8.2 Checkpoint 4: the preparation worker's queue is a third drain on the same pump, never a second chain.
+    assert panel._drain_preparation in drains
+    assert len(drains) == 3, drains
 
     source = PANEL_SOURCE.read_text(encoding="utf-8")
     assert source.count("MainThreadPump(") == 1
@@ -602,7 +610,9 @@ def test_a_new_run_replaces_the_adapter_without_leaking_a_drain(
     run_attempt(panel)
     assert panel.jobs is not first
     assert first.closed is True
-    assert len(list(panel._pump._drains)) == 2, "still exactly one job drain"
+    drains = list(panel._pump._drains)
+    assert len(drains) == 3, "still exactly one job drain (beside the worker and preparation drains)"
+    assert [d for d in drains if getattr(d, "__self__", None) is panel.jobs] == [panel.jobs.drain]
 
 
 def test_the_imported_input_and_processing_options_lock_through_the_matrix(
@@ -615,6 +625,7 @@ def test_the_imported_input_and_processing_options_lock_through_the_matrix(
     assert panel in registered_options
 
     panel.run_job()
+    adopt_preparation(panel)  # v0.8.2 CP4: the pump adopts the prepared plan
     worker = panel._worker
     try:
         assert gated_stubs.entered.wait(WAIT)
@@ -889,7 +900,9 @@ def test_a_mismatched_pairing_is_refused_loudly_rather_than_guessed(
 def test_destination_identity_does_not_depend_on_path_uniqueness():
     """The mapping is keyed by occurrence id in the source, not by path."""
     body = ast.unparse(panel_tree())
-    assert "self._destinations[" in body or "_destinations.get(" in body
+    # v0.8.2 Checkpoint 4: _launch reads the run's mapping (``planned_outputs``, the frozen ``self._destinations`` on a
+    # retry) by occurrence id before it commits the attempt.
+    assert "self._destinations[" in body or "_destinations.get(" in body or "planned_outputs[occurrence_id]" in body
     plan = None
     for node in panel_tree().body:
         if isinstance(node, ast.FunctionDef) and node.name == "plan_destinations":
@@ -1254,6 +1267,7 @@ def test_a_folder_pool_starts_no_new_source_after_a_pause_is_acknowledged(
     panel.workers_var.set("1")
 
     panel.run_job()
+    adopt_preparation(panel)  # v0.8.2 CP4: the pump adopts the prepared plan
     worker = panel._worker
     controller = panel._controller
     try:
@@ -1328,6 +1342,7 @@ def test_a_cancelled_run_reports_exactly_one_terminal_event(
 ):
     panel, _chosen = direct_panel(make_panel, tmp_path, "gate.txt", "second.txt")
     panel.run_job()
+    adopt_preparation(panel)  # v0.8.2 CP4: the pump adopts the prepared plan
     worker = panel._worker
     controller = panel._controller
     try:
@@ -1360,6 +1375,7 @@ def test_a_cancelled_run_keeps_the_outputs_that_already_finished(
     # concurrently -- this test is about cancellation cleanup, not worker count.
     panel.workers_var.set("1")
     panel.run_job()
+    adopt_preparation(panel)  # v0.8.2 CP4: the pump adopts the prepared plan
     worker = panel._worker
     controller = panel._controller
     try:
@@ -1436,6 +1452,7 @@ def test_a_cancelled_queued_item_never_deletes_a_file_it_did_not_write(
     panel, _chosen = direct_panel(make_panel, tmp_path, "gate.txt", "queued.txt")
     panel.workers_var.set("1")
     panel.run_job()
+    adopt_preparation(panel)  # v0.8.2 CP4: the pump adopts the prepared plan
     worker = panel._worker
     controller = panel._controller
     try:
@@ -1465,6 +1482,7 @@ def test_closing_the_panel_during_a_paused_run_is_safe(
     # to ever transition the controller into PAUSED.
     panel.workers_var.set("1")
     panel.run_job()
+    adopt_preparation(panel)  # v0.8.2 CP4: the pump adopts the prepared plan
     worker = panel._worker
     controller = panel._controller
     assert gated_stubs.entered.wait(WAIT)
@@ -1599,6 +1617,7 @@ def test_the_estimate_starts_at_calculating_and_belongs_to_the_run(
 ):
     panel, _chosen = direct_panel(make_panel, tmp_path, "gate.txt", "b.txt", "c.txt")
     panel.run_job()
+    adopt_preparation(panel)  # v0.8.2 CP4: the pump adopts the prepared plan
     worker = panel._worker
     try:
         assert gated_stubs.entered.wait(WAIT)

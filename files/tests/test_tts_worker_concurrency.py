@@ -39,6 +39,7 @@ from tts import worker_limits  # noqa: E402
 
 from test_tts_importing import (  # noqa: E402,F401
     WAIT,
+    adopt_preparation,
     make_panel,
     output_base,
     sources,
@@ -182,6 +183,7 @@ def test_two_folder_edge_files_actually_overlap_under_workers_2(make_panel, outp
     panel, _folders = folder_panel(make_panel, tmp_path, roots=2)
     panel.workers_var.set("2")
     panel.run_job()
+    adopt_preparation(panel)  # v0.8.2 CP4: the pump adopts the prepared plan
     worker = panel._worker
     try:
         wait_for(lambda: len(gated_stubs.order) >= 2,
@@ -197,6 +199,7 @@ def test_two_direct_edge_files_are_dispatched_together_under_workers_2(make_pane
     panel, _chosen = direct_panel(make_panel, tmp_path, "one.txt", "two.txt")
     panel.workers_var.set("2")
     panel.run_job()
+    adopt_preparation(panel)  # v0.8.2 CP4: the pump adopts the prepared plan
     worker = panel._worker
     try:
         wait_for(lambda: len(gated_stubs.order) >= 2, "the second direct file waited for the first")
@@ -217,6 +220,7 @@ def test_a_gated_direct_edge_file_does_not_block_a_concurrent_folder_edge_file(m
     panel._pump.tick()
     panel.workers_var.set("2")
     panel.run_job()
+    adopt_preparation(panel)  # v0.8.2 CP4: the pump adopts the prepared plan
     worker = panel._worker
     try:
         assert gated_stubs.entered.wait(WAIT)
@@ -256,6 +260,7 @@ def test_kokoro_never_exceeds_one_concurrent_file_even_when_more_are_requested(m
     panel._on_voice_selected()
     panel.workers_var.set("100")
     panel.run_job()
+    adopt_preparation(panel)  # v0.8.2 CP4: the pump adopts the prepared plan
     worker = panel._worker
     try:
         assert entered.wait(WAIT), "the first Kokoro file never started"
@@ -315,6 +320,7 @@ def test_chatterbox_never_exceeds_one_concurrent_file_even_when_more_are_request
     panel._on_voice_selected()
     panel.workers_var.set("8")
     panel.run_job()
+    adopt_preparation(panel)  # v0.8.2 CP4: the pump adopts the prepared plan
     worker = panel._worker
     try:
         assert stub.entered.wait(WAIT), "the engine never started"
@@ -340,6 +346,7 @@ def test_work_finishing_after_cancel_is_not_published(make_panel, output_base, t
     panel, _chosen = direct_panel(make_panel, tmp_path, "first.txt", "second.txt")
     panel.workers_var.set("2")
     panel.run_job()
+    adopt_preparation(panel)  # v0.8.2 CP4: the pump adopts the prepared plan
     worker = panel._worker
     controller = panel._controller
     try:
@@ -385,6 +392,7 @@ def test_the_file_that_won_the_commit_is_a_success_and_the_one_that_lost_is_stop
     panel, _chosen = direct_panel(make_panel, tmp_path, "first.txt", "second.txt")
     panel.workers_var.set("2")
     panel.run_job()
+    adopt_preparation(panel)  # v0.8.2 CP4: the pump adopts the prepared plan
     worker = panel._worker
     controller = panel._controller
     destinations = {entry.source.name: entry.destination for entry in panel.destinations().values()}
@@ -435,6 +443,7 @@ def test_a_cancel_that_loses_to_the_last_files_commit_still_ends_as_a_cancelled_
     monkeypatch.setattr(publication, "_publish_no_clobber", parked_rename)
     panel, _chosen = direct_panel(make_panel, tmp_path, "only.txt")
     panel.run_job()
+    adopt_preparation(panel)  # v0.8.2 CP4: the pump adopts the prepared plan
     worker = panel._worker
     controller = panel._controller
     destination = next(entry.destination for entry in panel.destinations().values())
@@ -482,6 +491,7 @@ def test_a_run_does_not_settle_while_a_commit_it_authorized_is_still_landing(mak
     panel, _chosen = direct_panel(make_panel, tmp_path, "first.txt", "second.txt")
     panel.workers_var.set("2")
     panel.run_job()
+    adopt_preparation(panel)  # v0.8.2 CP4: the pump adopts the prepared plan
     worker = panel._worker
     controller = panel._controller
     destinations = {entry.source.name: entry.destination for entry in panel.destinations().values()}
@@ -710,6 +720,8 @@ def test_each_local_engine_orders_its_commit_against_the_runs_own_controller(mak
     panel._on_voice_selected()
     # Whether this machine has the voice's models is not the question here, and a refusal is a modal dialog nobody would answer.
     monkeypatch.setattr(panel, "_refresh_voice_status", lambda _entry: (True, ""))
+    # v0.8.2 Checkpoint 4: the preparation worker asks the same question once more before it hands the plan over.
+    monkeypatch.setattr(panel, "_readiness_question", lambda _entry: (lambda: (True, "")))
     monkeypatch.setattr(panel_module.messagebox, "showwarning", lambda *arguments, **options: pytest.fail(f"refused: {arguments}"))
 
     params = run_attempt(panel)
@@ -1441,6 +1453,7 @@ def test_every_edge_voice_converts_eight_direct_files_at_once(make_panel, output
     panel._on_voice_selected()
     panel.workers_var.set("8")
     panel.run_job()
+    adopt_preparation(panel)  # v0.8.2 CP4: the pump adopts the prepared plan
     worker = panel._worker
     try:
         wait_for(lambda: len(gated_stubs.order) == 8, f"{voice.voice_id}: eight files were not in flight together")
@@ -1540,6 +1553,7 @@ def test_an_item_that_ignores_cancel_fails_the_run_inside_the_bound_and_is_never
     gated_stubs.gate_on = ".txt"  # the file holds inside its conversion, Cancel or not, until released
     panel, _chosen = direct_panel(make_panel, tmp_path, "stubborn.txt")
     panel.run_job()
+    adopt_preparation(panel)  # v0.8.2 CP4: the pump adopts the prepared plan
     worker = panel._worker
     controller = panel._controller
     try:
@@ -1567,6 +1581,7 @@ def test_on_windows_a_cancelled_run_still_waits_for_every_item_as_released(make_
     gated_stubs.gate_on = ".txt"
     panel, _chosen = direct_panel(make_panel, tmp_path, "slow.txt")
     panel.run_job()
+    adopt_preparation(panel)  # v0.8.2 CP4: the pump adopts the prepared plan
     worker = panel._worker
     controller = panel._controller
     try:

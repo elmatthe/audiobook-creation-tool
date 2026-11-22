@@ -661,8 +661,13 @@ def test_tts_reserves_only_after_input_validation():
     )
     body = source.split("def run_job", 1)[1]
     validation = body.index('messagebox.showwarning("Missing input"')
-    reservation = body.index("reserve_run_directory(TOOL_KEY)")
-    assert validation < reservation, "validation must come first"
+    # v0.8.2 Checkpoint 4: the reservation is made by the preparation worker's body, which only _start_frozen starts.
+    handoff = body.index("self._start_frozen(snapshot, current_voice_entry)")
+    assert validation < handoff, "validation must come first"
+    start = source.split("    def _start_frozen", 1)[1].split("\n    def ", 1)[0]
+    assert "prepare_run(preparation" in start and "reserve_run_directory" not in start
+    worker = source.split("\ndef prepare_run", 1)[1].split("\nclass ", 1)[0]
+    assert "reserve_run_directory(TOOL_KEY, effective=preparation.run_config)" in worker
 
 
 def test_tts_mirroring_uses_the_shared_planner_contract(output_base, tmp_path):
@@ -752,6 +757,9 @@ def test_no_tool_reserves_output_outside_an_operation_start():
         # v0.8.2 Checkpoint 2: the Maker's preparation worker reserves through this, started only by Build (the
         # Editor's is ``_reserve_run``, above, started only by its three actions).
         "_reserve_destination",
+        # v0.8.2 Checkpoint 4: the TTS preparation worker's body, started only by _start_frozen (Start, or Install &
+        # Continue after its install).
+        "prepare_run",
     }
 
     def innermost_reservers(tree_):

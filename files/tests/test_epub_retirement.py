@@ -647,17 +647,34 @@ def test_the_shared_edge_synthesis_surface_survived_intact():
 # --------------------------------------------------------------------------- #
 
 
+def _tts_reservers_and_starters():
+    """(functions that call ``reserve_run_directory``, functions that name ``prepare_run``) in the TTS panel module."""
+    tree = ast.parse(source("tts/epub2tts_gui.py"))
+    reservers, starters = set(), set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.FunctionDef):
+            continue
+        for inner in ast.walk(node):
+            if isinstance(inner, ast.Attribute) and inner.attr == "reserve_run_directory":
+                reservers.add(node.name)
+            if isinstance(inner, ast.Name) and inner.id == "prepare_run" and node.name != "prepare_run":
+                starters.add(node.name)
+    return reservers, starters
+
+
 def test_the_panel_still_validates_before_it_reserves_a_run_directory():
+    # v0.8.2 Checkpoint 4: the reservation is made by the preparation worker's body, ``prepare_run``, which only
+    # ``_start_frozen`` starts, and ``run_job`` reaches ``_start_frozen`` only after its validation.
     body = source("tts/epub2tts_gui.py").split("def run_job", 1)[1]
-    assert body.index('messagebox.showwarning("Missing input"') < body.index(
-        "reserve_run_directory(TOOL_KEY)"
-    )
+    assert body.index('messagebox.showwarning("Missing input"') < body.index("self._start_frozen(")
+    reservers, starters = _tts_reservers_and_starters()
+    assert reservers == {"prepare_run"} and starters == {"_start_frozen"}
 
 
 def test_building_the_panel_reserves_nothing():
-    """No reservation call sits outside ``run_job``."""
-    before = source("tts/epub2tts_gui.py").split("def run_job", 1)[0]
-    assert "reserve_run_directory(" not in before
+    """No reservation call sits anywhere but the preparation worker that a validated Start starts."""
+    reservers, _starters = _tts_reservers_and_starters()
+    assert "__init__" not in reservers and "_install_jobs" not in reservers and reservers == {"prepare_run"}
 
 
 # --------------------------------------------------------------------------- #

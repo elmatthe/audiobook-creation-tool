@@ -96,7 +96,7 @@ from test_import_coordination import (  # noqa: E402
 )
 from test_import_traversal import touch  # noqa: E402
 from test_importing import make_config  # noqa: E402
-from test_tts_importing import _Stubs  # noqa: E402
+from test_tts_importing import _Stubs, adopt_preparation, conversion_only  # noqa: E402
 import tk_gate  # noqa: E402
 
 #: Every wait in this module is bounded, so a deadlock fails the test instead of
@@ -289,8 +289,9 @@ def start_tts_run(panel):
     captured: dict = {}
     real_thread = tts_module.threading.Thread
     try:
-        tts_module.threading.Thread = lambda **kw: CapturedThread(kw, captured)
+        tts_module.threading.Thread = conversion_only(captured, CapturedThread)
         panel.run_job()
+        adopt_preparation(panel)  # v0.8.2 CP4: the plan is prepared off Tk and adopted by the pump
     finally:
         tts_module.threading.Thread = real_thread
     assert captured, "the panel declined to start a run"

@@ -990,7 +990,15 @@ class ImportedFileList:
         self._locked = bool(locked)
         if self._closed:
             return
-        _configure(self.listbox, state="disabled" if self._locked else "normal")
+        wanted = "disabled" if self._locked else "normal"
+        try:
+            showing = str(self.listbox.cget("state"))
+        except tk.TclError:
+            showing = None
+        if showing != wanted:
+            # v0.8.2 Checkpoint 4: only a real change reaches Tk. Reconfiguring a Listbox re-measures every row (about
+            # 40 ms at 5,000 imported files), and the lock matrix re-applies an unchanged lock on every render.
+            _configure(self.listbox, state=wanted)
         self.apply_button_states()
 
     def focus(self) -> None:

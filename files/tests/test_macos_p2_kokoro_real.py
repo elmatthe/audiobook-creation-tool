@@ -380,6 +380,8 @@ def test_cx6_pause_at_the_file_boundary_then_cancel_while_paused(fresh_host, tk_
         panel._on_voice_selected()
         panel.workers_var.set("1")
         panel.run_job()
+        # v0.8.2 Checkpoint 4: the run is prepared on its own thread and adopted by the panel's pump.
+        assert pump_until(lambda: panel._worker is not None or panel._preparing is None, 60), "never prepared"
         worker = panel._worker  # the run's thread (run_job itself returns nothing)
         assert worker is not None, "the panel did not start the run"
 

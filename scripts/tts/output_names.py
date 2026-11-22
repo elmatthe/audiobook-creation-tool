@@ -183,18 +183,31 @@ def planned_name(source, label: str, directory, *, budget: NameBudget | None = N
 _PROBE_NAME = f"probe{EXTENSION}"
 
 
-def plan_named(plan_function, root, *args, label: str, planner, budget: NameBudget | None = None):
+def plan_named(plan_function, root, *args, label: str, planner, budget: NameBudget | None = None,
+               checkpoint=None):
     """Run one shared ``plan_flat``/``plan_mirrored``/``plan_multi_root`` with TTS names.
 
     The shared planners hand a rename callback only the source, but a name's length budget depends on the folder it
     lands in. So a first pass on a throwaway tracker (no disk check, nothing reserved in *planner*) learns each
     source's folder through the very same planner, and the real pass reserves each name in *planner*. A source path
     always lands in the same folder within one plan, so keying the folders by source is exact.
+
+    *checkpoint* (v0.8.2 Checkpoint 4), when given, is called once per source in each pass, before that source's name
+    is chosen: the TTS preparation worker's cooperative stop and progress count. It never changes a name.
     """
     root = Path(root)
     budget = current_budget() if budget is None else budget
+    tick = checkpoint if checkpoint is not None else (lambda: None)
+
+    def probe_name(source):
+        tick()
+        return _PROBE_NAME
+
+    def real_name(source):
+        tick()
+        return planned_name(source, label, folders[source], budget=budget)
+
     probe = plan_function(root, *args, planner=output_paths.DestinationPlanner(root, check_filesystem=False),
-                          rename=lambda source: _PROBE_NAME)
+                          rename=probe_name)
     folders = {item.source: item.destination.parent for item in probe.items}
-    return plan_function(root, *args, planner=planner,
-                         rename=lambda source: planned_name(source, label, folders[source], budget=budget))
+    return plan_function(root, *args, planner=planner, rename=real_name)

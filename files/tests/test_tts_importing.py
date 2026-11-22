@@ -52,6 +52,7 @@ import ast
 import queue
 import sys
 import threading
+import time
 from pathlib import Path, PurePath
 
 import pytest
@@ -277,13 +278,15 @@ def test_exactly_one_pump_owns_the_panels_scheduled_callbacks(make_panel):
 
     Phase 7 added the shared job adapter, which registers its own drain on this
     same pump rather than starting a second one — so the count is two drains and
-    still exactly one scheduled Tk callback.
+    still exactly one scheduled Tk callback. v0.8.2 Checkpoint 4 added the preparation
+    worker's queue as a third drain on the same pump.
     """
     panel = make_panel()
     registered = list(panel._pump._drains)
     assert panel._drain_worker_queue in registered
     assert panel.jobs.drain in registered
-    assert len(registered) == 2, registered
+    assert panel._drain_preparation in registered
+    assert len(registered) == 3, registered
     assert panel.importer.poller is not None
 
     source = PANEL_SOURCE.read_text(encoding="utf-8")
@@ -386,8 +389,9 @@ def test_the_worker_is_handed_no_tk_object_and_no_live_import_state(
 
     captured: dict = {}
     monkeypatch.setattr(panel_module.threading, "Thread",
-                        lambda **kw: _FakeThread(kw, captured))
+                        conversion_only(captured))
     panel.run_job()
+    adopt_preparation(panel)  # v0.8.2 CP4: the pump adopts the prepared plan
 
     params = captured["params"]
     assert isinstance(params, dict)
@@ -429,8 +433,9 @@ def test_the_manager_snapshot_is_captured_before_the_worker_starts(
 
     captured: dict = {}
     monkeypatch.setattr(panel_module.threading, "Thread",
-                        lambda **kw: _FakeThread(kw, captured))
+                        conversion_only(captured))
     panel.run_job()
+    adopt_preparation(panel)  # v0.8.2 CP4: the pump adopts the prepared plan
     frozen = [item["source"] for item in captured["params"]["items"]]
 
     panel.importer._choose_files = lambda: second
@@ -1000,6 +1005,7 @@ def test_starting_with_an_empty_queue_warns_and_reserves_nothing(
     monkeypatch.setattr(messagebox, "showwarning", lambda *a, **k: warned.append(a))
     panel = make_panel()
     panel.run_job()
+    adopt_preparation(panel)  # v0.8.2 CP4: the pump adopts the prepared plan
     assert warned, "the empty-queue warning fires"
     assert panel._busy.is_set() is False
     assert not output_base.exists()
@@ -1011,8 +1017,9 @@ def test_a_mixed_queue_produces_exactly_one_run_directory(
     panel, _direct, _folders = _mixed_panel(make_panel, tmp_path, roots=2)
     captured: dict = {}
     monkeypatch.setattr(panel_module.threading, "Thread",
-                        lambda **kw: _FakeThread(kw, captured))
+                        conversion_only(captured))
     panel.run_job()
+    adopt_preparation(panel)  # v0.8.2 CP4: the pump adopts the prepared plan
 
     runs = sorted((output_base / "TTS-Audiobook-Outputs").iterdir())
     assert len(runs) == 1, runs
@@ -1025,8 +1032,9 @@ def test_direct_files_land_flat_and_folder_files_mirror(
     panel, _direct, folders = _mixed_panel(make_panel, tmp_path)
     captured: dict = {}
     monkeypatch.setattr(panel_module.threading, "Thread",
-                        lambda **kw: _FakeThread(kw, captured))
+                        conversion_only(captured))
     panel.run_job()
+    adopt_preparation(panel)  # v0.8.2 CP4: the pump adopts the prepared plan
 
     run = captured["params"]["run_directory"]
     relatives = [
@@ -1050,8 +1058,9 @@ def test_two_folder_roots_each_get_their_own_container(
     panel, _direct, _folders = _mixed_panel(make_panel, tmp_path, roots=2)
     captured: dict = {}
     monkeypatch.setattr(panel_module.threading, "Thread",
-                        lambda **kw: _FakeThread(kw, captured))
+                        conversion_only(captured))
     panel.run_job()
+    adopt_preparation(panel)  # v0.8.2 CP4: the pump adopts the prepared plan
 
     run = captured["params"]["run_directory"]
     relatives = [
@@ -1076,8 +1085,9 @@ def test_two_direct_files_with_the_same_stem_never_share_a_destination(
 
     captured: dict = {}
     monkeypatch.setattr(panel_module.threading, "Thread",
-                        lambda **kw: _FakeThread(kw, captured))
+                        conversion_only(captured))
     panel.run_job()
+    adopt_preparation(panel)  # v0.8.2 CP4: the pump adopts the prepared plan
 
     planned = [item["destination"] for item in captured["params"]["items"]]
     assert len(set(planned)) == 2, planned
@@ -1089,8 +1099,9 @@ def test_no_planned_destination_is_ever_one_of_the_inputs(
     panel, _direct, _folders = _mixed_panel(make_panel, tmp_path)
     captured: dict = {}
     monkeypatch.setattr(panel_module.threading, "Thread",
-                        lambda **kw: _FakeThread(kw, captured))
+                        conversion_only(captured))
     panel.run_job()
+    adopt_preparation(panel)  # v0.8.2 CP4: the pump adopts the prepared plan
 
     inputs = [item["source"] for item in captured["params"]["items"]]
     for item in captured["params"]["items"]:
@@ -1102,10 +1113,15 @@ def test_no_planned_destination_is_ever_one_of_the_inputs(
 def test_the_run_directory_is_reserved_only_after_validation():
     # v0.7.0: run_job validates and freezes; only _start_frozen (reached after validation, or after Install &
     # Continue has installed the voice) reserves the run folder.
+    # v0.8.2 Checkpoint 4: _start_frozen hands the reservation to the preparation worker's body, ``prepare_run``,
+    # which it starts; neither the press nor the panel's construction reserves anything itself.
     body = ast.unparse(method_named("run_job"))
     assert "Missing input" in body and "reserve_run_directory" not in body
-    assert body.index("Missing input") < body.index("self._start_frozen(snapshot)")
-    assert "reserve_run_directory" in ast.unparse(method_named("_start_frozen"))
+    assert body.index("Missing input") < body.index("self._start_frozen(snapshot, current_voice_entry)")
+    start = ast.unparse(method_named("_start_frozen"))
+    assert "prepare_run(" in start and "reserve_run_directory" not in start
+    worker = next(node for node in panel_tree().body if isinstance(node, ast.FunctionDef) and node.name == "prepare_run")
+    assert "reserve_run_directory" in ast.unparse(worker)
     assert "reserve_run_directory" not in ast.unparse(method_named("__init__"))
 
 
@@ -1230,6 +1246,43 @@ def stubs(monkeypatch):
     return _Stubs().install(monkeypatch)
 
 
+def conversion_only(captured: dict, kind=None):
+    """A stand-in for ``threading.Thread`` that captures only the run's conversion worker (v0.8.2 Checkpoint 4).
+
+    Tests replace ``threading.Thread`` to capture the worker ``_launch`` starts. Since Checkpoint 4 a panel built with
+    real threads also starts a preparation worker through ``threading.Thread``; that one, and any other thread, is
+    made for real, so the preparation still runs and only the conversion worker is captured.
+    """
+    real = threading.Thread
+    make = _FakeThread if kind is None else kind
+
+    def thread(*args, **kwargs):
+        if getattr(kwargs.get("target"), "__name__", "") == "conversion_worker":
+            return make(kwargs, captured)
+        return real(*args, **kwargs)
+
+    return thread
+
+
+def adopt_preparation(panel, *, wait: float = 30.0) -> None:
+    """v0.8.2 Checkpoint 4: let the panel adopt the plan its Start handed to the preparation worker.
+
+    Start validates and freezes on Tk, then reserves and plans on a preparation worker; the pump's preparation drain
+    adopts the plan and only then starts the conversion worker. Under the suite's inline thread factory the
+    preparation has already ended when ``run_job`` returns, so one drain adopts it; with real threads this waits,
+    bounded. Only the preparation drain runs -- no other queue is read -- so a test sees exactly what the old
+    synchronous press left behind.
+    """
+    deadline = time.monotonic() + wait
+    gate = threading.Event()
+    while panel._preparing is not None:
+        panel._drain_preparation()
+        if panel._preparing is None or time.monotonic() > deadline:
+            break
+        gate.wait(0.005)
+    assert panel._preparing is None, "the preparation never ended"
+
+
 def _run_to_completion(panel, before_worker=None):
     """Run the worker body inline on this thread, then drain the queue.
 
@@ -1240,8 +1293,9 @@ def _run_to_completion(panel, before_worker=None):
     captured: dict = {}
     real_thread = panel_module.threading.Thread
     try:
-        panel_module.threading.Thread = lambda **kw: _FakeThread(kw, captured)
+        panel_module.threading.Thread = conversion_only(captured)
         panel.run_job()
+        adopt_preparation(panel)
     finally:
         panel_module.threading.Thread = real_thread
     if before_worker is not None:
