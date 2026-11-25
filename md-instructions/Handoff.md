@@ -1,5 +1,16 @@
 # Audiobook Creation Tool — Handoff
 
+## CURRENT — v0.8.2 Developer Experience Upgrade: pre-Phase 0 plan readiness review, planning only (2026-11-25, Claude Code, HOME-PC)
+
+Adds a plan; changes no product status. The Shadow Slave block below (owner listening, independent review) stays open. Start `56c83cf` (equal to origin/0.8.2); this is the next commit on `0.8.2` (cite it by `git log`). Worked in the worktree `files/dev-work/wt082`; the owner's primary checkout (`0.8.1`, uncommitted owner work) was not touched.
+
+- **What changed.** New temporary plan `md-instructions/Developer-Experience-Upgrade.md`, Revision 2: a repository-grounded readiness review of the owner-approved requirements (verified baseline facts, transitional-state rules, decision records A1-A6, owner decisions D-1 to D-8, touchpoints and exit criteria per checkpoint, requirement traceability). Phase 0 is split into 0A (contract/workspace) and 0B (Handoff/Briefing compaction); Phase 3 into 3A (Windows) and 3B (macOS). No source, launcher, dependency, test, gate or agent-rule change.
+- **Expected red, documented.** With the plan present the old exact-four document contract fails: `verify.py` `docnames`; `test_repository_contract.py::test_only_the_four_canonical_files_are_in_the_documentation_directory` and `::test_only_the_four_canonical_documents_are_tracked`; `test_plan3_boundaries.py::test_only_the_four_canonical_documents_keep_their_exact_names`. Observed before commit: 2 failed, 1 passed (the tracked-files test fails once committed). Phase 0A's first commit replaces the contract. Do not treat this as a regression.
+- **Verified.** Read-only inspection; plan consistency checks (placeholders, private paths, tables, LF endings); the three document-name tests above. A fresh-context review of the plan found 3 High and 10 Medium issues; all were fixed in the plan. No gate run, install, cleanup or app run.
+- **Verdict.** READY WITH CONDITIONS. Owner decisions are needed: D-5 before 0A, D-7 before 0B, D-1 before 1A, D-2 to D-4 by Phase 2, D-6 by Phase 4, D-8 at the Phase 3 report.
+- **Interim rule until Phase 0A lands.** Do not run `verify.py --mode changed`, `--mode full`, `--mode qualification`, or `--mode focused --feature`: each can start GUI journeys or the full suite. Use `--mode focused --test ...`, or guarded direct pytest with basetemp outside the repository.
+- **Next exact action.** The planning chat reviews this commit and the plan. The owner answers D-5, and D-7 if convenient. Then the Phase 0A prompt. Do not start Phase 0A, merge, tag or release.
+
 ## CURRENT — v0.8.2 failed-chapter remediation (Windows, HOME-PC): four Shadow Slave chapters that OmniVoice could never convert now convert; a chunk with words that renders silent is rendered again with further seeds derived from its own (2026-11-25, Claude Code Opus 5.5)
 
 Supersedes the "Windows skip-policy reconciliation" block below for status and next action only; its content and its two environment blockers are unchanged. Start `963f6fe` (equal to origin/0.8.2); this change is the next commit on `0.8.2` (cite it by `git log`, not here).
