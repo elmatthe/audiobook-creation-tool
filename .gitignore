@@ -108,9 +108,15 @@ files/Chatterbox-Voice-Uploads/
 .claude/
 .codex/
 
-# AI-WORKSPACE.md — private local reference (machine conventions incl. the HOME-MacOS
-# section); intentionally never tracked. The local copy stays on disk as-is.
+# AI Workspace files — local-only on every checkout (owner decision D-5, v0.8.2 Phase 0A; the
+# repository is public). AI-WORKSPACE.md (private since 2026-07-08), the root agent entrypoints
+# AGENTS.md and CLAUDE.md, and the .ai/ guidance (.claude/ and .codex/ are above) are never
+# staged, committed or pushed, not even temporarily. Neither the application nor its tests
+# may need them: a fresh clone, source ZIP or release ZIP has none of them.
 AI-WORKSPACE.md
+AGENTS.md
+CLAUDE.md
+.ai/
 REPO-STRUCTURE.md
 
 # vibe-coding-templates — permanently removed reference material; do not track or restore.

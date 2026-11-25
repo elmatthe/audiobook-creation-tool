@@ -1873,10 +1873,11 @@ def test_the_current_upstream_screenshot_set_is_exact_and_unchanged():
         assert (shots / name).read_bytes() == committed
 
 
-def test_only_the_four_canonical_documents_keep_their_exact_names():
+def test_only_the_five_canonical_documents_keep_their_exact_names():
+    # v0.8.2 Phase 0A: Feature-Map.md joined the permanent set; active plans live in files/plans/, never here.
     md = REPO_ROOT / "md-instructions"
     entries = set(os.listdir(md))
-    assert entries == {"Briefing.md", "Changelog.md", "Decisions.md", "Handoff.md"}
+    assert entries == {"Briefing.md", "Changelog.md", "Decisions.md", "Feature-Map.md", "Handoff.md"}
 
 
 def test_the_new_modules_ship_and_the_new_tests_do_not():

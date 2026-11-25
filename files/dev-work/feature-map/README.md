@@ -45,7 +45,7 @@ When you change application source:
 1. Run `python files/dev-work/verification-gate/helpers/inventory.py check`. It names what moved: changed files and the features they serve, new or vanished surfaces, and dead ids.
 2. Review those features' entries in `coverage.json` (source symbols, contracts, verification) and their sections in these documents. Map any new surface to a feature, and add a feature when it is a new capability.
 3. Restamp only the files you reviewed: `python files/dev-work/verification-gate/helpers/inventory.py restamp <path> ...`. Nothing restamps wholesale.
-4. Run the affected tests: `verify.py --mode focused --feature <id>`, then a changed run.
+4. Run the affected tests with explicitly named selectors: `verify.py --mode focused --test <path or node id>`. Until v0.8.2 Phase 1A, `--feature` (it adds the feature's native GUI journeys) and changed runs (they can widen to every test and journey) need the owner's authorization; see `files/dev-work/verification-gate/GATE.md`.
 
 A new journey is added to `verification.json` and mapped by at least one feature, or the gate refuses it. A new live control appears in `surfaces.live` after review: run `inventory.live-surfaces` and map what it reports.
 

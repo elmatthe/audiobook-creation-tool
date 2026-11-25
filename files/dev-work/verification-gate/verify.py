@@ -10,15 +10,17 @@ Run it with the project environment's interpreter, from any directory:
     ... --status files/dev-work/verification-gate/outputs/<run> [--require-current]
     ... --evidence [--test ID] [--journey ID] [--scenario NAME] [--evidence-root DIR]
 
-What a mode means (plan §6):
+What a mode means (plan §6). Which of them an agent may start is GATE.md's interim policy (v0.8.2 Phase 0A), not this
+list: until Phase 1A, only focused --test is routine; --feature, --journey, changed, full and qualification are not.
 
-  focused        the named tests or features plus the required guards. PASS for that scope only.
-  changed        the tests a merge-base diff plus dirty files reach; an unmapped or shared change widens to every test.
-                 PASS for the selected scope, never full acceptance.
+  focused        the named tests or features plus the required guards. PASS for that scope only. --feature also adds the
+                 feature's native GUI journeys, and --journey runs one, so neither is a routine selector.
+  changed        the tests a merge-base diff plus dirty files reach; an unmapped or shared change widens to every test and
+                 every journey. PASS for the selected scope, never full acceptance.
   full           the native and real-media journeys first, then the whole ordinary suite, every guarded group, deps, docs, docnames,
-                 config, the collection partition, the coverage inventory and the gate's own self-tests. The routine gate. Requirements
-                 owned by later phases are listed as NOT RUN in every result: this is not full acceptance and not release readiness
-                 until they exist and pass.
+                 config, the collection partition, the coverage inventory and the gate's own self-tests. Never routine: only with
+                 the owner's authorization (GATE.md). Requirements owned by later phases are listed as NOT RUN in every result:
+                 this is not full acceptance and not release readiness until they exist and pass.
   --evidence     not a run: incremental-verification bookkeeping over the runs already recorded (helpers/evidence_ledger.py).
                  Which earlier results still describe this tree, which a change invalidated and why, and the focused commands
                  that would rerun exactly those. With no item named, the darwin P1B requirement ledger (darwin_p1b). Never a
@@ -43,7 +45,8 @@ The gates of a full run, always in this order and all of them even after a failu
   deps      requirements.txt is '=='-pinned, PEP 508 markers allowed, no recursive includes, and the hash lock beside it
             records this file and locks every pin.
   docs      Changelog.md and Briefing.md are de-templated, with a real version entry.
-  docnames  md-instructions/ holds the four canonical documents under their exact names and nothing else.
+  docnames  md-instructions/ holds the five canonical documents under their exact names and nothing else (active plans
+            live in files/plans/).
   config    the committed root config.toml parses, every key validates, its version matches, and it states
             [development] developer_mode = false.
 
@@ -154,14 +157,18 @@ _SCRUBBED_ENV = {"PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP", "PYTHONINSPECT", "
 FAULTHANDLER_SECONDS = 600
 SUMMARY_BYTES = 1 << 16
 
-# The four permanent documents. These names and this casing are a contract: never rename, recase, duplicate or alias
-# them. Compared against the real on-disk names, so a case-insensitive filesystem cannot mask a mismatch.
+# The five permanent documents, and the only entries md-instructions/ may hold (v0.8.2 Phase 0A; it superseded the
+# exact-four contract). These names and this casing are a contract: never rename, recase, duplicate or alias them.
+# Compared against the real on-disk names, so a case-insensitive filesystem cannot mask a mismatch. Active
+# implementation plans live in PLANS_RELATIVE instead, which this check never reads.
 CANONICAL_DOCS: tuple[str, ...] = (
     "Briefing.md",
     "Changelog.md",
     "Decisions.md",
+    "Feature-Map.md",
     "Handoff.md",
 )
+PLANS_RELATIVE = "files/plans"
 
 # Lines on this allowlist are exempt from the strict '==' rule. Documented exceptions only — currently none.
 PINNING_ALLOWLIST: set[str] = set()
@@ -420,7 +427,9 @@ def check_docs() -> tuple[str, bool, str]:
 
 
 def check_doc_names(md_dir: Path | None = None) -> tuple[str, bool, str]:
-    """Only the four canonical files exist, under EXACTLY those names.
+    """Only the five canonical files exist, under EXACTLY those names.
+
+    Anything else in ``md-instructions/`` fails, an active plan included: plans belong in ``files/plans/``.
 
     ``os.listdir`` is used rather than ``Path.exists`` on purpose. On Windows a
     path lookup is case-insensitive, so ``md-instructions/CHANGELOG.md`` reports
@@ -451,7 +460,8 @@ def check_doc_names(md_dir: Path | None = None) -> tuple[str, bool, str]:
 
     unexpected = [name for name in entries if name not in CANONICAL_DOCS]
     if unexpected:
-        problems.append("unexpected entry(s): " + ", ".join(unexpected))
+        problems.append("unexpected entry(s): " + ", ".join(unexpected)
+                        + f" (active plans belong in {PLANS_RELATIVE}/)")
     nonfiles = [name for name in CANONICAL_DOCS
                 if name in entries and not (md_dir / name).is_file()]
     if nonfiles:
@@ -2120,8 +2130,11 @@ class _GateParser(argparse.ArgumentParser):
 
 
 _HELP_EPILOG = """\
-modes: focused needs --test or --feature; changed takes --base (default origin/master); full is the routine gate;
-qualification needs --scenario. --preflight-only and --collect-only leave evidence and never establish acceptance.
+modes: focused needs --test or --feature; changed takes --base (default origin/master); qualification needs --scenario.
+--preflight-only and --collect-only leave evidence and never establish acceptance.
+
+interim policy (GATE.md, until Phase 1A): only focused --test is routine. full, qualification, changed, focused --feature
+and --journey can start native GUI journeys or the whole suite; they need the owner's authorization.
 
 exit codes: 0 PASS for the requested scope; 1 FAIL; 2 BLOCKED, a prerequisite is unavailable; 3 NOT RUN or incomplete,
 including no tests executed; 64 invalid invocation or configuration; 130 interrupted. Exit 0 does not imply release readiness.

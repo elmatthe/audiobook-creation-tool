@@ -1,7 +1,10 @@
 """The permanent repository contract: exact documentation names and the config gate.
 
-The four canonical documents in ``md-instructions/`` must keep their exact names
-and casing forever, and no case-variant alias may reappear. This suite proves
+The five canonical documents in ``md-instructions/`` (v0.8.2 Phase 0A; the
+exact-four contract it replaced did not have ``Feature-Map.md``) must keep their
+exact names and casing forever, no case-variant alias may reappear, and nothing
+else may live beside them: active implementation plans belong in ``files/plans/``.
+This suite proves
 that with **real directory entries**, never ``Path.exists()`` — on Windows a
 path lookup is case-insensitive, so ``md-instructions/CHANGELOG.md`` "exists"
 even though the file is ``Changelog.md``. That is precisely how a stale
@@ -26,7 +29,7 @@ from gate_locator import GATE_PATH, load_gate  # noqa: E402
 from source_probe import application_python_files  # noqa: E402
 MD_DIR = REPO_ROOT / "md-instructions"
 
-CANONICAL_DOCS = ("Briefing.md", "Changelog.md", "Decisions.md", "Handoff.md")
+CANONICAL_DOCS = ("Briefing.md", "Changelog.md", "Decisions.md", "Feature-Map.md", "Handoff.md")
 FORBIDDEN_ALIASES = (
     "CHANGELOG.md",
     "DECISIONS.md",
@@ -35,7 +38,16 @@ FORBIDDEN_ALIASES = (
     "changelog.md",
     "decisions.md",
     "briefing.md",
+    "FEATURE-MAP.md",
+    "feature-map.md",
+    "Feature-map.md",
 )
+# D-5 (v0.8.2 Phase 0A): the AI Workspace files are local-only on every checkout. The repository is public, so they are
+# ignored and never tracked; a fresh clone, source ZIP or release ZIP has none of them and must not need them.
+LOCAL_ONLY_WORKSPACE_PROBES = ("AI-WORKSPACE.md", "AGENTS.md", "CLAUDE.md", ".ai/VERIFICATION.md",
+                               ".ai/ENVIRONMENT.local.md", ".claude/CLAUDE.md", ".claude/settings.local.json")
+LOCAL_ONLY_WORKSPACE_ROOTS = ("AI-WORKSPACE.md", "AGENTS.md", "CLAUDE.md", ".ai", ".claude")
+FEATURE_MAP_DIR = REPO_ROOT / "files" / "dev-work" / "feature-map"
 
 
 def load_verify():
@@ -89,16 +101,40 @@ def test_the_exact_name_check_is_genuinely_case_sensitive():
         assert "Changelog.md" in entries
 
 
-def test_only_the_four_canonical_files_are_in_the_documentation_directory():
+def test_only_the_five_canonical_files_are_in_the_documentation_directory():
     assert set(os.listdir(MD_DIR)) == set(CANONICAL_DOCS)
     assert all((MD_DIR / name).is_file() for name in CANONICAL_DOCS)
 
 
-def test_only_the_four_canonical_documents_are_tracked():
+def test_only_the_five_canonical_documents_are_tracked():
     tracked = subprocess.check_output(
         ["git", "ls-files", "--", "md-instructions"], cwd=REPO_ROOT, text=True)
     assert set(tracked.splitlines()) == {
         f"md-instructions/{name}" for name in CANONICAL_DOCS}
+
+
+def test_the_local_only_workspace_files_are_ignored_and_never_tracked():
+    """D-5: a public repository never carries the private AI Workspace files, not even briefly.
+
+    Probed by name with ``--no-index``, so this holds in a fresh clone where none of them exists.
+    """
+    for probe in LOCAL_ONLY_WORKSPACE_PROBES:
+        ignored = subprocess.run(["git", "check-ignore", "--no-index", "-q", "--", probe], cwd=REPO_ROOT)
+        assert ignored.returncode == 0, f"{probe} must be gitignored (local-only workspace file)"
+    tracked = subprocess.check_output(
+        ["git", "ls-files", "--", *LOCAL_ONLY_WORKSPACE_ROOTS], cwd=REPO_ROOT, text=True)
+    assert tracked == "", f"local-only workspace files are tracked: {tracked.split()}"
+
+
+def test_the_feature_map_entrypoint_indexes_every_detailed_map_and_only_existing_ones():
+    """Feature-Map.md is an index of files/dev-work/feature-map/, where the gate reads the maps; it holds no copy of them."""
+    import re
+
+    text = (MD_DIR / "Feature-Map.md").read_text(encoding="utf-8")
+    listed = set(re.findall(r"files/dev-work/feature-map/([A-Za-z0-9._-]+\.md)", text))
+    on_disk = {path.name for path in FEATURE_MAP_DIR.glob("*.md")}
+    assert listed == on_disk
+    assert "files/dev-work/verification-gate/coverage.json" in text
 
 
 def test_local_archives_and_the_retired_code_path_are_not_tracked():
@@ -175,28 +211,61 @@ def test_the_gate_passes_a_healthy_temporary_tree(tmp_path):
     assert ok, detail
 
 
-def test_the_gate_fails_when_a_canonical_document_is_missing(tmp_path):
+@pytest.mark.parametrize("absent", CANONICAL_DOCS)
+def test_the_gate_fails_when_a_canonical_document_is_missing(tmp_path, absent):
     verify = load_verify()
-    md = build_md_tree(tmp_path, ("Briefing.md", "Changelog.md", "Decisions.md"))
+    md = build_md_tree(tmp_path, tuple(n for n in CANONICAL_DOCS if n != absent))
     _name, ok, detail = verify.check_doc_names(md_dir=md)
     assert not ok
-    assert "Handoff.md" in detail
+    assert "missing canonical file(s): " + absent in detail
+
+
+def test_the_gate_fails_the_old_four_document_set(tmp_path):
+    """The exact-four tree that was healthy before v0.8.2 Phase 0A now lacks Feature-Map.md."""
+    verify = load_verify()
+    md = build_md_tree(tmp_path, ("Briefing.md", "Changelog.md", "Decisions.md", "Handoff.md"))
+    _name, ok, detail = verify.check_doc_names(md_dir=md)
+    assert not ok
+    assert "Feature-Map.md" in detail
+
+
+def test_the_gate_refuses_an_active_plan_in_the_documentation_directory(tmp_path):
+    """Plans moved out of md-instructions/ (Phase 0A); the failure says where they belong."""
+    verify = load_verify()
+    md = build_md_tree(tmp_path, CANONICAL_DOCS + ("Developer-Experience-Upgrade.md",))
+    _name, ok, detail = verify.check_doc_names(md_dir=md)
+    assert not ok
+    assert "unexpected entry(s): Developer-Experience-Upgrade.md" in detail
+    assert "files/plans/" in detail
+
+
+def test_the_gate_is_indifferent_to_plans_in_their_own_directory(tmp_path):
+    """Any number of active plans may sit in files/plans/ beside a healthy md-instructions/."""
+    verify = load_verify()
+    md = build_md_tree(tmp_path, CANONICAL_DOCS)
+    plans = tmp_path / "files" / "plans"
+    plans.mkdir(parents=True)
+    for name in ("Developer-Experience-Upgrade.md", "Another-Plan.md", "Briefing.md"):
+        (plans / name).write_text("# plan\n", encoding="utf-8")
+    _name, ok, detail = verify.check_doc_names(md_dir=md)
+    assert ok, detail
 
 
 def test_the_gate_fails_when_an_alias_replaces_a_canonical_document(tmp_path):
     """The exact case the stale verify.py reference hid: CHANGELOG.md, not Changelog.md."""
     verify = load_verify()
-    md = build_md_tree(tmp_path, ("Briefing.md", "CHANGELOG.md", "Decisions.md", "Handoff.md"))
+    md = build_md_tree(tmp_path, ("Briefing.md", "CHANGELOG.md", "Decisions.md", "Feature-Map.md", "Handoff.md"))
     _name, ok, detail = verify.check_doc_names(md_dir=md)
     assert not ok
     assert "forbidden alias" in detail
     assert "CHANGELOG.md" in detail
 
 
-@pytest.mark.parametrize("alias", ["handoff.md", "decisions.md", "briefing.md"])
-def test_the_gate_fails_for_every_lowercase_alias(tmp_path, alias):
+@pytest.mark.parametrize("alias", ["handoff.md", "decisions.md", "briefing.md", "feature-map.md", "Feature-map.md",
+                                   "FEATURE-MAP.md"])
+def test_the_gate_fails_for_every_case_variant_alias(tmp_path, alias):
     verify = load_verify()
-    canonical = alias[0].upper() + alias[1:]
+    canonical = next(n for n in CANONICAL_DOCS if n.lower() == alias.lower())
     names = tuple(n for n in CANONICAL_DOCS if n != canonical) + (alias,)
     md = build_md_tree(tmp_path, names)
     _name, ok, detail = verify.check_doc_names(md_dir=md)
@@ -204,7 +273,7 @@ def test_the_gate_fails_for_every_lowercase_alias(tmp_path, alias):
     assert alias in detail
 
 
-@pytest.mark.parametrize("extra", ["notes.md", "0.6.6-ui-parity-hardening-release.md"])
+@pytest.mark.parametrize("extra", ["notes.md", "0.6.6-ui-parity-hardening-release.md", "AGENTS.md", "FeatureMap.md"])
 def test_the_gate_fails_for_an_extra_document(tmp_path, extra):
     verify = load_verify()
     md = build_md_tree(tmp_path, CANONICAL_DOCS + (extra,))

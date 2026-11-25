@@ -71,7 +71,7 @@ class Tree:
         for name in ("scripts/requirements.txt", "scripts/requirements-lock-windows-py312.txt", "config.toml"):
             shutil.copyfile(REPO_ROOT / name, root / name)
         self.write("scripts/launcher.py", "# the entry point config.toml names\n")
-        for name in ("Briefing.md", "Decisions.md", "Handoff.md"):
+        for name in ("Briefing.md", "Decisions.md", "Feature-Map.md", "Handoff.md"):
             self.write(f"md-instructions/{name}", f"# {name}\n\nA real document.\n")
         self.write("md-instructions/Changelog.md", "# Changelog\n\n## [0.0.1] - 2026-01-01\n\nA real entry.\n")
         policy = json.loads((self.gate / "verification.json").read_text(encoding="utf-8"))

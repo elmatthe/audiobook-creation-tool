@@ -5,13 +5,25 @@
 > anything. Version history lives in `Changelog.md`; architectural decisions in `Decisions.md`;
 > in-flight work and open bugs in `Handoff.md`.
 >
-> **These four names are a permanent contract** — `Briefing.md`, `Changelog.md`, `Decisions.md`,
-> `Handoff.md`, in exactly that casing. Never rename, recase, duplicate or alias them, and never
-> recreate the old `CHANGELOG.md` / `DECISIONS.md` / `handoff.md` spellings. The verification gate
-> enforces this by reading the real directory entries (`os.listdir`) rather than calling
-> `Path.exists()`, because a path lookup on Windows and macOS is case-insensitive and would
-> happily report a non-existent `CHANGELOG.md` as present. `files/tests/test_repository_contract.py`
-> holds the same line: exactly these four files and no other tracked documentation entries.
+> **These five names are a permanent contract** (v0.8.2 Phase 0A; it replaced the exact-four
+> contract) — `Briefing.md`, `Changelog.md`, `Decisions.md`, `Feature-Map.md`, `Handoff.md`, in
+> exactly that casing, and nothing else in `md-instructions/`. Never rename, recase, duplicate or
+> alias them, and never recreate the old `CHANGELOG.md` / `DECISIONS.md` / `handoff.md` spellings.
+> The verification gate enforces this by reading the real directory entries (`os.listdir`) rather
+> than calling `Path.exists()`, because a path lookup on Windows and macOS is case-insensitive and
+> would happily report a non-existent `CHANGELOG.md` as present. `files/tests/test_repository_contract.py`
+> holds the same line: exactly these five files and no other tracked documentation entries.
+> `Feature-Map.md` indexes the detailed maps in `files/dev-work/feature-map/`. Locations: active
+> implementation plans in `files/plans/` (the current one is `files/plans/Developer-Experience-Upgrade.md`),
+> protected local archives in `files/Archives/`, release qualification records in
+> `files/release-history/`, protected distribution archives in `dist/`. Verification policy:
+> `files/dev-work/verification-gate/GATE.md`.
+>
+> **Two kinds of checkout (D-5, Phase 0A).** The repository is public, so the AI Workspace files
+> (`AI-WORKSPACE.md`, `AGENTS.md`, root `CLAUDE.md`, `.ai/`, `.claude/`) are local-only: gitignored,
+> never staged, committed or pushed. A fresh public checkout (Git clone, source ZIP, release ZIP)
+> has none of them and the application and its tests never need them; an AI Workspace-enabled
+> development checkout adds them locally to steer agents.
 > The 2026-09-30 maintainer ruling retires the old planning references and completed instruction
 > drop. Optional `files/Archives/` copies are local-only, ignored, and never required, packaged or
 > published. Their existing contents must not be deleted, overwritten or recreated by an agent.
