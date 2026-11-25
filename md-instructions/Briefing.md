@@ -1,1794 +1,209 @@
 # Audiobook Creation Tool — Briefing
 
-> **Audience:** future AI sessions and any new contributor.
-> **Purpose:** the single document that fully orients a new session without the user re-explaining
-> anything. Version history lives in `Changelog.md`; architectural decisions in `Decisions.md`;
-> in-flight work and open bugs in `Handoff.md`.
+> **Audience:** a new AI session or contributor. **Purpose:** what ACT is today, what must not change, where the authoritative detail
+> lives. Live state and the next action are in `Handoff.md`; history in `Changelog.md`; standing decisions in `Decisions.md` (start at its
+> index); the application's feature inventory in `Feature-Map.md`.
 >
-> **These five names are a permanent contract** (v0.8.2 Phase 0A; it replaced the exact-four
-> contract) — `Briefing.md`, `Changelog.md`, `Decisions.md`, `Feature-Map.md`, `Handoff.md`, in
-> exactly that casing, and nothing else in `md-instructions/`. Never rename, recase, duplicate or
-> alias them, and never recreate the old `CHANGELOG.md` / `DECISIONS.md` / `handoff.md` spellings.
-> The verification gate enforces this by reading the real directory entries (`os.listdir`) rather
-> than calling `Path.exists()`, because a path lookup on Windows and macOS is case-insensitive and
-> would happily report a non-existent `CHANGELOG.md` as present. `files/tests/test_repository_contract.py`
-> holds the same line: exactly these five files and no other tracked documentation entries.
-> `Feature-Map.md` indexes the detailed maps in `files/dev-work/feature-map/`. Locations: active
-> implementation plans in `files/plans/` (the current one is `files/plans/Developer-Experience-Upgrade.md`),
-> protected local archives in `files/Archives/`, release qualification records in
-> `files/release-history/`, protected distribution archives in `dist/`. Verification policy:
-> `files/dev-work/verification-gate/GATE.md`.
->
-> **Two kinds of checkout (D-5, Phase 0A).** The repository is public, so the AI Workspace files
-> (`AI-WORKSPACE.md`, `AGENTS.md`, root `CLAUDE.md`, `.ai/`, `.claude/`) are local-only: gitignored,
-> never staged, committed or pushed. A fresh public checkout (Git clone, source ZIP, release ZIP)
-> has none of them and the application and its tests never need them; an AI Workspace-enabled
-> development checkout adds them locally to steer agents.
-> The 2026-09-30 maintainer ruling retires the old planning references and completed instruction
-> drop. Optional `files/Archives/` copies are local-only, ignored, and never required, packaged or
-> published. Their existing contents must not be deleted, overwritten or recreated by an agent.
-
-## v0.8.2 development branch (`0.8.2`, from published v0.8.1) — long-running, not released
-
-Daily-use fixes accumulate on `0.8.2` as reviewed checkpoints; nothing is merged, tagged or published per fix, and the installed v0.8.1 stays the rollback (Decisions 2026-11-21). Checkpoint 1: MP3 Tool jobs are prepared on a worker from a once-per-plan input index (`shared.output_paths.InputIndex`), with "Preparing job…" and Cancel on the panel; the ordered scalability backlog for the other tools is in the Handoff.
-
-Checkpoint 1 review remediation R1 (same branch): a pasted Chapter Titles edit is committed to its own Book before anything can redraw the box (`flush_pending_editor_state`); a new run's job area is built, then swapped in, then the old one retired, so a failed setup either changes nothing or fails the accepted run and never strands the panel; one configuration snapshot per job; a stale capture is refused; unused empty runs are released off the Tk thread. By owner decision there is no Save Job, autosave, draft, crash-recovery or session-restoration feature: edits live for the running session only. Verdict on that commit is a self-review, not an independent one (Handoff).
-
-Checkpoints 2–4 (same branch): the M4B Maker and Metadata Editor (Checkpoint 2) and the TTS Audiobook Start (Checkpoint 4) prepare their jobs on a short-lived worker the same way, with "Preparing job…" and Cancel, so a large job no longer freezes the window; Checkpoint 3 made the shared collision search linear with names unchanged. Each verdict is a self-review (Handoff). The three `*.PREPARATION` features are recorded as pending on macOS by owner decision.
-
-Checkpoint 5 (same branch): the M4B Converter checks "never one of the inputs" through one `InputIndex` per plan and per attempt instead of re-reading every book for every output (1,000 whole books planned in 0.93 s instead of 348 s; names unchanged), and Cover Image's standard-output Start prepares its run on a short-lived worker with "Preparing job…" and Cancel, as the other tools now do; numbered copies and Replace original files are unchanged (the replacement confirmation stays on the window). Self-reviewed (Handoff). `ACT.COVER.PREPARATION` is recorded as pending on macOS.
-
-Checkpoint 6 (same branch): large workspaces. The MP3 Tool and the Metadata Editor read an import's tags (and the Editor's FFprobe chapter titles) on a worker, through the new Tk-free `shared/source_readback.py`; the import counts "Reading tags… N of M files" with Cancel Import and ends when every file is read, so no Book exists whose source is unread (the Editor no longer freezes for over a minute on 2,341 files). MP3 Tool's folder import seeds its Books in one snapshot (5,000 one-file folders froze the window for 3–4 s), Book numbering and the Editor's Book labels and Add Files are linear, the MP3/Maker track list is not refilled when no track changed, and the shared imported-file list and Cover Image's browser select in linear time. The activity log, job-event drains, the coordinator's commit and Cover's 5,000-image preparation gap were measured and left alone. Self-reviewed (Handoff). `ACT.SHARED.WORKSPACE-SCALING` is recorded as pending on macOS.
-
-Windows qualification of Checkpoints 1–6 (same branch): one data-safety defect found and fixed — Import Folder replaced Books the user had changed while the import was still running (the scan, and since Checkpoint 6 the minutes-long reading); each Book panel now keeps the Books it was pressed to replace and, if a Book changed meanwhile, replaces nothing and says so (Decisions 2026-11-22, qualification). Results, the Windows gate and the remaining limits are in the Handoff.
-
-## v0.8.0 OmniVoice integration — released for Windows 2026-11-14 on maintainer-accepted verification evidence; macOS v0.8.0 not supported or published
-
-Branch `feature/0.8.0-omnivoice-integration`, from the released v0.7.3 `master` (`dbf38f7`). Plan:
-`files/plans/ACT-v0.8.0-OmniVoice-Integration-Plan-v0.7.3-Baseline.md` (five phases, one session each; one full gate,
-only in Session 5). Phases 1-3 PASSED; Phase 4 is technically complete and the owner has approved all 12 listening
-tracks (the owner's statement, recorded 2026-11-14); see the Handoff for the live state.
-
-- **Windows release (2026-11-14, owner decision).** v0.8.0 is released for Windows only, as
-  `AudiobookTool-Windows-v0.8.0.zip` under tag `v0.8.0`, on a maintainer release exception: the owner accepted the
-  combined evidence (the passing stages of the FAILED full gate `c8e8` on `c583d78`, the F1-F5 focused PASS of
-  `ee426fd`, R1-R3, the 12 approved listening tracks) without a new full gate. Qualified: Windows 11 HOME-PC at 100%
-  scaling. Open: the real long-path switch-on and long paths off, other Windows versions, computers, scaling and GPUs,
-  and the full five-component first run on the final code. macOS v0.8.0 is not supported or published. Record:
-  `files/release-history/ACT-v0.8.0-Windows-Release-Acceptance.md`.
-- **What it adds.** A fifth optional local engine, OmniVoice 0.2.1 (code Apache-2.0; model `k2-fsa/OmniVoice` @
-  `c5fdb5cc`, weights CC-BY-NC, non-commercial; audio tokenizer under the Boson Higgs Audio 2 Community License), with six
-  cloned voices `omnivoice-female-1` ... `omnivoice-male-4` ("OmniVoice - Female 1" ...) appended after the 28 earlier
-  voices in their own group: the runtime roster is 34 voices in five engine families. The 28 historical preview WAVs are a
-  fixed, separate collection (no OmniVoice previews).
-- **Architecture.** `scripts/tts/omnivoice_runtime.py` (identity, readiness by the installer's receipt, references,
-  prompt identity, locks, worker environment), `omnivoice_worker.py` (runs only in `.venv/engines/omnivoice`, held inside the app's `.venv` beside Qwen3 since the
-  owner's unified-layout decision of 2026-11-13; an earlier sibling `.venv-omnivoice` is never used; offline
-  by audit hook, no Hub, no speech recognizer, `normalize_text=False`), `omnivoice_synth.py` (prepares text once with the
-  run's `SpeechPrepSnapshot`, 300-character whole-sentence chunks, at most 48 chunks per worker process, the shared
-  assembly/encode/atomic publication, Cancel by flag then process-tree kill), `omnivoice_setup.py` (install, adopt,
-  repair, proof, receipt), `omnivoice_manifest.json` (88 wheels and 11 model files by URL, size, SHA-256). Models,
-  receipt, jobs, prompts and caches live in `files/runtime-data/omnivoice/`; none of it, nor any environment, ships.
-- **References.** Each cloned engine has its own six recordings: exactly 18 tracked WAVs in
-  `files/Cloned-Voice-Uploads/<Engine>/<Engine> - <Voice>.wav`, bound by `scripts/tts/data/clone_references.json`
-  (`tts/clone_references.py`). Qwen3 keeps the six originals byte for byte with its unchanged transcript bundle;
-  OmniVoice conditions on its own whole recording (at most 10 s; Male 1's 10.227 s is the one hash-bound exception) with
-  the owner-written transcript.
-- **Speech preparation.** OmniVoice has its own route, engine scope and a provisional all-`expand` 16-class row in
-  `speech/data/modes.json`; the 60 historical G1 verdicts are unchanged. Production default `v1`; `off` still works.
-- **Setup.** The existing first-run window and Install & Continue offer OmniVoice as the fifth component, last and
-  unchecked, with the licence and hardware terms shown before consent. HOME-PC's environment was adopted (Phase 3)
-  without downloading, then rebuilt at `.venv/engines/omnivoice` from the same verified wheels, with its sibling set
-  aside whole under `files/runtime-data/omnivoice/set-aside` (unified layout, 2026-11-13). A too-deep app folder is
-  refused before any download: 87 characters for the app (123 with Windows long paths on), 83 / 119 with OmniVoice.
-  Where long paths would be enough, the first-run window offers to switch them on through Windows' own consent
-  prompt and proves in a fresh process that they work (`shared/long_paths.py`); README has the manual way.
-- **Independent review (Codex, 2026-11-14) and its remediation.** The review of `feca89f` failed three findings, all
-  fixed the same day with positive and negative controls: R1, a conversion's startup imports are classified where
-  they fail (`omnivoice_worker.import_failure`, shared with the installer's proof), so a native library Windows will
-  not load (an `OSError`) now records the engine as damaged and offers the repair, while running out of memory, Smart
-  App Control and the network guard never do; R2, every Windows path length is counted in UTF-16 units by one helper,
-  `shared.long_paths.windows_length` (limits unchanged); R3, the long-path tests never write outside their own scratch.
-  See the Handoff and Decisions 2026-11-14.
-- **Phase 5 full gate (2026-11-14) and its remediation.** The one authorized full gate on `c583d78`
-  (`2026-11-14_113416_full_c8e8`) FAILED on five stale verification pins, no product defect: the setup journeys' four
-  choices and old path depth (F1), the pip guard's call sites (F2), the cancel guard's three local routes (F3), an
-  unregistered opt-in skip (F4) and 17 bare parametrized test ids in `coverage.json` (F5). All five were fixed in the
-  gate and tests only, with focused checks; the corrected tree has not passed a new full gate. See the Handoff and
-  Decisions 2026-11-14.
-- **Measured on HOME-PC (RTX 5070, Phase 4).** About 8-10 times faster than real time (a 15.2-minute book in 108 s); 1.9 GB of allocated GPU memory
-  while narrating (flat across a 48-chunk worker), about 2.0-2.9 GB reserved, up to about 4.6 GB the first time a voice's
-  clone prompt is built. The owner listened to the 12-track pack and approved all 12 tracks (the owner's statement,
-  recorded 2026-11-14).
-- **Known limitations.** Windows + NVIDIA only; two copies of the app can still run Qwen3 and OmniVoice on one GPU at the
-  same time; the model's own output can reach full scale in a few samples (clamped; the tracks that contain them are
-  among the 12 the owner approved); a real cold install of all five components (once, on `8e4caa5`), the migration and
-  the recovery scenarios were run on HOME-PC only, in disposable copies (2026-11-13; the rebuild of both engines after
-  the whole `.venv` was removed was completed on the final program code on 2026-11-14; evidence outside the repo: see
-  Handoff); the long-path change itself has never been made for real and no installation has been run with long paths
-  off (HOME-PC has long paths on, and its setting is never changed by tests): an external Windows qualification item,
-  still open: the owner released v0.8.0 for Windows without it (2026-11-14).
-
-## v0.7.2 Windows hardening, feature map and verification gate (in progress, 2026-11-05) — identity 0.7.2 since the Phase 8 release-candidate checkpoint (2026-11-10); NOT merged/tagged/published
-
-Branch `feature/0.7.2-windows-hardening-verification` from `origin/master` = `204c33b` (v0.7.1, merged by fast-forward 2026-11-04). Plan: `files/plans/ACT-v0.7.2-Windows-Hardening-Feature-Map-and-Verification-Gate-Implementation-Plan.md` (Phases 0–10; the owner's HALT of 2026-11-05 replaced the continuous run with one phase at a time, each stopping for review; a fresh independent Codex Extra High review and the owner's checks come before any merge).
-
-- **Cancel (Phase 1; review findings on the candidate `112d8a0` remediated in `43568ac`; the full gate on `43568ac` failed one test and its cause is corrected in `0c1ef43`; the complete full gate PASSED on `0c1ef43`, evidence `ACT072-P1-0c1ef43-full3`; NOT accepted, awaiting the owner's review):** stops every active file within one look (0.25 s poll, woken at once by the panel): requests in flight, back-offs, memory waits, assembly, encoding and the copy into staging; no fallback, retry or request after the latch; publication and Cancel are ordered on the controller's own lock (`tts.publication.authorized_commit`, `JobController.authorize_commit`, `commits_in_flight`): Cancel first denies the commit, a commit first finishes whole and Cancel can see it, and that lock is never held across the flush or the rename. Primitives: `tts.edge_requests.wait_unless_cancelled` / `await_unless_cancelled`; `run_request` drives a cancellable Edge request in place of `asyncio.run`, with a bounded end (cancel, 1 s, cancel, 1 s, drop; an open generator's cleanup shares that deadline) and a log line for anything abandoned or cut short; a dropped request's connection is released by a full collection on one short-lived thread that requests dropped together share (`edge_requests._collect_dropped`), one that counts only for drops before it began and that never runs on the cancelling thread; `ffmpeg_watch.current_cancel_check()` gives a request loop its conversion's check; `ffmpeg_watch.wake()` and `AssemblyGate.wake()` end a poll early. Pause unchanged (active files finish, nothing new starts, cancellable at once). Regression: `files/tests/test_cancel_semantics.py`. Decision: `Decisions.md` 2026-11-05. This supersedes the "Cancel does not discard a narration past its last synthesis checkpoint" and "Cancel of finished narration … 600 s in all" statements in the v0.7.1 section below.
-- **Cross-tool consistency, recovery and cleanup (Phase 6, accepted by the owner at `721c323` on 2026-11-09; slice 6A accepted at `c96a077`; slice 6B (ACT72-009) accepted at `56c3b55`; slice 6C (ACT72-023) passed its checkpoint review at `88451ec` (repaired candidate `9c4a93e`, changed-area gate `2026-11-08_184018_changed_a931`); slice 6D (ACT72-033) passed its checkpoint review at `5a87ec3` (candidate `0e35ee5`, changed-area gate `2026-11-08_213207_changed_b535`); slice 6E (ACT72-010) accepted (closeout `e20b960`); the rest of Phase 6 was completed in batches A–E under the owner's 2026-11-09 "Complete Phase 6" authority: final candidate `35de76a`, full Windows gate PASS `2026-11-09_170309_full_7178`, carried forward to `721c323`; see the Handoff):** Batch A: private staging lives exactly as long as a Retry Failed can reach it. The MP3 Tool's panel and the Maker's and Editor's runners remove, before each attempt's terminal event, the staging of every Book the attempt cannot retry, and remove what was kept for a retry when Clear All Imports, a new run or closing the tool lets the run go (`mp3_plan.release_staging`, `MakerRun.abandon`, `EditorRun.abandon`; a panel-supplied lock keeps a close racing the end of a run from leaving anything). A custom-folder Maker build stages in an entry of `tts/work_area.py` (kind `maker`) instead of a loose `act-m4b-build-*` folder; a custom build's start recovers what a killed Maker left. The Converter removes a failed or cancelled split book's empty folders (`m4b_execution.prune_empty_folders`). A killed process can still leave a standard run's `.work` (the documented crash boundary). `Decisions.md` 2026-11-09 (batch A). Batch B: the TTS Resume, Edge rate and Kokoro speed and the MP3 Chapter Titles box lock with a run (ACT72-014); `launcher._finish_tk_objects` finishes the closed window's Tk variables, images and fonts on the main thread after the main loop (ACT72-017); the first-run window asks before stopping anything (ACT72-038) and a stop during the base install ends the registered pip's tree (`bootstrap.request_setup_stop`, ACT72-039). `Decisions.md` 2026-11-09 (batch B). Batch C: messages say what happened and typed values are judged at Start (ACT72-004 'Cancelled' Book status with `NOT_ATTEMPTED` kept; ACT72-018 `job_control.summary_lines` says a run's end once and Cover/Converter render the run's lines before their closing line; ACT72-021 bitrate note; ACT72-025 Cover size 256–4096; ACT72-026/027/028 Converter wording; ACT72-036 stable Book numbers; ACT72-041 launcher load-error status; ACT72-042/043 Reset and settings wording; ACT72-047 Kokoro speed). `Decisions.md` 2026-11-09 (batch C). Batch D: the untested branches of ACT72-032/050-054/056 now have tests and three new journeys (`cover.replace-confirmation`, `shutdown.close-during-folder-scan`, `maker.wheel-over-a-long-book`); they found ACT72-060 (Enter did nothing in Cover's replacement question) and ACT72-061 (Cover kept an empty run folder after a refused plan), both fixed; `work_area` moved to `shared/` (a tool may not import `tts`). `Decisions.md` 2026-11-09 (batch D). Batch E: the TTS skip box reads "Skip MP3s already in this run" (ACT72-046); the six-tool consistency matrix is `files/dev-work/feature-map/consistency-matrix.md`; ACT72-030 (unreferenced helpers) is deferred with a removal proposal. `Decisions.md` 2026-11-09 (batch E). The Edge command line's `--format m4b` runs both of its FFmpeg steps through the same supervisor, each with a deadline of the book's playing time plus ten minutes, inside a Ctrl+C scope: Ctrl+C stops the running step at once, starts no further step, publishes nothing and exits 130; a step past its deadline is stopped the same way and exits 124. `Decisions.md` 2026-11-09 (Phase 6E). The Metadata Editor's chapter-title remux runs both of its FFmpeg steps through the same supervisor inside its worker's `cancellable` block, so Cancel stops a running rename at once and starts no later step; Pause still lets it finish; the remux's own failure rules (a non-zero exit, any error output even with exit 0) are unchanged. `Decisions.md` 2026-11-08 (Phase 6D). Cancel in the MP3 Tool and M4B Maker stops a running FFmpeg or ffprobe step at once: their steps run through `shared/subprocess_utils.run_supervised` inside the worker's `cancellable` block, which watches the controller's non-blocking `cancel_check` and stops only that step's own process, by handle; Pause still lets the step finish; a stopped step is never a failure or a retry. `Decisions.md` 2026-11-08 (Phase 6C). TTS temporary files live in `%TEMP%\act-tts\<token>\<n>` (`tts/work_area.py`): a manifest names the owner by process id and creation time and lists each entry before it exists; a run's start (`work_area.recover`) removes only workspaces whose owner is provably gone, by handle, never following a link, bounded by 5 s and Cancel, and names what it leaves. Legacy loose `epub2tts_*` folders are never touched. `Decisions.md` 2026-11-08 (Phase 6B). Slice 6A: a Qwen3 voice at the 920x600 minimum keeps the split layout: where the full hardware and speed disclosure cannot fit, `TtsPanel._layout_for` shows a **Hardware and speed...** button beside Install / repair (`show_qwen3_details` gives the complete text); wherever it fits it is shown in full (ACT72-058, owner-approved). The setup windows' logs (`bootstrap._append_following`, `OptionalSetupPanel._append`) follow only a reader at the bottom, like the tools' logs (ACT72-059). `Decisions.md` 2026-11-08 (Phase 6A).
-- **Known log, metadata and optional-state defects (Phase 5; the complete full gate PASSED on `607ae39`, evidence `2026-11-07_205607_full_5196`; accepted by the owner at `5170b8f`):** the shared Summary | Detailed view (`shared/job_ui.SummaryDetailsView`, every tool's Activity log) follows new lines while a pane's newest line is on screen and otherwise holds the reader's line, per pane, rendering only the lines that changed. In the MP3 Tool a Book's first files fill only fields with no value at all (an absent key; a stored `""` is a deliberate blank), so typed or cleared values survive the first import and reach the tags. TTS shows one Kokoro message at a time and promises no download; Start refuses an Edge rate the Edge library refuses (`EDGE_RATE`) when folder-imported files would send it; its messages name Start. The artwork Choose…/Clear buttons take their label's width. A Qwen3 voice at 920x600 still stacked the TTS panel (ACT72-058, fixed in Phase 6A). `Decisions.md` 2026-11-07 (Phase 5).
-- **The feature map and coverage inventory (Phase 4; the complete full gate PASSED on `7987503`, evidence `2026-11-07_170231_full_b8a6`; NOT accepted until the owner says so, see the Handoff):** `files/dev-work/feature-map/` (README plus one document per tool) describes 273 features by stable id; `files/dev-work/verification-gate/coverage.json` (schema 2) is the only record of how each is verified, the reviewed index of every static and live surface, a review stamp per source file and the issue ledger. A full or changed run fails `coverage-inventory` when the inventory falls behind the source (a changed file nobody restamped, a new control, a dead test or journey, a dangling id). After reviewing a changed file's features, restamp it by name: `python files/dev-work/verification-gate/helpers/inventory.py restamp <path>`; `inventory.py check` lists what moved. Verification kinds: routine (`behavior`, `native`, `media`, `control`, `discovery`) must pass in a full run; release-pending (`qualification`, `owner`, `planned`) never does and keeps `release_ready` false. A test the skip policy always skips on Windows never satisfies a feature, so check that a test runs on Windows before mapping it as routine evidence. `Decisions.md` 2026-11-07 (Phase 4).
-- **Native Windows and real-media acceptance (Phase 3; the acceptance closeout's fixes are in `118058c` and the full gate PASSED on it; under owner review, not accepted):** the gate's `acceptance` stage runs 46 scenarios in `files/dev-work/verification-gate/journeys/`, first in a full run, and takes over the mouse and keyboard for about six minutes. Each scenario is a real isolated instance of the application (the real `launcher.main()`) driven by real Windows input, with settings, logs and output under its own scratch, and its media read back by `helpers/media_oracle.py`, which imports nothing from the application. Run one with `verify.py --mode focused --journey <id>`. Speech in the Edge journeys is replayed at `edge_tts.Communicate` with real MP3 frames, so they say nothing about Microsoft's engine; `tts.kokoro-local` is one real local-engine sample. A locked or unavailable desktop reads BLOCKED, never a pass. The application under test runs at Low integrity (`adapters/windows/containment.py`), so its real file dialogs cannot write the owner's Windows history; if that cannot be shown, the stage is BLOCKED. `launcher.main()` holds its own Tk root in `launcher._ROOT`.
-- **The verification gate (Phase 2; the complete full gate PASSED on `47ba778`, evidence `2026-11-06_195318_full_c8fa`; NOT accepted until the owner says so, see the Handoff):** `files/dev-work/verification-gate/verify.py` is the one developer gate; `scripts/verify.py` is gone and nothing forwards to it. Run it with the project environment's interpreter from any directory: `.venv\Scripts\python.exe files/dev-work/verification-gate/verify.py --mode full --platform windows`, or `--mode focused --test <module or node id> [--feature <id>]`, `--mode changed --base origin/master`, `--mode qualification --scenario <name>`, `--status <run dir> [--require-current]`. Exit codes: 0 PASS for the requested scope, 1 FAIL, 2 BLOCKED, 3 NOT RUN or incomplete, 64 invalid invocation, 130 interrupted. Each run owns one new child of the ignored `outputs/` (`results.json`, `summary.md`, `start.json`, `logs/`, `reports/`, `collection/`); `read_run_status` checks its schema, identity, seal and every artifact, and legacy runs under `files/dev-work/act070-remediation` read as legacy, never as current. With `--require-current` a PASS must also match the current source and the environment it ran in, and still be where the gate wrote it; a documents-only difference exits 3 and carries forward only under plan §13.3. Exit 0 alone never passes: the JUnit report and the session's own record (`files/tests/gate_session_probe.py`, registered from `conftest.py`, inert outside a gate stage) must exist and agree, every skip must match `verification.json`, and ordinary and guarded collections must be disjoint and cover every test module. It sets Windows error mode `0x8003` on itself before any child, proves it in a real child, re-raises it at every test boundary, and owns each child in a kill-on-close Job Object, so launching it from an ordinary terminal is safe. `--mode full` is the routine gate only: it runs the journeys (Phase 3) and holds the reviewed inventory to account (Phase 4), while qualification, owner checks and planned gaps stay release-pending, so `release_ready` stays false. Guarded basetemps stay below `files/dev-work/p05b-stage4c`, and the ordinary suite's scratch stays in the system temp folder (`%TEMP%\act-gate\<4 hex>`): `Decisions.md`, the newest entries.
-- **Phase 0 findings (audit evidence, ignored: `files/dev-work/verification-gate/outputs/2026-11-04_233658_phase0_2b7d/`):** UI Automation sees a Tk window as unnamed panes, so the native Windows adapter is stdlib `ctypes` input (SendInput, SetWindowPos, WM_CLOSE, kill-on-close Job Objects) plus Pillow screenshots and a test-only in-process observation channel; no new dependency. The venv's `python.exe` is Windows' launcher stub (windows belong to the grandchild). Setting `shared.paths.SETTINGS_FILE` / `LOGS_DIR` / `RESOURCES_DIR` before importing `launcher` isolates an out-of-process instance.
-- **The M4B Converter's one-decode split route (Phase 7; 7A accepted, 7B implemented and qualified, ACT72-012 closed; NOT accepted until the owner says so):** `scripts/m4b/m4b_continuous.py` decodes an eligible split book once and cuts each chapter at absolute sample positions from the same `-ss`/`-t` strings the seeking route writes, then encodes it through `pcm_argv`/`run_argv_streaming`; the cover pass, measurement, drift guard and publication are unchanged and every output is byte-identical. Chosen at preflight and frozen in the plan (`qualify`): AAC-LC `fltp`, a LAME rate, mono/stereo, time base 1/rate, start 0, priming 0 or one frame, a packet scan proving the timestamps, a qualified FFmpeg build (fingerprint), and an estimated saving `P - 2.0 x D >= 600 s`. Record: `files/plans/ACT-v0.7.2-Phase7A-M4B-Converter-Baseline-and-Design.md` (section 13). Qualification: `verify.py --mode qualification --scenario m4b-scaling` (`files/dev-work/verification-gate/scaling/`), PASSED on HOME-PC at `90fcb3d` on 2026-11-10 (79 of 79 checks, 207 runs: a 6-hour 48-chapter book 2.16x faster, 1,000 chapters 2.88x, every output identical to the pinned reference); its first attempt failed on harness defects, not the route (record sections 13.5-13.6). Found there and fixed in Phase 8 (ACT72-062): the Converter revealed its output folder with `os.startfile` on the Tk thread when a run ended, so a slow Explorer froze the window. `Decisions.md` 2026-11-10 (Phase 7B, and Phase 7B qualified).
-- **The release candidate (Phase 8, 2026-11-10; NOT accepted until the owner says so, and Phase 9's independent Codex review comes first):** showing a folder never waits for Explorer (`shared/subprocess_utils.reveal_in_file_manager` returns a `RevealRequest` and asks on one background daemon thread; ACT72-062, the Converter's end-of-run freeze); a hyphenated word is joined across pages (`tts/pdf_extractor._join_words_split_across_pages`, ACT72-063; that phase's rule for page numbers deleted body text and was replaced in the Phase 9 remediation, next bullet; the limits left are ACT72-064, open); the Windows decoder's reader reports the format of the bytes it delivers (`m4b_winaudio._Reader`, ACT72-065); setup's FFmpeg wording is held to the code (ACT72-040); the version is 0.7.2 (ACT72-049). New journeys `setup.first-run-refuses-a-folder-too-deep`, `setup.first-run-choices-and-cancel` and `setup.clear-downloaded-data` run a disposable copy of the application (`adapters/windows/setup_launcher.py`; `app_launcher.py` with `app_root`). The qualification scenarios `optional-engines`, `edge-low-memory` (`--network online-edge`) and `fresh-windows` (`--network online-setup`) are runners under `files/dev-work/verification-gate/qualification/`; the gate hands the `--network` grant to the runner and a scenario that needs it is BLOCKED without it. `Decisions.md` 2026-11-10 (Phase 8); results in the Handoff. Results on the corrected candidate `f38cd61` (the gate only; the application is byte-identical to `75436ee`): full Windows gate PASS (14,849 executed, 14,784 passed, 65 policy skips, 56 of 56 journeys), and all four qualification scenarios PASS, `m4b-scaling` 79 of 79 after its memory and staging measurements were corrected without moving a budget; an earlier unfinished run and an earlier FAIL of that scenario on `75436ee` were faults of the measuring harness and are kept as records. Phase 8 waits for the ChatGPT/owner review; see `Handoff.md` and `Decisions.md` 2026-11-11 (Phase 8 remediation).
-- **The Phase 9 independent review and its remediation (2026-11-12; NOT accepted: a fresh independent Codex re-review comes first):** the review of the Phase 8 closeout failed five findings, all repaired. PDF text (`tts/pdf_extractor`, ACT72-070): a line is removed only as page furniture, on evidence from the page's geometry (`_edge_lines`: the top or bottom row, standing clear of the text, not set larger than it) together with another page (`_furniture`: folios that count page for page, a short head repeated at the same height); everything else is narrated, and the five limits left are each pinned by a `test_limit_*` test under ACT72-064, open. Converter publication (ACT72-071, ACT72-074): `shared/output_paths.publish_new` gives a new output its name only if nothing holds it (`DestinationOccupied` otherwise; `atomic_replace` is unchanged and is for intended replacements), and `m4b_execution.convert_segment` asks Cancel again after the final measurement and then asks the job once (`CommitGate`, the controller's `authorize_commit` and `commit_finished`) before the commit, so a Cancel either wins and nothing is published or loses to an output the job reports. The gate (ACT72-072): `verify.py` judges a scenario's verdict before any PASS is recorded (`judge_scenario`, `scenario_evidence_problems`, `verification.json` `pass_requires`), and `helpers/runstore.py` keeps its own validation of what was sealed. The staging check T5 (ACT72-073): `scaling/staging.py` reads every owned temporary exactly before each decrease this process makes (an audit hook) and holds that to Windows' report of every removal and rename under the output base (`ReadDirectoryChangesW`); what it cannot read fails; the budget is the approved sentence, the total with no allowance. Open beside them: ACT72-075 (the MP3 Tool's and the Maker's publication still look and then replace; recorded, not changed). Results on the candidate `3aa421a` (the remediation `7272eb9` plus one corrected line of `coverage.json`): full Windows gate PASS (15,007 executed, 14,942 passed, 65 policy skips, 56 of 56 journeys, coverage 262 of 262), and all four qualification scenarios PASS, `m4b-scaling` 79 of 79 over 207 runs with every staged total equal to the seeking route's to the byte or one byte under it. Recorded beside them: the gate on `7272eb9` failed on a dead test id in the inventory, and one gate run on `3aa421a` was blocked by a pop-up over a journey's window and counts for nothing. `bench_run.py` refuses a run folder too deep for its own `TEMP` (Windows spins in `CreateProcess` past about 259 characters). `Decisions.md` 2026-11-12 (Phase 9 remediation); status and next action in `Handoff.md`.
-- **Release readiness (2026-11-12; UNMERGED, PR left as a draft):** Codex's remote re-review findings R9-01 to R9-04
-  are repaired, and its focused closures passed them (`3f02d4c`, `11fa574`).
-  - **MP3 and staging publication (ACT72-075):** the MP3 Tool and the Maker/Editor staging publish each output through
-    `shared/output_paths.move_without_replacing`. On Windows, `mp3_plan._take_back` rolls back only a file it holds
-    (opened for deletion, deletion not shared) and renames that held file. Off Windows it moves nothing and names what
-    it left published.
-  - **PDF counting numbers (ACT72-070):** `tts/pdf_extractor._furniture` takes a counting run of bare numbers for page
-    numbers only when one of them stands apart from the text (`_EdgeLine.in_sentence`).
-  - **Ledger:** ACT72-070, -071 and -075 are closed. ACT72-073 is closure-ready. ACT72-064 (five limits and three layout
-    ambiguities) waits for the owner. ACT72-030 is deferred.
-  - **On `c4a9853`:** `m4b-scaling` and `edge-low-memory` PASS. The full Windows gate FAILED on three stale structural
-    tests (14,966 of 15,034 passed, 56/56 journeys).
-  - **On `5978e88`:** the tests-only correction passed a focused gate. A full gate on it needs the owner.
-  - Record: `files/dev-work/phase9-remote-review/ACT-v0.7.2-FINAL-PR-READINESS.md`; `Decisions.md` 2026-11-12
-    (release readiness).
-- **Deferred:** ACT72-030 (unreferenced helpers, a Suggestion) is deferred by the owner to a later maintenance release and stays open; the five cross-tool differences in `files/dev-work/feature-map/consistency-matrix.md` stay as they are (owner, 2026-11-09).
-
-## v0.7.1 Edge multi-file workers (2026-11-03) — identity 0.7.1, NOT merged/tagged/published
-
-- **Concurrency:** every Edge queue (Add Files TXT/PDF, Add Folder, mixed) runs whole files side by side, for every
-  Edge voice. `epub2tts_edge.read_book` / `generate_metadata` / `make_m4b` take `workdir=`; `runner.run_conversion_job`
-  passes its own `mkdtemp` and never changes the working directory (an AST test forbids `chdir`). PyMuPDF is used by
-  one thread at a time (`pdf_extractor._PYMUPDF_LOCK`); the NLTK sentence splitter is built once under a lock.
-- **Worker policy:** `tts/worker_limits.py` (stdlib only): `plan_for_sources(requested, backend, sources)` →
-  `WorkerPlan(requested, effective, reasons, notes)`; effective = min(request (1–100), queued files, engine ceiling
-  (Kokoro / Chatterbox Turbo / Qwen3 = 1), Edge service 32, logical processors, memory ceiling from measured free
-  memory and the largest queued files' estimated peaks). The log prints `Requested workers: N | Effective workers: M`
-  and `Worker limit: <reason>` when M < N. Used by the TTS panel and `batch_convert.py`.
-- **Run plumbing:** `EtaEstimator.set_parallelism` (default 1 for every other tool); `QueueWriter` emits whole lines per
-  thread tagged `[<file>]`; tqdm bars at `position=0`; direct Edge retries keep 3 attempts with jittered exponential
-  waits.
-- **Narration:** chapters carry `narrate_title`; an author-written heading is spoken whatever its text, consecutive
-  headings are joined, the `"blank"` placeholder is only a name. No word filtering exists.
-- **Publication (remediation, 2026-11-03):** `tts/publication.py` is the one way a finished narration reaches its name
-  (runner, panel direct, folder, standalone, and the local engines through the panel's private scratch): private staging
-  beside the destination, one atomic operation, `overwrite` enforced by that operation, nothing partial published, a failed
-  attempt removes only its own staging file, orphans of dead processes swept by exact name. **Overwrite** is off unless
-  ticked for a run (owner ruling), frozen in the snapshot. Cancel does not discard a narration past its last synthesis
-  checkpoint.
-- **Memory admission (remediation, 2026-11-03; supersedes the memory figures in the bullet above):** `plan_for_sources`
-  models each file from its real text and the run's frozen settings, within 5 s and 400 PDF pages. Effective memory limit
-  = each file's synthesis memory + the largest single assembly. `ASSEMBLY_GATE` admits each join by its real decoded size,
-  first come first served, so assemblies take turns while synthesis stays parallel. Unknown memory: 4 GiB assumed for the
-  plan, 2 GiB for the gate, and the log says so. Measured values, assumptions and what cannot be bounded are spelled
-  out in the module's docstring and the plan's §10.
-- **Memory safety (second remediation, 2026-11-04; supersedes "`ASSEMBLY_GATE` admits each join" above):** the plan is not what keeps memory safe. `read_book` holds at most `SYNTHESIS_HELD_PCM_BYTES` while
-  synthesising (long paragraphs write FLAC as they grow; a clip that long never comes into memory). `AssemblyGate.reserve` yields `True` (in memory) or `False` (on disk) after reading what is free, every time: nothing
-  enters memory for being first. `tts/disk_assembly.py` assembles on disk for a fixed `DISK_ASSEMBLY_BYTES`, to the same MP3 bytes: pydub's decode command, pydub's WAV file, `audio_tail` over a mapping, the
-  engine's `trim_silence_segment`, pydub's encode arguments. Under that much free for `ASSEMBLY_MEMORY_WAIT_SECONDS`: `AssemblyMemoryError`, that file fails, Retry Failed runs it. Sizing and conversion share
-  `pdf_extractor._join_pages`. Decision record: `Decisions.md` 2026-11-04.
-- **Low memory cannot hang a run (R2 remediation, 2026-11-04; supersedes "`AssemblyGate.reserve` ... reading what is free" above where they differ):** `tts/ffmpeg_watch.py` supervises every FFmpeg on the Edge routes: no reader threads to die of `MemoryError` and leave it blocked (pydub is pointed at it by replacing the `subprocess` name in its modules), stderr to a file, one watchdog that kills on a stall or Cancel. `worker_limits.assemble` is the one way to assemble: an allocation failure in memory gives back the reservation and assembles the same parts on disk, with no new request; at most two disk attempts, then a named `AssemblyMemoryError`. `memory_usable` is the tightest of physical, commit and Job Object limits; `AssemblyGate._claimed` counts only what is reserved and not yet allocated. Deadlines: FFmpeg without progress 300 s; a queue with too little even for disk 300 s, together; Cancel with speech to come at once; Cancel of finished narration to disk at once, 30 s for memory, 30 s without progress, 600 s in all, and then reported as not saved. Real regression: `files/tests/test_low_memory.py` with `low_memory_probe.py` (a Job Object limit, supervised from outside, with a negative control that restores the old hang). Decision record: `Decisions.md` 2026-11-04.
-- **Known limits:** a final heading with no text after it is not spoken (inherited; owner's call); a narration of about
-  24.85 hours or more cannot be encoded (pydub's WAV step; the plan warns, the final assembly fails with a reason).
-- Decision record: `Decisions.md` 2026-11-03. Live state, evidence and review brief: `Handoff.md` and
-  `files/plans/ACT-v0.7.1-Edge-Multi-File-Workers-Plan.md`.
-
-## v0.7.0 portability and reproducibility (2026-10-31) — identity 0.7.0, NOT merged/tagged/published
-
-- **Dependencies:** `scripts/requirements.txt` is the human-maintained list; `scripts/requirements-lock-windows-py312.txt`
-  is the generated, hash-pinned freeze of the whole app environment for Windows x86-64 CPython 3.12 (170 packages,
-  regenerate with `files/dev-tools/lock_base_requirements.py` after any change to `requirements.txt`; `verify.py`'s
-  deps gate enforces it). `shared/base_packages.py` holds the lock rules and the one pip policy; `bootstrap.
-  install_base_packages` is the only installer (setup, repair, drift reconcile, Kokoro/Chatterbox self-heal): locked
-  setuptools, then hash-checked download into `files/runtime-data/python-packages`, then `--no-index` install from that
-  store. pip is never upgraded. pip's cache, when used at all, is `files/runtime-data/pip-cache`.
-- **Sentence data:** `shared/nltk_store.py` — the Edge rich route's NLTK `punkt_tab` English files, pinned and verified
-  in `files/runtime-data/nltk_data` (the only folder NLTK reads); fetched by first-run setup or after consent at Create;
-  `ensure_punkt` never downloads.
-- **Endings:** `audio_tail.FinalTail.abrupt` flags a recording that stops while still sounding ("please listen").
-- **Stage 0:** hashes with .NET; the launcher clears `PSModulePath` for it (PowerShell 7 windows).
-- **Cleanup:** the post-exit coordinator may run on the app's own base Python (`shared/cleanup_state.py`,
-  `APP_BASE_PYTHON_PARTS`), the only interpreter a clean portable install has.
-- Decision record: `Decisions.md` 2026-10-31. Live state and evidence: `Handoff.md`.
-
-## v0.6.7 final implementation and Windows qualification (2026-10-20, HOME-PC) — unreleased, identity 0.6.6
-
-The feature branch `feature/0.6.7-speech-pipeline-and-layout` holds v0.6.7. It is NOT merged, tagged or released, and `version.py` still says 0.6.6 (the bump waits for an approved
-release candidate). State at this checkpoint:
-
-- **Voices.** 28 registered: Edge 5, Kokoro 9, Chatterbox 6, Qwen3 8 (Aiden, Ryan, six Base clones). The owner listened to all 28 published previews and approved their audio; the
-  clones narrate at temperature 0.70 / sub-talker 0.80 (`CLONE_GENERATION_REVISION = 1`) with 0.6 s of silence after the reference copy.
-- **Clone transcripts ship with the app (v0.7.0 P03C):** the six owner-approved texts are `scripts/tts/data/bundled_clone_transcripts.json` (bundle revision 1, each bound to
-  its recording's SHA-256; generated from the approved review file `48f5dbef…` by `files/dev-tools/clone_transcript_bundle.py`). Narration reads only that verified bundle,
-  never a local store or `ACT_QWEN3_TRANSCRIPTS`. Since P03D the maintainer workflow is "Developer tools → Reference transcripts...", present only with `[development] developer_mode = true` in `config.toml` (shipped `false`, TOML boolean only, restart to apply); in normal mode its backend steps refuse too, and in developer mode a local text reaches narration only for a clone deliberately selected, bound to voice id + recording and text hashes (`files/runtime-data/qwen3/transcript-selection.json`), failing closed if stale. The previews' Whisper drafts remain provisional.
-- **Reference recordings** are engine-specific since v0.8.0 (owner decision 2026-11-13): `files/Cloned-Voice-Uploads/<Chatterbox|OmniVoice|Qwen3>/<Engine> - <Female 1 .. Male 4>.wav`, 18 tracked, listed in `scripts/tts/data/clone_references.json`. Qwen3's six are the original v0.7.x recordings byte for byte (renamed from `Chatterbox - <Voice>.wav`, moved to this folder at v0.7.0 P03A; the old
-  `files/Chatterbox-Voice-Uploads/` keeps only the owner's ignored MP3 originals and is no longer read).
-- **Windows setup** starts with stage 0 (`scripts/shared/bootstrap_host.ps1`): find a working 3.11/3.12, or with consent install the verified python.org 3.12.10 per-user without winget.
-- **Environment layout (v0.7.0 P04A, adopted in P04C Stage 2):** new Qwen3 installs go to `.venv/engines/qwen3/`, an independent environment held inside `.venv`; an older `.venv-qwen3` is still used while it is the only engine. `shared/venv_layout.py` names what `.venv/engines/` holds, and the main venv's replacement, rollback and recovery (bootstrap) and the data-cleanup `.venv` item already keep it: moved home at the same absolute path, never deleted with an old copy, cleanup refused.
-- **Lock safety (v0.7.0 P04C Stage 1):** `shared/engine_lease.py` — a main repair or first-run setup takes the Qwen3 `setup` → `inference` → `engine` locks (all or none, never waiting) before touching a `.venv` that holds an engine, so it refuses, changing nothing, while a worker or conversion runs; the worker holds `engine.lock` itself and never runs from a set-aside copy. A partly deleted old environment goes to `.venv.discarded`, is reported, and is finished off next time.
-- **Canonical engine (v0.7.0 P04C Stage 2):** `qwen3_setup` creates the engine at its final path with the verified base CPython 3.12 (`-I -m venv`, never the app's own interpreter) and records the base's identity in `state.json` (`nested_environment`), which `environment_status` checks via `venv_layout.assess_child`; a damaged canonical engine is reported, never replaced by the legacy one. The repair lease is now taken even with no engine yet, and the installer holds `InstallLock` from its first check to its last record, so a first install and a repair can never overlap. The legacy `.venv-qwen3` is never installed into, rebuilt or deleted (its removal is the owner's call); worker/installer subprocesses drop inherited `PYTHON*`/`PIP_*`/activation variables and other environments' `PATH` folders. HOME-PC itself is not migrated.
-- **Cleanup + packaging (v0.7.0 P04C Stage 3):** Clear Downloaded Data removes `.venv` and the models only while the post-exit coordinator holds the Qwen3 engine lease (taken before it re-checks the item), so it cannot race a first install, conversion or worker; busy or uncheckable leaves the item untouched and says so, other items clear as before. The `.venv` item says it rebuilds only the app's own dependencies. Nested engines, repair asides (`.venv.replaced*`, `.venv.discarded*`, now gitignored) and preserved copies can never be packaged.
-- **Pre-adoption (v0.7.0 P04C Stage 5A):** the Qwen3 install dialog says which engine is in use and where a new one goes (`qwen3_install_ui.location_text`, from the path authority); the test-suite guard protects a real canonical engine per test by identity/launchers/top level and walks its whole tree once per session.
-- **P04C closing state (v0.7.0 P04C Stages 5B–5C):** HOME-PC itself now runs on the canonical `.venv/engines/qwen3` (built by the production installer, 89/89 locked packages, preset and clone narrations byte-identical to the accepted goldens); the legacy `.venv-qwen3` is kept unused as the rollback target until a separate retirement approval. MachineGuard stays out of repair/cleanup; AUD-010 pinning deferred; pip-less repair and Kokoro/Chatterbox cleanup concurrency → P07; standard-user/ACL/long-path/SAC/GPU cases → P10 / AUD-004. P04C closure and its full gate: `md-instructions/Handoff.md` and the ignored `checkpoints/P04C.md`.
-- **Optional-setup planning (v0.7.0 P05A):** `tts/optional_setup.py` plans the four optional voice choices (Kokoro, Chatterbox Turbo, Qwen3 CustomVoice, Qwen3 Cloned Voices / Base) without acquiring anything: structured readiness (ready, missing, damaged, unsupported, busy, bad-bundle, unverified), each acquisition counted once with its download/reuse/copy/disk/temp figures and their basis, base packages disclosed separately. `shared/optional_setup_protocol.py` is the standard-library contract and the versioned request/result bridge to `tts/optional_setup_worker.py`, which runs only in the app's own CPython 3.12 `.venv` and, until P05B, plans but never installs. Lazy Kokoro/Chatterbox downloads found and still to be contained: `Handoff.md` and the ignored `checkpoints/P05A.md`.
-- **Optional-setup safety (v0.7.0 P05B Stage 1):** consent is bound to the acquisition terms of the plan shown (protocol v2), units name exact sources (spaCy's model has none pending an owner ruling), the worker runs contained in a Job Object, results are atomic, and `tts/optional_setup_lifecycle.py` gives every request exactly one terminal outcome. Acquisition stays disabled until Stage 2.
-- **Optional-voice acquisition (v0.7.0 P05B Stage 2):** `tts/model_assets.py` pins every Kokoro, Chatterbox Turbo and spaCy English file (commit, size, SHA-256; the approved wheel); `tts/optional_setup_acquire.py` acquires only those, only under a spent consent (Qwen3 through its own installer); `tts/optional_setup_health.py` supplies bounded offline engine probes and lock-based busy facts. Kokoro and Chatterbox inference load only verified local files and refuse (`AssetsUnavailable`) rather than download. Bootstrap's first-run pre-downloads still use upstream `main` until P06 routes them through the worker.
-- **Release installer (v0.7.0, 2026-10-30):** first-run setup offers the four choices (Kokoro checked; Chatterbox Turbo, Qwen3 CustomVoice, Qwen3 Cloned Voices unchecked). **Begin Setup** builds the base only (`bootstrap.run_setup`: Python, `.venv`, packages, FFmpeg); then `shared/optional_setup_panel.py` shows the worker's full read-only plan and only **Install Selected Components** creates the consent (`shared/optional_setup_client.py` drives the contained worker; `RealAcquirer` is the production default). The acquirer charges every response to a byte budget fixed by the consent and lets the Qwen3 installer touch the engine only when the consent includes `qwen3-engine`. The engine's 89 packages are the reviewed manifest's exact wheels (`tts/qwen3_wheels.py`; sox from supply commit `b7e1b1ae`), fetched to `files/runtime-data/qwen3/cache/wheels/` and installed offline. The TTS panel's Create freezes the run, offers Install & Continue (`tts/voice_install.py`) when the voice's models are missing, and starts that same run once after the install is checked and the sources are unchanged. Layout: `.venv/` and `.venv/engines/qwen3/` only; every model, cache and runtime folder under `files/`. v0.7.0 ships Windows only (macOS held).
-- **Code layout after B2:** `scripts/{launcher.py, shared/, tts/, mp3/, m4b/{converter,maker,metadata}/, artwork/}`; each package has a README module map.
-- **Qualification evidence** (S5 runtime, the extracted-ZIP test) and what remains unproven are in `Handoff.md` (current-state block of 2026-10-20) and `Decisions.md`.
-- **Codex audit remediation (2026-10-21):** no-clobber release packaging, proved Kokoro health and constrained repair, a cross-installation Qwen3 guard
-  (`rt.MachineGuard`, a Windows named mutex), real Tk initialisation in every setup probe, reported clone-approval save failures, an absolute README gallery
-  link and developer-only scripts kept out of the ZIP. Still OPEN (owner/manual): AUD-004 clean Windows setup, AUD-005 reference-recording
-  redistribution authority, AUD-008 final release-candidate ZIP, AUD-009 network model acquisition. Details: Decisions 2026-10-21, Handoff.
-
-## Post-release v0.6.6 bundled-reference contract (2026-09-30)
-
-This is the explicitly maintainer-authorized later master cleanup, starting from live
-`d2be236832eb5d5e5ce0cde5ed82b08edfa740de`. The six curated MP3s currently present are the
-approved sources, superseding older reference hashes for this task. They remain byte-identical,
-read-only, ignored and untracked. Exactly six same-stem WAVs (Female-1, Female-2, Male-1,
-Male-2, Male-3, Male-4) are now canonical production references. Each is exactly the leading
-15 seconds, PCM s16le, mono, 24 kHz. Only trim/channel/rate/sample-format conversion was used;
-no normalization, denoising, pitch/speed changes or silence padding. No LFS/dependency was added.
-
-Voice IDs/labels, leading-window conditioning, read-only handling and source-hash derivative/
-conditional identity remain intact. Runtime derivatives/caches stay in ignored runtime-data.
-`release.py` uses a closed six-path WAV allowlist, requires tracked/present assets, refuses
-uncommitted packaged-asset changes, and never walks `files/`. Tests prove exact names/hashes,
-PCM metadata, tracked/package scope, byte identity and exclusion of MP3s/extras/runtime state.
-README states that six references are bundled and no manual recording placement is needed.
-
-**Publication distinction:** historical tag `v0.6.6` remains at
-`7222083a732bbb0f1ef91e104725fc9a5cd2d141`. Original publication/archive facts below remain
-history. Application/config identity stays **0.6.6**. The authorized local v0.6.6 ZIP rebuild
-uses the later committed/pushed cleanup master containing this record, not the historical tag.
-GitHub Release metadata/assets are not changed; the maintainer will manually replace the two
-ZIPs after reviewing the local proof. No tag movement, force-push or history rewrite.
-
-After focused checks and one full verifier, commit/push this cleanup on master, create/push
-`feature/0.6.7-bundled-chatterbox-references` at exactly that SHA with no unique commit, leave
-that branch checked out, rebuild/prove both local `dist/` v0.6.6 ZIPs through real `release.py`,
-then STOP. This reserves a future branch; it does not start v0.6.7 feature work or publication.
-The approved v0.6.7 manual backlog and waivers remain deferred, never newly passed.
-
-## What This Project Does
-
-The Audiobook Creation Tool is a cross-platform (Windows + macOS) desktop app that turns books
-and loose audio into finished, tagged audiobooks. It bundles a **text-to-speech engine**
-(**PDF / TXT → MP3** — Microsoft Edge TTS over the network, plus two local AI engines, Kokoro-82M
-and Chatterbox Turbo) with a suite of **MP3/M4B utilities** (combine MP3s, batch M4B→MP3, build chaptered M4B
-files with cover art and series tags, resize cover images, and edit existing M4B metadata). It is
-built for **non-technical users**: they download a zip, double-click one setup file, and get a
-single GUI window — no terminal, no manual Python or ffmpeg install, and no console windows
-flashing during use.
-
-## Tech Stack
-
-- **Language:** Python 3.12 (the bootstrap installs 3.12 specifically — PyPI `kokoro` wheels
-  require <3.13; 3.13+ works but loses the Kokoro voices)
-- **GUI:** tkinter/ttk (single launcher window, sidebar + swappable content panel). Three
-  explicit platform branches live in `shared/ui_theme.py`: macOS gets a Finder-style shell
-  on the native `aqua` theme; **Windows gets the v0.6.0 dark design system** (see *Windows
-  design system* below); Linux/other keeps the historical classic look. Windows is routed
-  explicitly on `sys.platform == "win32"` — never inferred from "not macOS".
-  **tkinter/ttk is the approved toolkit going forward**: the v0.6.0 Drop 1 prototype was
-  built, reviewed against screenshot evidence and approved on 2026-08-02, which settled the
-  open question of whether ttk could carry a modern dark UI without a toolkit switch.
-- **Key libraries:** edge-tts (network TTS), kokoro + torch (local AI TTS), chatterbox-tts
-  (the second local AI TTS engine, added in v0.6.1), mutagen (audio metadata), PyMuPDF/fitz (PDF
-  text extraction), pydub + soundfile + numpy/scipy (audio assembly), nltk (sentence
-  tokenization), pillow + pillow-heif (cover images, including HEIC/HEIF). All pinned to exact
-  versions in `scripts/requirements.txt`. **`ebooklib`, `beautifulsoup4` and `lxml` were removed
-  in v0.6.1** when EPUB was retired — each had its consumers enumerated and its
-  reverse-dependencies checked first, and the three pins are recorded verbatim in a
-  `requirements.txt` comment so restoration is mechanical. `setuptools` is deliberately held at
-  `80.9.0` (not the newer `82.0.1`) as recorded compatibility debt: `resemble-perth`, which
-  Chatterbox pulls in, imports the `pkg_resources` that `82.0.1` removed.
-- **External binaries:** ffmpeg + ffprobe — acquired by the bootstrap **in user scope**
-  (winget `Gyan.FFmpeg` with an explicit `--scope user`, never machine scope and never elevated;
-  Homebrew on macOS), or, when that route is unavailable or refused, a repo-local portable build
-  pinned by exact URL and SHA-256 and extracted into its own versioned subtree under
-  `files/bin/ffmpeg/<version>/bin`. Whichever wins is **proved by execution and pinned where it
-  lives** — never copied into `files/bin/` to centralise it.
-- **Platform:** cross-platform Windows + macOS from a **single code tree**
-  (`scripts/`); platform differences are `sys.platform` branches inside shared code.
-
-## Architecture
-
-- **Entry point (users):** `Setup_and_Run-audiobook-creation-tool.bat` (Windows) / `.command`
-  (macOS) at the repo root — the only files a user ever touches. Fast path: the launcher **asks
-  bootstrap whether the environment is healthy** (`--venv-check`, ~150 ms) rather than trusting that
-  a `.venv` folder exists — an environment whose Python no longer runs, that lost `ssl`, or that sits
-  on an unsupported version still has the file. Healthy launches via `pythonw.exe` (Windows — no
-  console) / detached (macOS); anything else hands control back for a **repair**, and the launcher
-  itself knows nothing about Python versions, `ssl` or Tk. First run hands off to the bootstrap.
-- **`scripts/shared/bootstrap.py`** — single cross-platform setup + launch brain
-  (stdlib + Tk only; runs before the venv exists). Locates/installs Python 3.12, creates the
-  repo-root `.venv`, pip-installs pinned requirements, ensures ffmpeg, then (v0.7.0) offers the four
-  optional voices through the consented review panel, **self-heals a missing/broken Kokoro install on every launch**
-  (probes kokoro/soundfile/scipy, repairs without blocking the GUI), redirects the HuggingFace
-  cache into the project tree, then launches the GUI detached with stdout/stderr captured to
-  `files/runtime-data/logs/launch_<date>.log`. `--launch-only` is the fast-path flag;
-  `--self-test` is detection-only.
-  **Import proof (v0.6.6 Phase 11, 2026-09-29):**
-  - Both real-import checks share `IMPORT_PROBE_TIMEOUT_S = 600`: setup's per-module
-    `validate_installed_packages` and the launch-time `prove_required_imports`.
-  - A cold first import in a new venv is legitimately slow (`nltk` 32 s cold vs 1 s warm). The old
-    30 s setup window failed a healthy first-run install.
-  - Its repair reinstall is constrained by `-c requirements.txt`, so it can never drift the pins.
-  - Proved by a real first-run install from the built Windows archive.
-- **`scripts/launcher.py`** — the unified Tk GUI. Sidebar of 6 tools; each tool
-  exposes `build_ui(parent_frame)`, is lazy-imported and guarded (a missing dependency renders
-  an in-panel error, never a crash), built once and shown/hidden on selection so in-progress
-  state survives switching. Installs `install_no_window_guard()` first so even pydub/edge-tts
-  *internal* ffmpeg spawns are console-hidden on Windows. All theming comes from
-  `shared/ui_theme.apply_theme()`, which returns one backwards-compatible bundle and picks
-  the shell from `theme["mode"]`: **aqua** — a Finder-style shell (native aqua controls,
-  tinted source-list sidebar with hover/selection rows and glyphs, toolbar strip, content
-  card), unchanged since v0.5.0 (see Decisions.md 2026-07-08); **windows** — the v0.6.0
-  dark shell (navigation rail, header strip naming the active tool and its description,
-  framed content card, status bar with a focusable "Open log folder" button); **classic**
-  (Linux/other) — the pre-v0.5.0 layout, byte-for-byte. **The content host is never
-  styled:** `self.content` and every tool container stay plain, unstyled `ttk.Frame`s in
-  all three modes, which is the structural reason an unconverted panel inherits nothing
-  from the shell.
-- **`scripts/shared/`** — `paths.py` (single source of truth for every project
-  path — everything derives from `REPO_ROOT`), `subprocess_utils.py` (hidden-console subprocess
-  wrapper + the global Popen no-window guard), `ffmpeg_utils.py` (**consumes only the proved,
-  pinned pair** recorded by `ffmpeg_health.py` — there is no `PATH` fallback and no bare
-  `"ffmpeg"`/`"ffprobe"` name; the command APIs raise `FFmpegUnavailable` when nothing is pinned, and
-  pydub is pointed at that absolute pair or at a non-executable sentinel; xHE-AAC decoder selection),
-  `config.py` (the typed effective-configuration core — see *Configuration* below),
-  `preferences_ui.py` (the Preferences & Data dialog and the once-per-launch configuration
-  warning — presentation only, see *Preferences & Data* below),
-  `output_paths.py` (output base, run reservation, sanitisation, collisions, containment and
-  mirroring — built in Phase 3, consumed by the tools from Phase 4; see *Output services*),
-  `settings.py` (atomic JSON at `files/runtime-data/settings.json`, plus reset/reload and
-  explicit write-failure reporting), `cancellation.py` (shared
-  Cancel/threading.Event pattern), `metadata.py` (mutagen M4B tag read/write incl. series
-  atoms + chapter-title re-mux), `logging_setup.py` (session logs, retention read from
-  `logging.max_sessions`),
-  `ui_theme.py` (platform theming — the aqua/Finder palette, the Windows design system and
-  the classic fallback, plus `style_tk_widget` for classic Tk widgets ttk cannot style, the
-  `enable_mousewheel` scroll-on-hover helper and the shared `ProgressIndicator` —
-  progressbar + counter/percentage label, main-thread-only API, used by all six tools),
-  `image_capabilities.py` (the one place HEIC/HEIF support is probed, with decode and encode
-  reported separately — see *Image capabilities* below), `espeak_data.py` (the macOS espeak-ng
-  short-data-path seam Kokoro needs — see *Known limitations*),
-  `version.py` (single source of truth),
-  `release.py` (dev-only zip packager, never imported by the app), `close_terminal.py`
-  (macOS Terminal auto-close helper).
-- **Configuration (v0.6.0 Drop 2 Phase 1).** A committed, commented **root `config.toml`**
-  holds the project's documented defaults; `shared/config.py` turns it into one *typed,
-  immutable* `EffectiveConfig` snapshot. **Precedence, last wins: code defaults → valid
-  values from `config.toml` → the allowlisted mutable settings overlay.** The overlay is
-  exactly one key today — `output_base_directory` in `settings.json` overriding
-  `output.base_directory` — and `config.SETTINGS_OVERLAY` is the whole of it, so no other
-  stored preference can reach the configuration however it is spelled. Existing user state
-  (`last_tool`, remembered dialog directories, voice, bitrate) stays a plain setting and
-  deliberately has **no** TOML counterpart.
-  **`[development] developer_mode` (v0.7.0 P03D)** is read from `config.toml` alone: a genuine TOML
-  boolean, default and shipped `false`, never a settings overlay or environment variable;
-  `verify.py` and the packager require the committed/archived file to say `false` explicitly.
-  **Every key is validated on its own**, so one bad value never discards a good neighbour, and
-  a missing or malformed file can never stop the application from starting: it falls back and
-  records a `Diagnostic` (source, key, human-readable fallback, plus technical `detail` kept
-  out of the summary). Unknown sections/keys are ignored and reported **once**, aggregated and
-  deduplicated by `warning_summary()`. A snapshot is frozen dataclasses + tuples +
-  `MappingProxyType`, so an operation that captures one at run start cannot have it shift
-  underneath; `get_effective()` caches, `reload()`/`invalidate()` rebuild deterministically.
-  Loading configuration **never creates a directory** — resolving the output base computes a
-  path and nothing more. The module is Tk-free, platform-neutral, takes injected paths for
-  testing, and **never imports `logging_setup`**: retention reads config, so the dependency
-  runs one way only. `logging_setup.configured_max_sessions()` imports config lazily inside
-  the function and falls back to 30 on *any* failure, because logging must always come up.
-  Schema: `project.{name,version,python_min,entry_point,platforms}`, `output.base_directory`,
-  `logging.max_sessions` (1–1000), `importing.large_result_warning_threshold` (validated now;
-  Plan 3 owns the behaviour that consumes it). An empty output base means
-  `~/Downloads/Audiobook-Creation-Tool-Outputs`; a non-empty one must be absolute or `~`-based
-  — a **relative path is rejected** rather than resolved against the working directory, and
-  environment variables are **never** expanded (`%USERPROFILE%`/`$HOME` stay literal, and are
-  therefore rejected as relative). The GUI writes `settings.json` only and **never** rewrites
-  the committed TOML. `settings.reset()` clears every mutable preference atomically and touches
-  nothing else — no `.venv`, model, binary, log, output or source file; clearing downloaded
-  data is a separate, differently confirmed action that does not exist yet.
-- **Output services (v0.6.0 Drop 2 Phases 3–4) — built in Phase 3, adopted by all six tools
-  in Phase 4.** `shared/output_paths.py` is the platform-neutral foundation. Every standard
-  output now lands in `<base>/<Tool>-Outputs/<Tool>-N/`, reserved **at validated operation
-  start** — not at `build_ui()` time. Opening the launcher, building a panel, importing,
-  browsing, switching tools or failing validation creates **no** directory at all. The legacy
-  `paths.next_output_dir()` and `paths.avoid_input_overwrite()` are now dormant compatibility
-  API called by nothing in the shipped tree, and a test asserts that.
-  **Per-tool destinations:** TTS `TTS-Audiobook-Outputs`, M4B Converter `M4B-Converter-Outputs`,
-  MP3 Tool `MP3-Tool-Outputs`, M4B Maker `M4B-Maker-Outputs`, Cover Image `Cover-Image-Outputs`,
-  M4B Metadata `M4B-Metadata-Outputs`. Each panel shows its tool folder read-only and names the
-  actual reserved run once an operation starts; the base is changed only in Preferences & Data,
-  so no per-tool browse control can bypass it. Every output-producing action reserves its own
-  run — the MP3 Tool's Write ID3 Tags and Combine each reserve **one** run for the whole
-  multi-Book batch (v0.6.3), as do the M4B Maker's Build and the Editor's Save Tags, Clear All
-  Tags and Remove Series Numbering (v0.6.4) — and staging (`build/`, the three multi-Book tools'
-  private `.work/`, WAV normalisation, ffmetadata) stays inside that run, so cleanup can never
-  reach another run, the tool parent or
-  the base.
-- **The two destination exceptions (v0.6.0 Drop 2 Phase 5).** Decision 10A allows exactly two
-  departures from "everything lands in the reserved run", both opt-in and both expressed in
-  `shared/output_paths.py` rather than inside a panel.
-  **Cover Image — `Save beside source images`.** Off on every fresh build, with
-  `Create numbered copies` preselected and `Replace original files` never the default; turning
-  the toggle off resets the action, so a Replace selection cannot survive as a hidden mode.
-  *Numbered copies* use `SourceSidePlanner`, which keeps one collision sequence **per source
-  directory** and starts at `stem-1.ext` — beside a source the unnumbered name *is* the source.
-  *Replacement* needs three independent gates: the toggle, the radio, and a per-run
-  confirmation ("Confirm replacement of original images") whose Cancel is the focused default,
-  where Escape and closing both cancel, and which is rebuilt every run so nothing can be
-  remembered or suppressed. Every source is validated **before** the dialog, so the count shown
-  is the count that can be processed; links, missing files, directories and formats the writer
-  cannot round-trip in place (anything outside `.jpg/.jpeg/.png/.heic/.heif`, which fall back
-  to `.jpg`) are refused there rather than mid-run. Each replacement writes a complete
-  `.act-tmp-…` sibling in the source's own directory — same filesystem, so the install can be
-  atomic — validates the finished image's size, then calls `os.replace`. **Never
-  delete-then-rename.** A failure or cancellation before that boundary leaves the original
-  byte-for-byte unchanged and removes only this operation's own temporary file;
-  `discard_temporary()` refuses any path lacking the temporary prefix. A partial batch reports
-  truthfully: files already installed stay installed.
-  **M4B Maker — `Choose custom destination`.** Off on every fresh build; the path and Browse
-  controls exist only while it is on, and `custom_destination()` is the single place the widget
-  is read, so a stale hidden path cannot steer a standard build. The chosen directory is
-  validated before anything starts (absolute, existing, a directory, not a link, writable —
-  proved with a temporary probe that is removed again, so no user file is created or touched)
-  and a validation failure reserves **no** run. The finished `.m4b` goes straight in, with the
-  usual sanitisation and collision numbering and **no nested `M4B-Maker-N`**. Staging moves to
-  an operation-owned `tempfile.mkdtemp()` so the user's folder is never littered, and — the
-  important one — cancellation no longer `rmtree`s `out_dir`, because in custom mode that is
-  the user's own folder; it removes only this operation's staging and its own partial output.
-  **Planning is pure; materialisation is explicit.** Every `plan_*` function, the sanitizer and
-  the collision service compute paths and touch nothing. Only `ensure_output_base()` and
-  `reserve_run_directory()` create anything, and only directories — never a file, never
-  anything source-side. Tk-free, subprocess-free, network-free, working-directory-independent.
-  **Layout** `<base>/<Tool>-Outputs/<Tool>-N/`. `TOOL_OUTPUT_PARENTS` derives the six parent
-  folders from the existing `paths.TOOL_SLUGS`, so a slug is never written down twice; an
-  unknown tool key raises `UnknownToolError` rather than becoming an unchecked path fragment.
-  **Reservation is atomic:** `mkdir()` without `exist_ok` either creates the run directory or
-  raises `FileExistsError`, so concurrent runs can never claim the same number — there is
-  deliberately no "does it exist?" check first, because that is the race. The search is bounded,
-  the result is a frozen `RunReservation` carrying the configuration snapshot the run was
-  planned against, and `release_if_empty()` removes a reserved directory **only** while it is
-  still empty.
-  **Sanitisation** (`sanitize_component`) reduces a path to its last element, strips control
-  characters, replaces the Windows-forbidden set, normalises Unicode to NFC, strips trailing
-  dots and spaces (Windows drops them on write, which would silently merge two names), defuses
-  reserved device names with or without an extension, and truncates the stem to 255 characters
-  while keeping the extension. Only the **final** suffix is treated as the extension —
-  `Book 1.5 - Extras.m4b` keeps its title, which matters far more often than `.tar.gz` does.
-  **Collisions** try the requested name first, then `stem-1.ext`, `stem-2.ext`. A
-  `DestinationPlanner` is created per run — never shared globally — and combines what exists on
-  disk with what the batch has already planned, so two proposed outputs cannot select one
-  destination before either file exists. Comparison is case-insensitive on every platform:
-  Windows and macOS are case-insensitive anyway, and erring toward an extra `-1` beats erring
-  toward an overwrite.
-  **Safety:** `assert_contained` normalises without requiring the path to exist, so an
-  unresolved child is checked rather than assumed safe; `assert_no_link_in` refuses a
-  destination established through a symlink or junction *even when the link points back inside
-  the root*, which containment alone cannot catch; `assert_not_input` and
-  `assert_outside_source_trees` keep outputs off the inputs and out of the source tree. Every
-  failure is a typed `OutputPathError` carrying a human-readable `message` and a separate
-  technical `detail`. **Nothing here deletes anything.**
-  **Planning:** `plan_flat` puts individually selected files straight into the run directory
-  without recreating parent trees (Decision 31A), numbering same-named files;
-  `plan_mirrored` reproduces each source's relative parent under one declared root;
-  `plan_multi_root` gives each root a collision-safe container (`Books`, `Books-1`) so one
-  root's tree can never merge into another's. A source outside its declared root is rejected
-  rather than silently flattened.
-- **Preferences & Data (v0.6.0 Drop 2 Phase 2).** `shared/preferences_ui.py` holds the
-  cross-platform dialog and the launch-warning window. It is **presentation only**: every
-  rule it enforces lives in `shared/config.py` and `shared/settings.py` and is tested
-  without Tk. The launcher reaches it from a status-bar `Preferences & Data…` button —
-  an `ACT.Ghost.TButton` on Windows, a native unstyled `ttk.Button` on macOS/Linux — plus
-  `Ctrl+,` / `Cmd+,` bound on every platform. The launcher holds the one live instance, so
-  repeated activation **focuses** rather than stacking duplicates; the window is non-modal
-  and Escape closes it. Styling goes through `_style(theme, name)`, which returns `""`
-  wherever `theme["styles"]` is absent — a widget naming no style resolves the platform's
-  generic one, which is the same mechanism that keeps the five unconverted panels native.
-  There is no platform-specific *logic* in the file.
-  The dialog shows the effective output base **and where it came from** (built-in default /
-  `config.toml` / your saved preference), offers default-or-custom with Browse, validates
-  through the Phase 1 rules (absolute or `~` only; relative rejected; environment variables
-  never expanded), and **never creates the folder** — saving stores a preference, nothing
-  more. A save persists atomically and reloads the snapshot immediately; a failed write is
-  rolled back in memory as well as on disk, so "the previous setting is still in use" is
-  literally true. No raw traceback ever reaches the GUI; the technical detail goes to the log.
-  **Reset Preferences** confirms first, clears mutable preferences only through
-  `settings.reset()`, refreshes the fields and source line, and reports failure instead of
-  claiming success. It never edits `config.toml` and never touches `.venv`, models, binaries,
-  logs, outputs or source media. **Clear Downloaded Data is a separate action** that opens the
-  inventory described below; it is never bundled into Reset and never shares its confirmation.
-  **Configuration warnings are presented once per launch**: `config.take_launch_warning()`
-  owns the guard (platform-neutral, so a reload storm cannot become a dialog storm and a test
-  can re-arm it with `reset_launch_warning_guard()`), and the launcher shows one non-modal
-  window carrying the whole aggregated summary — never one dialog per bad key, never a
-  blocking `messagebox`, and never a reason to fail startup.
-- **Downloaded-data maintenance (`shared/maintenance.py`, v0.6.0 Drop 2 Phases 6–7).** The
-  catalog, the rules, the schemas and the wording live here; **the GUI process still deletes
-  nothing.** The module is platform-neutral, Tk-free, imports neither `shutil` nor
-  `subprocess`, and calls no deletion or process primitive; tests assert that structurally.
-  Removal happens in a separate helper process after the app exits (see the entry below). The
-  catalog is a **closed set
-  of exactly four IDs** held as frozen dataclasses behind a `MappingProxyType`, so it cannot
-  grow at runtime: `virtual_environment` → `.venv` (removed whole, always post-exit),
-  `portable_binaries` → `files/bin`, `downloaded_models` → `files/runtime-data/models`, and
-  `application_logs` → `files/runtime-data/logs` (contents only; post-exit, since the session
-  log is open). System ffmpeg is never included, and settings, `config.toml`, outputs, source
-  media and repository source/docs/tests are absent by construction rather than by a filter.
-  **An ID becomes a path in exactly one place.** `authorized_target(asset_id, repo_root)` takes
-  an always-explicit root — there is no default, so a test cannot be handed the real project by
-  accident — and returns a path only after proving it is the exact compiled target, inside the
-  root, not the root, not equal to / inside / containing any protected location, and not reached
-  through a symlink, junction or reparse point at any level. Normalisation uses `abspath`, never
-  `resolve()`, so a link is *detected* instead of followed. **No arbitrary path can ever reach a
-  delete:** the request and result schemas (version 1, immutable, validated in `__post_init__`,
-  strict allowlist on deserialize) carry enumerated asset IDs only and have no `path`, `target`,
-  `directory`, `root`, `command` or executable field at all. Size estimation is read-only
-  (`scandir`/`lstat`), never follows a directory link, tolerates files vanishing mid-walk, and
-  reports an unreadable subtree as an *incomplete* estimate — `1.2 MB (at least)`, and *"plus
-  data whose size could not be read safely"* in the confirmation — rather than a false exact
-  total. The dialog opens with **every box unchecked**, disables missing and unsafe rows, keeps
-  `Review Selected Data…` disabled until something eligible is deliberately ticked, persists no
-  selection, and measures sizes on a worker thread with every Tk update returned to the main
-  thread. The confirmation is one custom window (never a Yes/No box) rebuilt from the live
-  selection each time, with Cancel as the focused default and no suppression path. Accepting
-  builds one immutable request and hands it to an injected callback and nothing else.
-- **Post-exit cleanup (`shared/cleanup_state.py` + `shared/cleanup_worker.py`, v0.6.0 Drop 2
-  Phase 7).** The accepted request is saved atomically into one project-owned maintenance
-  folder — `files/runtime-data/maintenance/`, not configurable, unreachable from a request, and
-  validated on every use to be inside the repository and outside all four removable targets —
-  and a **separate helper process** is started with an argument vector (`shell=False`,
-  detached, no console) under a Python interpreter *verified* to be outside any virtual
-  environment, because the first thing it may remove is the one the app is running from. The
-  helper is standard-library only, derives its repository root from its own file location
-  rather than from anything the request carries, and is the **only** code in the project that
-  deletes a catalog asset. **The app closes only after the helper positively acknowledges the
-  request** — started, loaded, validated, ready to wait — and never merely because a process
-  was spawned; every other outcome withdraws the request, leaves both windows open and reports
-  *"Cleanup did not start. No data was changed…"*. The helper waits for the requesting process
-  to exit (bound to that exact process on Windows, so a recycled process id cannot end the wait
-  early), retires the request **before** the first deletion so a crash can never replay it,
-  makes exactly one attempt, and never retries or relaunches. Every target is **re-derived from
-  its ID and re-checked** — containment, protected paths, links, type — immediately before it
-  is touched, because the inventory the user saw is not permission: a folder swapped for a
-  junction in the meantime is refused, not followed, and a link found inside a target is
-  detached rather than descended into. `.venv` goes entirely; the other three keep their folder
-  and lose their contents; a missing target is a successful no-op; a locked file fails that one
-  item and the pass continues. One immutable result is written atomically and the **next launch
-  reports it once** — per item removed / already gone / failed / left alone for safety, the
-  space freed, and recovery advice whenever anything was not removed. It never claims complete
-  success if something failed, and a corrupt record is moved aside and never executed.
-  `bootstrap.py` and both root launchers are unchanged: a removed `.venv` already falls through
-  their fast path into the ordinary setup that rebuilds it.
-- **Windows design system (v0.6.0 Drop 1 — approved 2026-08-02).** A centralized set of
-  *semantic* tokens in `shared/ui_theme.py`, consumed only through the theme bundle:
-  `_WINDOWS_COLORS` (surfaces window/sidebar/surface/elevated/muted/border/divider, text
-  primary/secondary/disabled/inverse, accent + hover/pressed/soft, focus, success/warning/
-  danger, field/selection/scrollbar roles, and the Shared Metadata background/border/header),
-  `_WINDOWS_METRICS` (sidebar width, row height, spacing scale, card/field/button padding,
-  border and focus widths, scroll width, progress thickness), and `_windows_fonts` (title,
-  heading, subheading, section, body, row, small, status, button, mono). **A panel must never
-  re-declare a hex literal or a magic number** — it reads `theme["colors"]`,
-  `theme["metrics"]`, `theme["fonts"]`, or names a style from `theme["styles"]`. Classic Tk
-  widgets (`Canvas`, `Listbox`, `Text`) are coloured through the one sanctioned helper,
-  `ui_theme.style_tk_widget(widget, theme, role)`, which is a no-op on any non-Windows
-  bundle so panels may call it unconditionally. These primitives are the extension point
-  later plans build on.
-- **The `ACT.*` style-isolation contract — the load-bearing rule.** `vista` stays the base
-  ttk theme, and every style this project registers is namespaced `ACT.*`
-  (`ui_theme.WINDOWS_STYLE_PREFIX`). Generic `TFrame` / `TLabel` / `TButton` / `TEntry` /
-  `Treeview` / … are **never** created, reconfigured or re-laid-out, and there is no
-  `option_add` / `tk_setPalette` anywhere in `scripts/`. Because `vista` draws buttons,
-  entries, comboboxes, scrollbars, notebook tabs and Treeview headings with native parts
-  that ignore `-background`, each recolorable element is *cloned* out of `clam` into the
-  live theme (`ttk::style element create ACT.Button.border from clam Button.border`) and the
-  `ACT.*` styles are laid out from those clones. ttk has no style inheritance — a widget
-  naming no style resolves the generic one — so an unconverted panel keeps native vista
-  rendering while a converted panel opts in explicitly. Every `ACT.*` widget-class variant
-  needs its own entry in `_ACT_LAYOUTS` or it silently falls back to the native look.
-  `files/tests/test_ui_theme.py`, `test_launcher_smoke.py`, `test_m4b_metadata_editor_ui.py`
-  and `test_prototype_regression.py` all assert this isolation, the last of them across a
-  whole application build.
-- **Allocation supersession (2026-09-26).** The conversion-boundary paragraph below retains
-  its historical scope description, but its "final parity drop (v0.6.5)" label is superseded
-  by the 2026-09-18 maintainer ruling: final parity belongs to **Plan 9 — DISPLACED — FUTURE
-  ALLOCATION UNASSIGNED**, not the completed v0.6.5 TTS Quality Refinement plan. No broader
-  visual conversion or release is authorized by the TTS closeout.
-- **Allocation supersession (2026-09-27).** The bullet above is itself superseded on final-parity
-  ownership: Plan 9 is **no longer DISPLACED**. Pull request #12 merged
-  `feature/0.6.5-tts-quality-refactor` into `master` at
-  `f7fb762e63bc7d46d099ddc8cead2dc68fb188e0`, confirming v0.6.5 TTS Quality Refinement complete
-  and integrated, and the maintainer reassigned Plan 9 to **v0.6.6**
-  (`md-instructions/0.6.6-ui-parity-hardening-release.md`,
-  `feature/0.6.6-ui-parity-hardening-release`), the final v0.6.x implementation plan. Final visual
-  parity, hardening, packaging and release now belong to v0.6.6, not an unassigned future plan.
-  Every other "Plan 9" reference throughout this file is unaffected by this note — Plan 9 still
-  owns all of it; only its version binding changes, from DISPLACED to v0.6.6.
-- **Historical conversion boundary (superseded by v0.6.6).** The **Windows launcher shell**, the
-  **M4B Metadata Editor** (rebuilt on the same boundary at v0.6.4 Phase 10), the **MP3 Tool**
-  (v0.6.3 focused MP3 redesign, by that plan's explicit supersession) and — since v0.6.4 Phase 6,
-  by that plan's explicit scope — the **M4B Maker** are the converted surfaces: on Windows they
-  draw only `ACT.*` styles, on macOS the same lookups return `""` and native aqua draws them.
-  TTS Audiobook, M4B Converter and Cover Image Resizer stayed classic through the integrated
-  v0.6.5 baseline. Approval of the prototype did not add them to its scope.
-- **Current conversion boundary (v0.6.6 Phase 13, 2026-09-29).** All six interiors now use
-  `shared.appearance`, one remembered Light/Dark preference and shared Activity/importer behavior.
-  Cover, TTS and Converter have Family-A workflow sections with Activity on the right; MP3 Tool,
-  Maker and Metadata have Family-B sections with bottom Activity and preserved multi-Book editing.
-  The Windows shell retains `ACT.*`; every tool interior uses `Compact.*`. macOS uses
-  `CompactAqua.*`, inheriting native control layouts and metrics, with semantic surface/label
-  colors and a tinted Shared border. The app preference sets each owned Aqua window's native
-  appearance; native file/folder dialogs remain OS-owned. This is covered by host-independent
-  command/style-inheritance tests, **not a native Mac visual PASS**. Successful Reset Preferences
-  refreshes the live bundle and toggle to the default Light; a failed appearance save keeps the
-  UI consistent with storage. No panel or active job is rebuilt by either refresh.
-- **Outlined semantic button roles (v0.8.1 Checkpoint B, Windows).** `shared/appearance.py` defines four outlined
-  `Compact.*` button styles (`Red`, `Green`, `Yellow`, `Blue`) beside the plain button, and `BUTTON_ACTION_ROLES` maps a
-  stable action key (`cancel`, `run`, `pause`, `book_add` ...) to a role. Shared and panel code names the action
-  (`job_ui.action_style(theme, "cancel")`) and never a colour; a role colours text and border only and keeps a neutral
-  background in every state (the old red hover/pressed fill is gone). The owner's 146-control matrix is pinned live by
-  `files/tests/button_role_inventory.py` and the per-surface audits; `ACT.SHARED.BUTTON-ROLES` is the feature id. The
-  shell navigation stays normal; on macOS the four role styles draw a same-size outline image (Checkpoint E) and the neutral button stays native.
-- **Import convention:** `scripts/` is the single import root (v0.6.7 checkpoint B1 lifted `launcher.py`, `shared/`, `tts/` and
-  `mp3_tools/` out of the former `scripts/Universal/`; checkpoint B2 then split `mp3_tools/` by tool into `mp3/`, `m4b/` (with
-  `converter/`, `maker/`, `metadata/`) and `artwork/`, with no class or behaviour change). Cross-module imports
-  are absolute (`tts.*`, `mp3.*`, `m4b.*`, `artwork.*`, `shared.*`); entry scripts prepend the import root to
-  Source-text structure (decode, `Title:`/`Author:`/`#`) is read by Kokoro, Chatterbox and Qwen3 through `tts/speech/document.py` (v0.6.7 A1);
-  per-engine differences are `StructureOptions`.
-  Speech preparation (v0.6.7 A2-A5, `tts/speech/`): one shared, deterministic English normalizer runs on the decoded text before every route's structure
-  stage; per-engine cells in `tts/speech/data/modes.json` come from the owner's G1 verdicts (four native exceptions); `[tts] speech_prep` (default `v1`, `off`
-  restores the old text); a run freezes its snapshot by value, Retry Failed re-uses it.
-  Chatterbox colon compatibility (structural-colon `punc_norm` patch, 75 ms prose-colon pause) was evaluated at A6 and retained with evidence (Decisions
-  2026-10-20); it is re-evaluated at S5 or on a Chatterbox wheel change.
-  `sys.path` so they work standalone or via the launcher. The `epub2tts_edge/` subpackage is
-  only ever imported as `tts.epub2tts_edge`.
-- **Data flow (TTS):** GUI → `tts/epub2tts_edge/runner.run_conversion_job` (cwd-safe; its working
-  folder is an owned entry of `tts/work_area.py` since v0.7.2) → Edge TTS, or `tts/pdf_extractor.pdf_to_txt` → `tts/kokoro_synth.kokoro_file_to_mp3`
-  for the Kokoro path. Batch PDF folders go through `tts/batch_convert.py` (threaded, resume,
-  retry). Long operations run on worker threads with a Cancel button and a per-tool progress
-  indicator (determinate with a percentage where the total is known; indeterminate otherwise;
-  the four job-control adopters use the shared `JobStatusView` progress/ETA instead);
-  **workers never read Tk variables** (hoisted to
-  the main thread — see Decisions.md / memory), and progress flows the same way: the worker enqueues
-  `("progress", (done, total))` on its existing queue and only the main-thread drain touches
-  the widget.
-- **Outputs are copy-based everywhere:** since v0.6.0 Drop 2 Phase 4 every transforming tool
-  writes into a run directory reserved at validated operation start under
-  `<output base>/<Tool>-Outputs/<Tool>-N/`; imported originals are only ever read. Phase 5 then
-  added the **only two** destination exceptions, both opt-in and both described below: Cover
-  Image's source-side modes (numbered copies by default, replacement off by default and behind
-  a strong confirmation) and M4B Maker's custom destination. Everything else is copy-based, and
-  no normal operation silently overwrites an input or an existing output.
-- **A tool panel displays the destination; it never decides it.** The read-only "Output folder"
-  line is a hint from `output_paths.destination_hint()`, and the run resolves the base again at
-  operation start, so a preference changed mid-session can never move an operation already
-  under way. Since the Phase 8 remediation the reverse is also true: `output_paths` keeps a
-  small registry of those displays, and a successful Preferences **Save** or **Reset** re-points
-  every already-built panel immediately, so the application never shows a destination it would
-  not actually use. Panels are not rebuilt to achieve that, and none of them resolves a path
-  itself.
-
-- **Downloaded-data maintenance (v0.6.0 Drop 2 Phases 6–7).** *Preferences & Data → Clear
-  Downloaded Data* inventories exactly **four** enumerated assets — the virtual environment,
-  portable binaries, downloaded voice models and application logs — and nothing else can be
-  named. The catalog is a frozen mapping of closed IDs; a request carries IDs only, never a
-  path, so no serialized or GUI-supplied path can reach a deletion. Nothing is selected by
-  default, a missing or unsafe row cannot be selected, and reviewing is always non-destructive.
-- **Cleanup happens after the application has exited, in a separate non-venv process.** The
-  confirmed request is written atomically to `files/runtime-data/maintenance/` — a
-  project-owned location, re-validated on every use to be inside the repository and outside all
-  four removable targets. A standard-library-only coordinator is started with an argument
-  vector and `shell=False` under an interpreter *verified* to sit outside any virtual
-  environment; the GUI closes only once that coordinator has positively acknowledged the
-  request, waits for the requesting process to exit by handle (not by PID), retires the request
-  before the first deletion so a crash cannot replay it, and re-authorizes every target
-  immediately before removing it. Deletion is post-order and link-safe: links are detached,
-  never followed. The result is written atomically and reported **once** on the next launch,
-  then retired. `.venv` removal is expected to be followed by an ordinary launcher rebuild.
-- **Release packaging (v0.6.0 Drop 2 Phase 8).** Both platform archives carry the committed root
-  `config.toml` byte-for-byte beside `README.md`, the correct platform launcher (stored `0o755`
-  so a macOS extraction is immediately runnable) and the committed `scripts/` tree. The later post-release cleanup also bundles
-  exactly six allowlisted Chatterbox WAVs; all other `files/` content stays excluded. Packaging works by **explicit scope**: the root files are a named list and exactly one
-  tree is walked, so nothing is ever copied wholesale and then pruned. That is why the
-  maintainer's unrelated untracked root `config-template.toml` needs no exclusion rule and has
-  none; the packager never names it, the runtime never loads it, and automated tests prove both
-  even while it sits directly beside `config.toml`.
-  **Supersession — 2026-09-29 (v0.6.6 Phase 11):**
-  - **Committed files only.** Inside `scripts/` only git-tracked files ship; a real build had
-    packaged the local-only `scripts/project-status.py`.
-  - **Always dropped:** `.DS_Store`, `Thumbs.db`, `__pycache__` and compiled files, even if tracked.
-  - **Clean build only.** `release.py` refuses to build while a packaged path has uncommitted
-    changes, and outside a git checkout.
-  - **Launchers proved from the packaged bytes:** `.bat` CRLF; `.command` LF, `#!/bin/bash`,
-    `bash -n` clean, `0o755` in the zip and `100755` in git.
-
-- **Shared importing and job-control foundation (v0.6.0 Drop 3).** Four modules under
-  `scripts/shared/`, built with **no production consumer at the time**. They exist so the
-  tool plans that follow can adopt one importer and one set of run controls instead of six
-  divergent ones; adoption belongs to Plans 4–8 and is now under way — **TTS Audiobook and Cover
-  Image Converter adopted them in v0.6.1 (Plan 4) and the M4B Converter in v0.6.2 (Plan 5)** — while
-  the remaining three panels still use their own importing and run handling.
-
-  - **`importing.py`** — the immutable vocabulary plus the traversal core and the list owner.
-    An adopting tool supplies its own `SupportedTypeCatalog`; there is no universal media list
-    here. `ImportOptions` freezes the selected types, `include_hidden_folders` and
-    `allow_duplicate_files` per import. Traversal is **read-only and non-following**: its
-    entire filesystem budget is `os.scandir` and `lstat`, so it can neither write nor walk
-    through a symlink, a Windows junction or any other reparse point, all of which are refused
-    and reported rather than followed — link classification reuses the already-validated
-    `maintenance.is_link` rather than growing a second one, because a junction reports
-    `is_symlink() == False` and a naive check would fail open on exactly the case that matters.
-    Within each root, compatible direct files are emitted before child directories and both are
-    ordered by a Unicode-aware natural key, so `1, 2, 10` comes out in that order; root order is
-    never globally re-sorted. Hidden directories are skipped and reported unless the option is
-    on; a hidden file the user chose explicitly is still accepted. `ImportedFileManager` owns an
-    ordered list with a revision that moves only on a real change, mints a stable
-    **occurrence ID** per entry, restores selection by that ID rather than by index or path,
-    moves a multi-selected block as one unit without wrapping, and commits a planned transaction
-    **atomically** — a cancelled, declined, failed or conflicting import changes nothing at all.
-    Deduplication prefers non-following file identity and falls back to a normalized lexical
-    path; a deliberate duplicate gets a new occurrence but keeps its true source identity, so it
-    is never disguised as a different file. Removing or clearing the list never deletes a source.
-  - **`import_coordination.py`** — one background scan at a time, owned end to end.
-    `ImportCoordinator` fences every manager-touching entry point to the owning (main) thread,
-    raises the **broad-root warning before any worker exists** — a volume root, a UNC share root
-    or the exact home directory, refused outright if no confirmer was wired — publishes typed
-    events on a queue, and applies Plan 2's captured
-    `importing.large_result_warning_threshold` **after** a completed scan, where equal to the
-    threshold does not warn and there is no hard maximum. `ImportCancellation` is a per-operation
-    event with **no connection whatsoever** to a processing job's cancellation: Cancel Import
-    stops a scan and can never reach a conversion. `ImportPoller` is a Tk-free polling seam
-    shaped exactly like `after`/`after_cancel`.
-  - **`job_control.py`** — the cooperative run model and its reporting. `JobController` enforces
-    one transition table with a condition rather than a spin, and it is **truthful**: a pause
-    request stays `PAUSE_REQUESTED` while an indivisible stage runs and becomes `PAUSED` only on
-    the worker's acknowledgement, cancel wakes a paused worker and reaches `CANCELLED` only after
-    that worker has stopped starting work and cleaned up, and a run ends exactly once. No Python
-    thread and no OS process is ever suspended. `capture_run` deep-freezes one configuration per
-    run, `ControlKind`/`LOCK_MATRIX`/`is_locked` and `JobAction`/`is_available` derive control
-    state UI-neutrally, `RunResult` settles ordered item outcomes without letting an item failure
-    force a fatal job failure, and `RetryRequest` rebuilds Retry Failed **against the exact
-    original frozen snapshot** — never against current widgets, settings or list contents. The
-    reporting layer on top produces typed immutable events with an injected clock;
-    `JobEventStream` rejects stale-run, unknown-occurrence, post-terminal and duplicate-terminal
-    events and a rejected event is **inert** — not rendered, not counted, not logged. Summary
-    shows milestones and **structurally cannot** show a diagnostic, because the projection that
-    builds it never reads the field commands and tracebacks live in; Details keeps every one of
-    them. `LoggerBridge` feeds technical events to the **one existing** session logger and
-    creates no second log or retention policy. Progress is monotonic within a scope and an
-    ending never changes a counter, so a cancelled run keeps the count it really reached.
-    `EtaEstimator` uses only comparable completed samples from the current run — three minimum,
-    a rolling twenty, paused time excluded — and says `Calculating…` for every unreliable case
-    rather than guessing.
-  - **`job_ui.py`** — the only module in the drop that imports Tk, and the reason the other
-    three provably do not. It is compositional: each class *owns* a `frame` rather than *being*
-    one, every decision arrives as a callback, and there is no universal base panel for a later
-    tool to fight. `MainThreadPump` owns the single `after` chain (the import poller rides its
-    `schedule`/`cancel` seam rather than opening a second one), `MainThreadGuard` opens every
-    public Tk-reaching method so a worker is refused **before** a widget is touched, and workers
-    communicate only by putting immutable values on a queue. Teardown is idempotent, cancels its
-    own callback, makes later events inert and survives a destroyed root. It **reuses the
-    existing `ui_theme.ProgressIndicator`** unstyled, asks the theme bundle for `ACT.*` names on
-    Windows, and asks for **no style at all** on macOS aqua and the classic branch — which is
-    how the native appearance is preserved without this module ever testing the platform itself.
-    A snapshot proves it leaks into no generic ttk style.
-
-  A developer-only harness, `files/tests/manual_plan3_harness.py`, drives these adapters against
-  a generated disposable fixture root for manual validation. It has **no launcher entry, is not
-  collected by pytest, is imported by nothing under `scripts/`, and is excluded from both
-  release archives** by the packager's explicit `scripts/` scope; its "work" is a timed no-op
-  that runs no process and produces no output.
-
-
-### Image capabilities (v0.6.1 Plan 4)
-
-`shared/image_capabilities.py` replaced the bare optional `import pillow_heif` that used to sit at
-the top of `cover_resizer.py`. It imports and registers the plugin exactly once, under a lock, and
-**reports decode and encode independently** — a `libheif` build can genuinely read HEIC and be
-unable to write it. Encode capability is proved by *actually encoding* a 1×1 image to memory,
-because `register_heif_opener()` installs a saver whether or not an encoder exists behind it. The
-probe never raises; every failure becomes a capability carrying a truthful reason, and the import
-dialog's filter follows the probe rather than a hard-coded string.
-
-**HEIC preserves the input format.** `resize_for_audiobook` refuses a `.heic`/`.heif` destination
-it cannot honour, with `UnsupportedImageFormat`, rather than silently writing a `.jpg`. The
-pre-existing `.jpg` fallback for genuinely *unknown* extensions such as `.webp` is unchanged, and
-`REPLACEABLE_SUFFIXES` / `written_suffix()` are byte-for-byte unchanged. `pillow-heif==1.5.0` is
-pinned but deliberately **not** in `bootstrap.REQUIRED_IMPORTS`: that list is what a machine must
-have, and optional HEIC support is not a startup requirement.
-
-### The third TTS engine — Chatterbox (v0.6.1 Plan 4)
-
-`tts/chatterbox_synth.py` mirrors `kokoro_synth.py`: the same module-load `HF_HOME` fallback into
-the **existing** in-tree model cache (there is no second cache), lazy imports so nothing heavy
-loads at import time, a single-first-load allowance for Windows Application Control, and an
-identical worker signature. It drives `chatterbox.tts_turbo.ChatterboxTurboTTS` from the pinned
-`chatterbox-tts==0.1.7` wheel.
-
-- **Device selection resolves `cuda → mps → cpu` behind one testable seam.** The engine was
-  adopted CPU-first on measured evidence and is **optional and non-default**.
-- **Six fixed voices** conditioned on the six bundled leading-15-second WAV references. Reference audio
-  is verified by SHA-256 **on every use**; short derivatives and cached voice-identity
-  conditionals live under the ignored `files/runtime-data/chatterbox/`, keyed on voice + source
-  hash + engine release + clip spec so a stale entry misses rather than gets reused. A manifest
-  records label → source → source SHA-256 → derivative → parameters, and writes back into the
-  recordings folder are refused structurally.
-- **Text is planned on natural boundaries** — paragraph → sentence → clause → whitespace → hard
-  limit, packed to a 300-character ceiling — and **no structural newline reaches the model**,
-  because the model renders one as a pause of no fixed length. A plan that does not reproduce its
-  source text is refused outright.
-- **Degraded installs are truthful.** Without the package, the application starts and offers the
-  twelve Edge/Kokoro voices. Without the recordings, it starts, converts, and reports the
-  Chatterbox voices as *setup required* — missing recordings are deliberately not a startup
-  requirement, and no broken selection is offered.
-- The upstream PerTh watermark path is untouched.
-
-**Bundled references (post-release v0.6.6 cleanup):** six WAVs ship with the app and
-require no manual recording placement. Curated MP3 originals remain local-only and ignored;
-derivatives/conditionals remain ignored under runtime-data. Missing or altered bundled WAVs
-still report truthful setup-required status without voice substitution.
-
-### The fourth TTS engine — Qwen3-TTS (v0.6.7 CP6)
-
-Eight optional local voices (`Qwen3 - Aiden`/`Ryan`: CustomVoice presets; `Qwen3 - Female 1/2`, `Male 1-4`: voice clones from the
-six bundled reference recordings), registered with `backend="qwen3"` after the Chatterbox rows (registry now 28 rows; every earlier
-row, the order and the default voice are unchanged). A Qwen3 clone shares only the *recording* with its Chatterbox namesake. Owner
-rulings and the build decisions are in `Decisions.md` (2026-10-19, two entries); the design record is
-`files/plans/ACT-v0.6.7-Plan-01-CP6-Qwen3-Integration-Addendum.md`.
-
-- **Isolation.** `qwen-tts` hard-pins `transformers==4.57.3`, the app pins 5.2.0, so the engine lives in a second environment,
-  `.venv-qwen3/` (CPython 3.12, 89 hash-pinned packages in `scripts/qwen3-requirements.txt`, torch/torchaudio from the cu128 index; gitignored,
-  never packaged). The app process never imports torch or Qwen; each source file runs in its own `tts/qwen3_worker.py` subprocess
-  (JSON-lines `@@EVENT` protocol). Root `.venv`, `scripts/requirements.txt` and Chatterbox are untouched.
-- **Modules** (all under `scripts/tts/`): `qwen3_runtime.py` (paths, status, manifest, transcripts, locks, hardware — stdlib
-  only), `qwen3_synth.py` (text prep, 600-character sentence planner, worker supervision, assembly, one atomic MP3 encode; entry
-  `qwen3_file_to_mp3`), `qwen3_worker.py` (venv side), `qwen3_process.py` (Windows Job Object spawn/kill), `qwen3_setup.py`
-  (install/verify/repair), `qwen3_install_ui.py` (the dialog), `qwen3_models.json` (pinned model manifest).
-- **Voice previews (documentation, not shipped).** `files/voice-previews/` holds the ten-second sample of each voice, one per registered voice, with a
-  per-voice record (`previews.json`) and README; `files/dev-tools/voice_previews.py` makes them through each voice's own engine. Since 2026-10-20 the owner has authorized
-  publishing previews for all 28 voices (a publication decision, not a verified third-party license finding; the previews folder publishes neither transcripts nor reference recordings).
-  All 28 exist; the six Qwen3 clone previews were made with provisional (Whisper-draft, not owner-approved) transcripts for listening review, and the app still requires an approved transcript before it uses a clone. On 2026-10-20 the owner listened to all 28 and approved their audio quality (not any transcript). Previews are never in the release archives.
-- **Models** live under `files/runtime-data/models/qwen3-tts/<Model>-<rev8>/`, loaded offline from the pinned snapshot; CustomVoice and
-  Base install independently, the nine shared files are linked, and a `ACT-VERIFIED.json` marker is written only after every file is
-  verified by size and SHA-256. Status checks only stat files; full hashing is for install and repair.
-- **Availability** is one question (`qwen3_runtime.voice_availability`): platform (Windows), environment, model, and for a clone the
-  reference recording and its transcript. Since v0.7.0 P03C the transcript comes only from the shipped bundle `tts/data/bundled_clone_transcripts.json`,
-  validated whole on every read (`qwen3_runtime.load_bundle`: exact fields, the six clones, registered voice IDs and recording hashes, text digests); a damaged bundle blocks all six
-  clones with "extract a fresh copy" advice and never falls back. The local store (`qwen3_clone_setup.py`) is read only through an explicit `override=`.
-- **Conversion** mirrors the other local engines: the voice preset's paragraph pause after every chunk, the end pause once, one final
-  encode (ffmpeg run directly so every scratch file stays in the job folder). Progress is per source file, with the current-item
-  message refreshed per chunk. Cancellation: a flag file, then after a 3-second grace the whole process tree is killed; the job folder
-  (which holds the user's text) is always removed; an existing output is never replaced by a partial file.
-- **Safety.** Worker and pip run inside a Job Object (not run at all if containment fails); per-installation `setup.lock`/`inference.lock` OS file locks keep
-  install/repair and conversions of one copy apart, and the `rt.MachineGuard` named mutex keeps every copy of the app (all Windows users)
-  to one Qwen3 model operation at a time; manifest names are validated and nothing beneath a model folder may be a link;
-  `.venv-qwen3` must be a real folder in the repo; pip runs `--isolated --require-virtualenv --require-hashes`.
-- **Measured (HOME-PC, Windows 11):** GPU RTX 5070 about 1.37x real time (peak +5.6 GB VRAM); CPU (CUDA hidden) about 2.2x, 5.6 GB RAM on a
-  Ryzen 7 9800X3D (one machine only); install about 7 minutes with a fast link. macOS is untested and not claimed.
-- **Known limits.** English only; a clone uses only the six shipped transcripts (no customer-recorded voices); no new bootstrap step;
-  `.venv-qwen3` is not covered by the data-cleanup tool; a fresh-clone install on a second machine, a weaker CPU and long-form clone
-  speed are not yet measured (S5).
-
-### The M4B Converter (v0.6.2 Plan 5)
-
-The Converter is the first tool rebuilt on the Drop-3 foundation, and the shape of that adoption is
-the point: `m4b/converter/m4b_converter.py` is the panel, and it owns no policy — it is the only one of
-these modules that imports Tk. The policy is decomposed into ten helper modules beside it, none of
-which imports `tkinter` at all:
-
-| Module | Responsibility |
-|---|---|
-| `m4b_chapters.py` | The chapter vocabulary: the probe result types, the structural verdict on them, and the complete-timeline partition computed from a verdict that passed. Stdlib-only and pure — no I/O, no ffprobe, no clock. |
-| `m4b_probe.py` | The one ffprobe call per source. A single `-print_format json` read yields format tags, streams and chapters together, plus the source's compatible metadata and its embedded cover. Runs a subprocess, so it belongs on a worker thread. |
-| `m4b_naming.py` | Turning one source chapter title into one safe split-output filename, in two stages so that a title containing `/` or `\` is not silently reduced to its last element by `shared.output_paths.sanitize_component`. Strings in, strings out. |
-| `m4b_numbering.py` | The one number a run has to earn — the optional sequential `track` a **whole book** carries, proposed before ffmpeg runs and committed only on success, so a failure consumes nothing and the sequence stays gap-free. The two *structural* numbers do not live here. |
-| `m4b_metadata.py` | What metadata and artwork each of the six cells (Preserve / Replace / Strip × whole / segment) writes — decided, never executed. Owns the strict five-field allowlist, chapter retention, the artwork policy and the output-side ffmpeg metadata arguments. |
-| `m4b_destinations.py` | Where each imported occurrence's outputs go, decided once per run. Spends the importer's provenance through the shared Plan-2 planners and returns answers keyed by occurrence id, expanding a split book into one planner entry per requested filename. |
-| `m4b_commands.py` | The ffmpeg argument vectors the run will execute — built here, never run. Owns the measured **output-side** `-ss` ordering, which must not be "optimised" to input-side seek. |
-| `m4b_plan.py` | Where every other layer meets and becomes one immutable answer to "what is this run going to do?" — the frozen `ConversionPlan`. No widget, no variable, no thread, no queue, no process: values only. |
-| `m4b_execution.py` | Running one already-planned segment and being able to stop it. Handed a `SegmentWork` carrying a frozen span, tag set, cover and destination; reinterprets no decision. Owns the child process and the temp-file diagnostics drain. |
-| `m4b_winaudio.py` | Decoding an xHE-AAC (MPEG-D USAC) source through Windows Media Foundation via `ctypes` when ffmpeg's native AAC decoder cannot, measured at 100.0004% of a source ffmpeg silently truncated by 23.91%. |
-| `m4b_continuous.py` | (v0.7.2 Phase 7B) The one-decode split route: which books may take it (decided at preflight from the probe, a packet scan, the FFmpeg build and the estimated saving), the sample-exact cut, and the one owned decoder per book attempt. Byte-identical to the seeking route wherever it applies. |
-
-Artwork selection and policy are **not** a separate module: they live with the metadata contract in
-`m4b_metadata.py` (`wants_artwork`, and the `attached_pic` stream identification fed to it from
-`m4b_probe`), which is where the Preserve/Replace/Strip decision that governs them already lives.
-The panel imports the shared importer, the shared job controls, the shared destination planner and
-the shared output reservation rather than growing private copies, and the whole run is decided
-before ffmpeg is invoked once.
-
-- **A run is frozen, and the freeze is total.** Pressing Convert calls `job_control.capture_run`,
-  and the worker reads only that snapshot — the queue, the mode, the metadata choice, the numbering
-  choice **and the configuration the run started under**. The output directory is reserved through
-  `output_paths.reserve_run_directory(TOOL_KEY, effective=<the run's frozen config>)`, so a
-  Preferences change mid-run cannot move a conversion already in flight, and Retry Failed rebuilds
-  from that same snapshot to the same planned paths rather than from current widgets.
-- **Splitting is a partition, not a chapter loop.** `m4b_plan` builds a **complete timeline**: every
-  second of the source belongs to exactly one segment, including a pre-first-chapter head and a
-  post-last-chapter tail, and the segments are proved contiguous and exhaustive rather than assumed
-  to be. Segments are cut with output-side `-ss`/`-t`, which is why a long book with an attached
-  cover no longer produces a fraction of a second of audio.
-- **Metadata is an allowlist enforced at the ffmpeg boundary.** Every output starts from
-  `-map_metadata -1` and receives only the five permitted fields through the one shared mapping in
-  `m4b_metadata.py`. Chapter retention is a separate axis (`-map_chapters 0` or `-1`) and whole-book
-  retention re-attaches the source's chapter **titles** through `-metadata:c:N`, which the allowlist
-  firewall would otherwise strip. Outputs that carry chapters or tags are written `-id3v2_version 3`,
-  because that is the version Windows Explorer reads.
-- **Destinations are planned centrally and collision-safe.** `m4b_destinations` plans direct files,
-  grouped folders and — for Split — one **container folder per occurrence** through the same shared
-  planners, so two books named alike, or the same book imported twice, each get their own folder.
-  Every component is sanitized to a fixed point, every planned path is asserted contained under the
-  reserved run root, and every path is asserted not to be an input. Nothing is ever overwritten and
-  no source is ever modified.
-- **Duplicates are occurrences, never paths.** Outcomes, retries and destinations are keyed on the
-  importer's occurrence ID, so importing one book twice is a supported deliberate act rather than a
-  collapsed pair.
-- **Decoding is routed, and a route that cannot be trusted stops the run.** On Windows an xHE-AAC
-  (USAC) source is decoded through Windows Media Foundation into a PCM timeline instead of ffmpeg's
-  native AAC decoder; macOS uses Apple's `aac_at`. When neither route can decode a source, the run
-  reports it rather than writing a short book, and the drift check does not blame the platform on a
-  path it deliberately routed around.
-
-### The MP3 Tool (v0.6.3 focused MP3 redesign)
-
-The MP3 Tool is the first adopter of the shared **multi-Book workspace** (the v0.6.3 Plan 6
-foundation) and follows the Converter's shape: `mp3/mp3_tool.py` is the panel and the only
-one of its modules that imports Tk; policy lives in Tk-free modules beside it and in shared
-authorities it consumes rather than copies.
-
-| Module | Responsibility |
-|---|---|
-| `shared/book_workspace.py` | The Plan 6 model: `BookJob`, `WorkspaceSnapshot`, stable Book ids, Shared → Book → blank precedence (`effective_value`, `disabled_fields`), `has_meaningful_work`, frozen `BookRunSnapshot` / `WorkspaceRunResult` and `retry_failed_books`. Immutable values; no Tk, no thread, no platform. |
-| `shared/book_workspace_ui.py` | The one Tk adapter of that model: `BookNavigator` (Previous / Next / heading / direct selector / Add / Duplicate / Remove, `layout="row"` or `"stacked"`) and `SharedMetadataSurface` (the Shared and Book field groups, `layout="rows"`, per-field `wraplength`). Reads no theme token and no platform. |
-| `mp3/mp3_workflow.py` | The MP3 vocabulary and rules: the five Shared fields, folder-to-Book import projection, source-metadata observation (majority values, *Mixed source metadata*), default Titles (source Title, else cleaned filename), Chapter Titles resolution, signed-Time and Start # parsing. |
-| `mp3/mp3_plan.py` | The frozen `RunPlan` a processing button builds before any work: Book order and ids, every occurrence, final Title / number / filename (`track_filename` — **from the final Title**, one leading number removed, sanitised, the calculated number added once; source-name fallback for a Title that sanitises to nothing), effective metadata, signed Time, artwork, one Book subfolder each (Album → source folder → `Book N`, through the shared collision planner) and the private `.work/` staging; `prepare_staging` / `publish_book` (atomic, whole Book or nothing) / `discard_staging` (links, junctions included, unlinked as links, never followed) / `release_staging` (every Book not kept for Retry Failed, then the empty work area; v0.7.2). |
-| `artwork/mp3_artwork.py` | Artwork through `shared/image_capabilities`: the chooser filter from `decodable_suffixes()`, `load_artwork` (JPG/PNG bytes embedded as-is; HEIC/HEIF decoded to an **in-memory** PNG for the embed only), `preview_image`, `apply_artwork` (one front-cover APIC). The source picture is never written. |
-| `mp3/mp3_processing.py` | The FFmpeg helpers and the two engines. Write ID3: every track becomes a new staged copy with the frozen Time applied (0 = `-map_metadata -1 -c copy`; + appends silence; − trims; an excessive trim fails before FFmpeg runs) and exactly the whitelisted frames written from a clean tag. Combine: constituents staged the same way — the final one too — then FAST (`fast_eligibility`: one codec / sample rate / channel count) or Safe (WAV normalisation), combined tag from a clean state, `combined_time-stamps.txt`. Tk-free; handed a checkpoint and an event listener. |
-| `mp3/mp3_tool.py` | The panel: composes the adapters, freezes the plan, runs **one** `JobController` / `JobReporter` / `JobAdapter` per operation on its one pump, projects engine events into shared job events, composes per-Book `RunResult`s into the `WorkspaceRunResult` Book statuses are read from (Ready / Queued / Processing / Completed / Failed / Skipped / Not attempted), and asks `retry_failed_books` for Retry Failed. Presentation (v0.6.6 Phase 6): the compact Family-B hierarchy — `1. Import & Books` / `2. Book Settings` (Shared tinted over Current Book) / `3. Tracks & Run`, Activity below — styled from the shared `appearance_bundle`, with a measured tight density in the launcher's small windows; `_layout_hints(theme)` supplies only the aqua composition. |
-
-Shared authorities it consumes unchanged: `shared/importing.py` + `import_coordination.py`
-(the scan), `shared/job_control.py` (controller, checkpoints, `RunResult`, `RetryRequest`),
-`shared/job_ui.py` (`JobAdapter`, `JobControlBar`, `JobStatusView`, `SummaryDetailsView`,
-`MainThreadPump`), `shared/output_paths.py` (reservation, sanitiser, collision planner,
-containment) and `shared/image_capabilities.py` (the one HEIC probe).
-
-- **MP3 duration means decodable audio (2026-09-20 defect fix).** Split files can retain stale
-  Info/Xing frame totals; ffprobe format/stream duration and Mutagen can agree and still be wrong.
-  The historical `mp3_processing.ffprobe_duration_seconds` API now fully decodes audio using
-  the proved FFmpeg, rebuilds timestamps from decoded samples (`asetpts=N/SR/TB`), discards PCM
-  through the null muxer and reads final `out_time_us`. Source covers are not decoded for this
-  measurement. Failed/incomplete audio decoding is refused. This authority governs signed-Time
-  expectations/trim endpoints, staged validation, and Combine durations/timestamps/validation;
-  tolerances and whole-Book publication remain unchanged. It costs a full decode pass and uses
-  no new dependency or OS branch. `test_mp3_duration_authority.py` covers synthetic stale CBR/VBR
-  headers, all Time signs, Combine FAST/Safe and genuinely damaged staged output.
-- **Blank means blank.** Source tags pre-fill Artist / Album Artist / Album once (folder import,
-  or an empty Book's first files) and are never consulted again; a cleared field stores `""` and
-  the output carries no such frame. The one source fallback is a track's own default Title.
-- **A run is frozen, and the retry reads only the freeze.** Everything the engines and a later
-  Retry Failed need is in the `RunPlan`; live edits after Start cannot reach it. Retry re-runs
-  exactly the failed occurrences of the failed Books against the same plan inside the same
-  `MP3-Tool-N` directory, reusing every retained staged piece.
-- **Title, filename and track number are independent.** The embedded Title never carries the
-  filename prefix; the prefix is at least two digits and widens with the Book's last number;
-  `TRCK` is an ordinary unpadded integer; Start # blank means 1.
-- **Platform.** Windows: ACT dark, minimum 920×600. macOS: native aqua, minimum **1024×720**
-  at this plan's closeout (`ui_theme.AQUA_MIN_SIZE`; **raised to 1024×800 by the v0.6.4 Phase 13
-  ruling of 2026-09-15** — see *The M4B Maker and M4B Metadata Editor* below) — the six fixed
-  bands under aqua metrics exceed the content host a
-  920×600 window leaves, so the maintainer superseded the universal minimum for macOS only (Phase
-  12, 2026-09-12); the aqua composition stacks the navigator's Book actions and the two primary
-  buttons, wraps the Time label and balances the entries, driven by hint tokens in the aqua
-  theme bundle so the Windows composition is untouched. `test_mp3_tool_layout.py` measures the
-  real launcher on aqua; `test_mp3_tool_ui.py` protects the Windows layout.
-- **Tests ask for a platform's presentation through the seam.** `ui_theme.apply_theme(root,
-  style, platform="win32")` selects the Windows bundle on any host; rewriting `sys.platform` in a
-  fixture is forbidden because real FFmpeg runs through `shared/subprocess_utils`, which must see
-  the real host.
-
-### The M4B Maker and M4B Metadata Editor (v0.6.4)
-
-The two M4B tools are the second and third production adopters of the shared multi-Book workspace,
-delivered together in one coordinated drop (branch `feature/0.6.4-m4b-maker-metadata-editor`, cut
-from the PR #10 merge `e0bab662`) and accepted on Windows and macOS on 2026-09-15. They follow the
-MP3 Tool's shape exactly — a thin Tk panel over Tk-free workflow / plan / engine / batch modules —
-but keep **separate business models and separate engines**; nothing processing-related is shared
-between them except the two M4B-family modules below, and `test_m4b_structural_authority.py` pins
-that every authority (workspace, navigation, importing, coordination, job control, job UI, output
-naming/reservation, staging, image capability, metadata readers/writers, success numbering, artwork
-service) is defined in exactly one module across the whole tree. The Maker retains the M4B
-Converter's independent pure helpers (`m4b_numbering`, `m4b_probe`, …) untouched.
-
-| Module | Responsibility |
-|---|---|
-| `artwork/m4b_artwork.py` | The one M4B cover service (Tk-free), reusing `mp3_artwork`'s decode path through `shared/image_capabilities`: `load_cover` (JPG/PNG bytes as their own `MP4Cover` format; HEIC/HEIF decoded only where the probe allows and converted to an **in-memory** PNG, dimensions preserved, no sidecar), `cover_for(plan)` (reads only the frozen artwork value), `apply_cover` / `embed_cover` (exactly one `covr`, a metadata-only rewrite of a **staged** container — packed audio proved unchanged). The ID3 `apply_artwork` is deliberately not reused. |
-| `artwork/m4b_artwork_ui.py` | The Tk `ArtworkControl` both panels compose twice (Shared and Book): caption, in-memory preview, Choose…/Clear, two disabling reasons kept apart (Shared override vs run lock), `MainThreadGuard` on every Tk-reaching method; `ask_artwork` filters the native dialog by the probe's decodable suffixes; `validated_artwork` decodes before accepting. An optional `preview_max` (v0.6.6 Phase 7) lets a compact panel ask for `COMPACT_PREVIEW_MAX` (40 px); the default stays `PREVIEW_MAX` (56 px). Both consumers (the Maker since Phase 7, the Editor since Phase 8) opt in. |
-| `m4b/m4b_staging.py` | The private-staging / atomic-publication pattern both engines delegate to (Tk-free, not a Plan 3 adopter): `require_owned` (staging is exactly `<work root>/<stem>`), `prepare_staging`, `discard_staging` (a bounded walk that asks `output_paths.assert_no_link_in` — reparse-aware, so a Windows junction counts — and unlinks a link as a link, never following it, no `rmtree`), `publish_staged` (refuses an existing destination; `os.replace`; EXDEV → plan-owned `temporary_sibling` + `atomic_replace`), `prune_work_root` (`rmdir` only when empty, never through a link). |
-| `m4b/maker/m4b_maker_workflow.py` | The Maker vocabulary over the shared workspace: six Shared fields (Artist / Author, Album Artist / Author, Album, Series Name, Silence Between Tracks, Book Artwork) and four Book-only fields (Title, Series Part, Output Filename, Chapter Titles); `import_folder` = one Book per directory directly containing MP3s (shared `replace_workspace_from_import`, no source-tag prefill — the Maker observes no ID3); `add_files` to the current Book; track move/remove; the existing `strip_leading_numbers` / `normalize_title` preserved verbatim; positional chapter titles (line *n* → chapter *n*, short list keeps defaults, extras ignored); `parse_silence` (blank → 0, negative refused) and `parse_start_part` (blank → 1); `output_name_candidates` = the Decision 51A chain (Output Filename → Title → effective Album → unambiguous folder → `Book N`), unsanitised. |
-| `m4b/maker/m4b_maker_plan.py` | The frozen `RunPlan` Build makes before any media work: `standard_destination` (one reserved `M4B-Maker-N`, staging under its `.work/`) or `custom_destination` (the validated folder used directly, **no nested run folder**, a caller-owned work root that must lie outside it); every Book's silence and the Start Part parsed first; `assert_outside_source_trees` in standard mode; one `DestinationPlanner`; `BookPlan` carries sources, frozen chapter titles, the embedded Title (the Book's, else the resolved output name — no nameless Book), effective metadata, `series_part` (raw text while Auto-number is OFF, `None` while ON), artwork path, silence, and `filename` / `staging_dir` / `staged` / `published` — sanitised and collision-numbered through `output_paths` only, `.m4b` appended exactly once. |
-| `m4b/maker/m4b_maker_processing.py` | The Maker engine for **one** frozen `BookPlan` (Tk-free): the proven concat/encode moved verbatim from the old panel — WAV normalisation, one silence WAV *between* adjacent tracks (never after the last; silence forces Safe), FAST first with automatic Safe fallback emitted as a `fallback` event, ffmetadata with 250 ms lead-in and escaped titles (`shared.metadata.ffmetadata_escape`), every launch through `ffmpeg_utils` — encoding to `BookPlan.staged` never `published`; series tags via `metadata.write_m4b_tags`; the cover resolved **before** any FFmpeg launch and embedded on the staged file; `validate_staged_m4b` reads the result back (duration, exact chapter titles, Title, cover presence); `stage_book` / `publish_book` split so the batch can write a success number between them. |
-| `m4b/maker/m4b_maker_batch.py` | `MakerRun` / `Attempt`: exactly one `JobController` + `JobReporter` per attempt, one worker body, Books in frozen order with `checkpoint()` between and inside them, continue-on-failure, `RunResult.settle` per Book against its exact `RunSnapshot`, `WorkspaceRunResult` over all attempts, `retry_failed_books` for Retry Failed (same run id, same frozen `BookPlan` objects, no re-plan / re-reserve). Auto-number = one `shared.numbering.SuccessNumbers` for the whole retry chain: `propose()` → write the part on the staged file → re-validate → `checkpoint()` → publish → `commit()`; a failure consumes nothing, a publication failure retains the validated candidate for the retry — only while a retry can reach it: each attempt releases what it cannot retry before its terminal event, `MakerRun.abandon` the rest (v0.7.2, ACT72-031). |
-| `m4b/maker/m4b_maker.py` | The panel, on the `mp3_tool.py` precedent: import band (`Import Folder`, shared `ImportStatusBar`, `Clear All Imports`, output hint) → `BookNavigator` (default action set) → `SharedMetadataSurface` + `ArtworkControl` ×2 → the Book-only row (Title, Series Part, Output Filename, Status) → local track list | Chapter Titles box → run options (Auto-number Series Part, Start Part, Try FAST first, `Choose custom destination`) → `Build M4B(s)` + Clear Log + the shared `JobAdapter` → one `SummaryDetailsView`. No whole-tool scrollbar; only the list, chapter box and log scroll. Every widget asks `job_ui.style_name`; layout hints come off the theme through `_layout_hints`. Presentation (v0.6.6 Phase 7): the compact Family-B hierarchy — `1. Import & Books` / `2. Book Settings` (Shared tinted over Current Book, the Book-only row beneath) / `3. Tracks, Chapters & Build` (lists, run options, Build + job area), Activity below with Clear Log — styled from the shared `appearance_bundle`, with a measured tight density in the launcher's small windows (short option wording, the custom path row on the options line, the job status beside its controls); `_layout_hints(theme)` supplies only the aqua composition. |
-| `m4b/metadata/m4b_metadata_workflow.py` | The Editor vocabulary, with one deliberate contrast: **one imported occurrence = one Book**, whatever directory it came from (`.m4b`, `.m4a`, `.mp4`). Eight Shared fields (Title, Author / Artist, Album, Year, Genre, Comment, Series Name, artwork); `series_part` is **not** a Shared or Book text field — it is read-back plus the batch-level Auto-number contract. `SourceObservation` (frozen, per occurrence, never raises: the seven text fields, series and part with provenance as `read_m4b_tags` resolves them, cover presence, chapter titles) in an immutable `ObservationStore`. A Book's configuration holds **only explicit edits**; `prefill_values` / `page_values` are display, `edit_intent` is what an action would write or `None` = preserve (blank → preserve; equal to source → nothing, so a vendor / movement / album-implied series is never migrated); `shared_intent` (populated Shared only); `artwork_intent`; positional `chapter_edits` with **blank-line-preserve** (not the MP3 collapse rule); `series_readback` reproduces the accepted "Detected on file" lines. |
-| `m4b/metadata/m4b_metadata_plan.py` | The frozen plans for the three actions (`SAVE_TAGS`, `CLEAR_ALL_TAGS`, `REMOVE_SERIES_NUMBERING`): `BookPlan` keeps the observation, `shared_overrides`, `book_edits`, `artwork` (explicit replacement or `None`), `chapter_edits` and the action apart — `writes` is a derived view (Shared over Book), `has_intent` says whether a Book asks for anything. Save freezes only actual intent; Clear freezes exactly the same explicit values to re-apply after the clear and nothing prefilled; Remove freezes the action alone (`auto_number=False`, no writes, `artwork=None`). Exactly **one** standard `M4B-Metadata-N` reservation per operation, every Book flat under its source filename (extension kept, sanitised, collision-numbered), staging under the run's `.work/`; unreadable sources are `SKIPPED_INVALID` with their error reachable. |
-| `m4b/metadata/m4b_metadata_processing.py` | The Editor engine for one frozen `BookPlan` (Tk-free): preflight the source → load the explicit cover first (unusable → fails **before any copy**) → `prepare_staging` → `shutil.copy2` **into staging** → the action through `shared.metadata` only (Save: `write_m4b_tags`; Clear: `clear_metadata_keep_chapters` then the frozen writes; Remove: `clear_series_numbering(keep_series_name=True)`) → explicit cover (`m4b_artwork.embed_cover`) → positional chapter edits (`apply_chapter_titles`, `-c copy` remux) → `validate_staged` (audio readable; every write present exactly; Clear → non-written text fields absent; Remove → no part, Series Name kept; cover present iff the action leaves one; chapters in order) → publish through `m4b_staging`. No re-encode anywhere (audio MD5 proved equal); a failure after the copy leaves the run directory empty. |
-| `m4b/metadata/m4b_metadata_batch.py` | `EditorRun` / `Attempt` on the Maker precedent: one controller + reporter per attempt, continue-on-failure, `SKIPPED_INVALID` kept for unreadable Books, Retry Failed from the same frozen plan, Pause/Resume/Cancel; Auto-number (Save/Clear only) through the same `SuccessNumbers` propose → write → validate → checkpoint → publish → commit sequence, successes only. A kept candidate lives only while a retry can reach it (`EditorRun.abandon`; v0.7.2, ACT72-034). |
-| `m4b/metadata/m4b_metadata_editor.py` | The panel: import band (`Import Folder`, which always includes subfolders and has no import options, `Add Files`, `ImportStatusBar`, `Clear All Imports`, output hint, `Open Output Folder`) → `BookNavigator` with the action subset `(REMOVE,)` (no Add Book, no Duplicate Book) → `SharedMetadataSurface` over the seven text fields + `ArtworkControl` ×2 → the Book read-back lines (source path/readability, the series read-back, `Series Part · Artwork · Chapters` facts, Status) → local Chapter Titles box → Auto-number Series Part + Start Part + the preserve hint → `Save Tags` / `Clear All Tags (keep chapters)` / `Remove Series Numbering` + Clear Log + the shared `JobAdapter` → one `SummaryDetailsView`. `render()` shows `page_values` under a guard so prefill never becomes an edit; only a keystroke does. The v0.6.0 whole-form scrolling `Canvas` is gone. Presentation (v0.6.6 Phase 8): the compact Family-B hierarchy — `1. Import & Books` (import band, navigator) / `2. Metadata` (Shared tinted over Current Book, the read-back beneath the fields) / `3. Chapters & Save` (Chapter Titles, series numbering and the preserve note, then Save Tags / Open Output Folder and Clear All Tags / Remove Series Numbering in two columns beside the shared job area), Activity below with Clear Log — styled from the shared `appearance_bundle`, with a measured tight density in the launcher's small windows (the series numbering on the Chapter Titles caption's line, the preserve statement in the Current Book caption, the job status on two lines); `_layout_hints(theme)` supplies only the aqua composition. |
-
-Shared authorities both consume unchanged: `shared/book_workspace(_ui)` (with the Phase 1
-`BookNavigator(actions=…)` opt-in subset — the default is behaviour-identical for the MP3 Tool),
-`shared/importing` + `import_coordination`, `shared/job_control` + `job_ui`, `shared/output_paths`,
-`shared/image_capabilities`, `shared/numbering` and `shared/metadata` (which gained the public
-`ffmetadata_escape` and the backward-compatible `clear_series_numbering(keep_series_name=)`).
-
-- **Every Book is staged privately and published whole or not at all**, on both tools, with the
-  read-back validation before `os.replace`; a failed or cancelled Book leaves no partial output and
-  no staging. This closed the Editor's recorded "copy lands on the final path before the tag write"
-  debt at Phase 9.
-- **Series numbering is success-only on both tools** through the one shared allocator; the Editor's
-  former position-based numbering is gone.
-- **Blank means preserve on the Editor and blank means blank on the Maker/MP3 Tool** — the two
-  semantics are deliberate and live in the two workflow modules, not in the shared model.
-- **Clear All Imports** (maintainer-directed at Phase 12) exists on all three multi-Book tools: a
-  thin reset to the tool's pristine `new_workspace()`, log history kept, nothing on disk touched,
-  confirmation only when `has_meaningful_work` or a populated Shared value says there is something
-  to lose, locked through the shared `LockGroup` during a run or import scan; styled
-  `style_name(theme, "danger_button")`.
-- **Platform.** Windows: ACT dark, minimum 920×600, both panels proved on a deiconified root. macOS:
-  native aqua, minimum **1024×800** (`ui_theme.AQUA_MIN_SIZE`, also `AQUA_GEOMETRY`, the launcher's
-  opening size) — the maintainer's Phase 13 ruling of 2026-09-15, superseding the 1024×720 floor of
-  2026-09-12 for macOS only, after the real launcher showed the two M4B tools' fixed bands folding
-  onto more lines than a 1024×720 content host can absorb. The aqua bundle carries composition hints
-  (`import_band_layout`, `group_pad`, `field_gap`, `field_columns`, `field_label_wrap_short`,
-  `book_fields_span`, `options_layout`, `actions_columns`, `navigator_layout_one_action`,
-  `readback_layout`, `note_wrap`, `chapter_rows`) each panel reads with the Windows values as
-  defaults; `test_ui_theme` pins that the Windows bundle carries none. `test_m4b_layout.py` measures
-  the real launcher on aqua; the two panel suites protect the Windows composition.
-- **Structural guards reconciled, never weakened.** `PHASE0_PANEL_HASHES` in `test_plan6_boundaries`
-  is now **empty** — every consumer panel left it by a proved conversion (the old digests survive as
-  evidence with positive-adoption tests); `test_plan3_boundaries.ADOPTED` is twenty modules and the
-  adopting panels are six; `UNCONVERTED_PANELS` is the three classic panels; `test_ffmpeg_runtime_trust`
-  expects `m4b_maker_processing.py` rather than the panel.
-
-## Features
-
-- **TTS Audiobook** (`tts/epub2tts_gui.py`) — **PDF/TXT → MP3** (v0.6.1: EPUB retired, see
-  below); **28 voices** (5 Edge network + 9 Kokoro local AI + 6 Chatterbox local AI + 8 Qwen3-TTS local AI — v0.6.5
-  Phase 2 removed the two multilingual Edge voices and approved a fifth and sixth Chatterbox
-  voice, Male 3 and Male 4; Male 3 is the original candidate sample, not the bounded
-  pitch-retry variant that was tried and rejected; v0.6.7 Decision B added four Kokoro voices,
-  Fenrir, Puck, Onyx and Daniel; v0.6.7 CP6 added the eight optional Qwen3-TTS voices, Windows only,
-  installed from inside the app — see "The fourth TTS engine"; the six Qwen3 clones stay unavailable until their
-  reference transcripts are provided); **one
-  unified queue** in which direct files and whole folders coexist in a single run — folder-derived
-  items are mirrored into the output so same-named files in different books never collide, direct
-  files are placed flat, and occurrence identity, deliberate duplicates, provenance and natural
-  ordering all survive the run's frozen snapshot and a Retry Failed; every route (Edge direct and folder, Kokoro, Chatterbox, Qwen3, and the standalone `batch_convert.py`) names its file `<source-stem>-<display label>.mp3` with the label frozen when the run starts, clashes numbered `-1`, `-2` (v0.7.0 P02B, `tts/output_names.py`); Plan 3's shared job controls
-  (Pause/Resume, Cancel, Summary/Details, progress, current-run ETA, Retry Failed); per-chunk
-  retry. **The module name is historical**: `epub2tts_gui` / `epub2tts_edge` keep the upstream
-  GPL-3.0 provenance of the surviving Edge engine and no longer imply EPUB support.
-  **v0.6.5 Phase 7 (Compact TTS UI) removed every user-editable pause/trim control**
-  (sentence/paragraph/title/chapter pause, end-silence, trim threshold, trim-edge-
-  chunks) — each voice's approved pause/trim policy now lives only in
-  `voice_registry.py`'s `timing_preset` dict and is read directly by
-  `TtsPanel.run_job` at run time; it can no longer be edited from the panel. The
-  only remaining user-editable Band 3 controls are the ones each backend can
-  actually honor truthfully: Edge's rate (%) and Kokoro's speed — Chatterbox Turbo
-  exposes no rate control at all, by design, rather than a fake one. **File-level
-  concurrency (v0.6.5 Phase 6, P14):** a requested "Workers" count is a whole-*file*
-  concurrency level, never permission to parallelize the chunks inside one file;
-  `tts/worker_limits.plan_for_sources` (v0.7.1) bounds it by the request (1–100), the
-  queued files, the engine, the Edge service ceiling, the logical processors and the
-  measured free memory, and the run log always states `Requested workers: N | Effective
-  workers: M` and which limit applied. Edge honors real multi-file concurrency on every
-  import path (v0.7.1); Kokoro and Chatterbox are both capped to
-  an effective `1` as correctness constraints, not tuning choices — Chatterbox
-  because its cached model instance holds mutable per-call conditioning state, and
-  Kokoro (Phase 9 fresh-review finding) because its cached per-lang-code pipeline's
-  out-of-vocabulary G2P fallback shares a non-reentrant third-party espeak-ng
-  binding across every voice of that language (see Decisions.md 2026-09-26). Dev/QA
-  helper `tts/generate_voice_samples.py` writes one short sample per voice to
-  `files/test-for-manual-listen-elmatthe/` (gitignored, never imported by the app).
-- **M4B Converter** (`m4b/converter/m4b_converter.py`) — batch M4B → MP3 (libmp3lame VBR), **whole
-  book or split by chapter** (v0.6.2 Plan 5). Import files or a folder with an **Include
-  subfolders** option; reorder, remove, clear, and import the same book twice deliberately.
-  Metadata is *Preserve*, *Replace* or *Write none*, restricted throughout to title, artist, album
-  artist, album and an optional track number — nothing else from the source travels with it. A
-  whole book keeps the source's chapter map **and its chapter titles** under Preserve and Replace;
-  *Write none* removes it. Embedded cover art is copied (never re-encoded) by Preserve and Replace
-  and removed by Write none, on whole books and on every fragment of a split. A split is a complete
-  partition of the book — the head before the first chapter and the tail after the last are
-  included — and each book's fragments land in **their own folder**. What a split fragment carries
-  depends on the mode, and the two cases are genuinely different: under **Preserve** and
-  **Replace** a fragment inherits only the book-level identity (`artist`, `album_artist`, `album`)
-  and **regenerates its own `title` and its structural `track`**, which always win; under **Write
-  none / Strip** a fragment gets **no metadata at all** — nothing is regenerated, not even a title
-  or a track number. Optional whole-book track numbering is **off by default** and numbers only
-  successes, so a failure leaves no gap. Progress with an ETA, **Pause/Resume/Cancel** and **Retry
-  Failed** come from the shared job controls; sources are never modified and nothing is overwritten.
-- **MP3 Tool** (`mp3/mp3_tool.py`) — a **multi-Book workspace** (v0.6.3 focused MP3
-  redesign): `Import Folder` makes one Book per directory that directly contains MP3s, `Add Files`
-  extends the current Book, Books are navigated / added / duplicated / removed; Shared metadata
-  (Artist, Album Artist, Album, one signed Time, artwork) overrides and disables the matching
-  Book fields; per Book: Chapter Titles (one per line), Auto-number / Start #, the track list.
-  Exactly two actions — **Write ID3 Tags** (new copies carrying exactly Title / Artist / Album
-  Artist / Album / optional track number / front cover, nothing from the source) and **Combine
-  MP3s → One MP3** (one combined file per Book, Title = Album, no track number, no chapter
-  frames, a `combined_time-stamps.txt`; FAST concat tried automatically when the constituents
-  share codec / sample rate / channels, Safe WAV-normalising path otherwise or on a FAST failure,
-  reason logged). Every eligible Book runs sequentially from one frozen plan under one
-  `JobController`; each Book publishes atomically; a failed Book does not stop the next; Retry
-  Failed reruns only the failed pieces from the frozen state. Sources are never modified. See
-  *The MP3 Tool* below.
-- **M4B Maker** (`m4b/maker/m4b_maker.py`) — MP3s → chaptered M4B with cover art, metadata, and
-  Audiobookshelf-compatible series tags (freeform `----:com.apple.iTunes:SERIES`/`SERIES-PART`
-  atoms — what ABS's ffprobe scanner actually reads). Since v0.6.4 a **multi-Book workspace**: one
-  Book per folder of MP3s, at most one `.m4b` per Book, six Shared fields (Artist / Author, Album
-  Artist / Author, Album, Series Name, Silence Between Tracks, artwork) over per-Book Title / Series
-  Part / Output Filename / Chapter Titles, Decision 51A output naming, Fast-first with automatic Safe
-  fallback, success-only Auto-number Series Part, one `M4B-Maker-N` run (or the explicit custom
-  destination with no nested run folder), atomic per-Book publication, one `JobController`,
-  Pause/Resume/Cancel, Retry Failed from the frozen plan, one Summary | Detailed log. See *The M4B
-  Maker and M4B Metadata Editor* above.
-- **Cover Image Converter** (`artwork/cover_resizer.py`) — pad/crop cover art to square;
-  JPG/PNG/HEIC (HEIC in → HEIC out; never a silent JPEG substitution). Adopts the shared importer
-  and the shared job controls, and adds a **three-view browser — Details, List and Medium
-  Thumbnails**, defaulting to Details. All three are projections of the one imported-file manager
-  rather than a rival list, so order and selection survive a view switch by construction, and two
-  deliberate duplicates of one path stay two independently selectable items. Click and key
-  handling routes through one pure selection engine, so the three views behave identically, with
-  anchors and ranges in **manager order** rather than widget order. Thumbnail decoding runs on a
-  worker thread producing plain data only, is lazy and visible-only, and is hard-capped at 60
-  items — an unmapped widget honestly answers "all of it" for its own extent, so without the cap a
-  5,000-image import would decode 5,000 previews. A bounded LRU (96 entries, deliberately a count
-  and not a byte budget) is the single owner of a decoded image. Late results are dropped inertly
-  and nothing is lost: the next refresh asks again for whatever is still visible.
-- **M4B Metadata Editor** (`m4b/metadata/m4b_metadata_editor.py`) — edit existing `.m4b` / `.m4a` /
-  `.mp4` tags without re-encoding; writes copies. Since v0.6.4 a **multi-Book workspace with one
-  page per imported file**, pre-filled from a frozen observation of that file (series detection
-  across vendor freeform + movement atoms, with provenance); **preserve-by-default is binding**
-  (blank or unchanged = keep the file's value; a retyped source value writes nothing; a vendor or
-  implied series is never migrated by being displayed); **Shared starts blank** and a populated
-  Shared value overrides and disables the matching page field; three frozen actions — **Save
-  Tags**, **Clear All Tags (keep chapters)** (re-applies only explicit edits), **Remove Series
-  Numbering** (keeps the Series Name) — each reserving one flat `M4B-Metadata-N` run and publishing
-  every file atomically from private staging; positional per-page chapter titles with
-  blank-line-preserve; success-only Auto-number; one `JobController`, Pause/Resume/Cancel, Retry
-  Failed from the frozen plan, one Summary | Detailed log. The v0.6.0 whole-form scrolling canvas
-  and the batch-global "(varies)" form are gone. See *The M4B Maker and M4B Metadata Editor* above.
-  **Presentation:** every widget asks `job_ui.style_name` of the shared compact appearance bundle
-  (v0.6.6 Phase 8; `ACT.*` before it) — `Compact.*` in Light/Dark on Windows, native aqua on macOS
-  through `CompactAqua.*` styles that inherit native layouts and metrics while supplying
-  semantic colors and the Shared tint; no panel `theme["mode"]` fork remains.
-- **Shared Metadata is now the real Decision 20B model on all three multi-Book tools** (MP3 Tool
-  v0.6.3; M4B Maker and M4B Metadata Editor v0.6.4): the distinct Shared surface introduced visually
-  at v0.6.0 Drop 1 carries per-Book override, field precedence and disabling through
-  `shared/book_workspace(_ui)`, with each tool's own field set and semantics (blank = blank on the
-  MP3 Tool and Maker; blank = preserve on the Editor).
-- **Summary/Details specimen (presentation only, developer-only).**
-  `files/tests/manual_windows_ui_prototype.py` is a developer fixture, **not part of the
-  product and not part of the test suite**: pytest cannot collect it, it is not in
-  `launcher.TOOLS`, it lives under `files/` rather than the shipped `scripts/` tree, and
-  nothing in the product imports it. It renders the *production* theme primitives and the
-  *production* editor to reach populated, active-run and Summary/Details states that are
-  otherwise slow or non-deterministic to photograph; since v0.6.4 Phase 10 its canned states drive
-  the production model (one Book per file through `wf.import_folder` with injected readers, frozen
-  observations, blank Shared) and a mid-run presentation through the shared `LockGroup`, control bar
-  and progress indicator. Its Summary/Details sheet predates the shared log region and is kept as
-  the visual reference it always was, carrying its own on-screen disclaimer; the shipped panels'
-  real Summary | Detailed region is the shared `SummaryDetailsView`.
-
-## Project Layout Notes
-
-Standard AI-WORKSPACE.md layout since v0.5.0:
+> **Earlier text.** This Briefing was compacted in v0.8.2 Phase 0B. The previous 1,794-line version (per-version histories, the old
+> architecture narrative, retained follow-ups) is recoverable with
+> `git show 85462005bc203e6b33fd975e2709fe3d9014b7b3:md-instructions/Briefing.md`. Open items from it moved to `Handoff.md` (open issues) and to
+> "Known limits" below; decisions to `Decisions.md`.
+
+Status words used below: **Implemented** (in the shipped code), **Approved future** (owner-approved, not built), **Pending decision**
+(feasibility or owner choice unresolved), **Retired** (history; no longer in production).
+
+## 1. What ACT is
+
+A desktop application for Windows and Apple Silicon Macs that turns PDF and TXT books into narrated MP3 audiobooks and prepares audiobook
+files: combining, converting, tagging and building M4B. Its users are **non-technical**: they download a ZIP, extract it, double-click one
+setup/launch file and use one window. No terminal, no console flashes, no manual installs, nothing silently overwritten. The current release is
+**v0.8.1** (published 2026-11-21 UTC, Windows and macOS ZIPs, on a maintainer verification exception); the `0.8.2` branch is long-running
+development (nothing merged, tagged or released per fix). The source is GPL-3.0; it credits epub2tts-edge, edge-tts and Kokoro-82M.
+
+Owner ground rules: every dependency exactly pinned; the repository root stays minimal; Tkinter/ttk is the only GUI toolkit; commits carry no AI
+co-author trailer (Decisions, 2026-07-07).
+
+## 2. The six tools (Implemented; `scripts/launcher.py` lists exactly these)
+
+| Tool | Module | Job |
+|---|---|---|
+| TTS Audiobook | `scripts/tts/epub2tts_gui.py` | PDF/TXT to MP3 through one unified file-and-folder queue; output `<stem>-<voice label>.mp3`; Pause, Cancel, Retry Failed; whole-file concurrency. The module name is historical (GPL provenance); EPUB input was retired in v0.6.1 |
+| M4B Converter | `scripts/m4b/converter/` | M4B to MP3, whole book or split by chapter on the complete timeline; metadata Preserve, Replace or write none over a five-field allowlist |
+| MP3 Tool | `scripts/mp3/` | Multi-Book workspace: Write ID3 Tags, Combine MP3s into one MP3 (fast or safe route), artwork, numbering |
+| M4B Maker | `scripts/m4b/maker/` | MP3s to a chaptered M4B with series tags and an optional custom destination |
+| Cover Image Converter | `scripts/artwork/cover_resizer.py` | Pad or crop artwork to a square (JPG, PNG, HEIC); numbered copies by default, replace-originals only by toggle, radio and per-run confirmation |
+| M4B Metadata Editor | `scripts/m4b/metadata/` | Edit `.m4b/.m4a/.mp4` tags without re-encoding; Save Tags, Clear All Tags, Remove Series Numbering |
+
+MP3 Tool, M4B Maker and Metadata Editor share the multi-Book workspace (`scripts/shared/book_workspace*`): blank means blank on the first two and
+preserve on the Editor. Job, log, import, output-folder and Preferences machinery is shared (`scripts/shared/`). Per-package README module maps
+live in `scripts/README.md` and each package. The six tools side by side: `files/dev-work/feature-map/consistency-matrix.md`.
+
+## 3. Platforms and TTS engines (Implemented)
+
+Supported: **Windows 11 (HOME-PC is the qualification machine, 100% display scaling)** and **Apple Silicon macOS**. Linux is neither qualified nor
+distributed. The voice roster is decided only by `scripts/shared/engine_policy.py`: Windows offers five engines, **34 voices** (Edge 5, Kokoro 9,
+Chatterbox 6, Qwen3 8, OmniVoice 6); macOS offers Edge, Kokoro and OmniVoice, **20 voices**; Chatterbox and Qwen3 are removed from the Mac UI.
+
+| Engine | Where it runs | Notes |
+|---|---|---|
+| Edge TTS | network, in the app process | the only engine with real multi-file concurrency; Kokoro, Chatterbox and Qwen3 use one worker |
+| Kokoro-82M | in-process on Windows; the supervised local-engine worker on macOS (D17, Decisions 2026-11-25) | pinned local model files; espeak data under a short path on macOS |
+| Chatterbox Turbo | in-process, Windows; optional, not the default | six bundled reference recordings, verified by SHA-256 on every use; torch device order cuda, mps, cpu; setuptools held at 80.9.0 |
+| Qwen3-TTS | isolated worker process in `.venv/engines/qwen3`, Windows only | per-file subprocess, JSON-lines events, Job Object, one-machine mutex; Python 3.12 exactly; models under `files/runtime-data/models/qwen3-tts` |
+| OmniVoice | isolated worker process in `.venv/engines/omnivoice` | Windows needs an NVIDIA GPU; macOS uses mps or cpu; offline by audit hook; 300-character chunks, at most 48 per worker; weights are non-commercial (CC-BY-NC) |
+
+Clone voices use 18 shipped reference recordings, engine-specific, bound by `clone_references.json`; Qwen3 uses only the shipped transcript bundle.
+A clone transcript, approved selection or private listening artifact is never opened by an agent. Speech text preparation lives in `scripts/tts/speech/`;
+an OmniVoice chunk with words that renders silent is re-rendered with derived seeds, at most 24
+renderings (Decisions 2026-11-25).
+
+## 4. Repository layout (Implemented)
 
 ```
-Audiobook-Creation-Tool/
-├── README.md, AI-WORKSPACE.md, .gitignore
-├── Setup_and_Run-audiobook-creation-tool.bat / .command   ← the ONLY user-facing entry files
-├── .venv/                      ← auto-built by the bootstrap (gitignored)
-├── .claude/  .codex/           ← agent wiring
-├── config.toml                 ← committed project defaults (validated by verify.py)
-├── md-instructions/            ← ONLY Briefing, Changelog, Decisions, Handoff
-├── scripts/
-│   ├── requirements.txt        ← single pinned cross-platform list
-│   ├── launcher.py  shared/  tts/  mp3/  m4b/  artwork/  ← ALL program code, directly under scripts/ (the import root);
-│   │                             module maps: scripts/README.md and one README per package
-└── files/                      ← dev-only + runtime (nothing here ships in release zips)
-    ├── dev-work/verification-gate/  ← the one development gate: verify.py, verification.json, coverage.json,
-    │                             helpers/ (tracked); outputs/ (ignored, one new child per run)
-    ├── dev-work/feature-map/       ← the feature map: README.md and one document per tool (tracked)
-    ├── bin/                    ← portable ffmpeg fallback (gitignored)
-    ├── runtime-data/           ← logs/, settings.json, models/huggingface/ (Kokoro ~300 MB;
-    │                             all gitignored — delete with .venv for a full uninstall)
-    ├── tests/                  ← pytest suite + Kokoro voice harness
-    ├── test-files/             ← local fixtures incl. copyrighted media (entirely untracked;
-    │                             point tests at it via KOKORO_TEST_PDF_FOLDER)
-    ├── test-logs/              ← QA logs + harness outputs (gitignored)
-    ├── Archives/               ← maintainer-local planning/code archives (gitignored,
-    │                             optional, unpackaged, excluded from test collection)
-    ├── Cloned-Voice-Uploads/   ← Chatterbox/, OmniVoice/, Qwen3/: 18 tracked/bundled reference WAVs (v0.8.0)
-    │                             (derivatives/caches remain in runtime-data)
-    ├── Chatterbox-Voice-Uploads/ ← pre-v0.7.0 folder: six ignored local MP3s only, never read
-    ├── UI-Tool-Screenshots/     ← current upstream Light/Dark references (14 images,
-    │                             tracked at kickoff d2be236; retired screenshots remain history)
-    └── release-history/        ← one-shot docs from past releases (v0.3.1 set)
+README.md  LICENSE  config.toml  pytest.ini
+Setup_and_Run-audiobook-creation-tool.bat / .command   the only files a user double-clicks
+scripts/        all program code (the single import root): launcher.py, shared/, tts/, mp3/, m4b/{converter,maker,metadata}/, artwork/,
+                requirements.txt, hash-pinned locks (Windows py312 and macOS arm64 py312), qwen3-requirements.txt
+md-instructions/  exactly five permanent documents (below)
+files/
+  plans/                    active implementation plans (current: Developer-Experience-Upgrade.md)
+  release-history/          durable release qualification records
+  tests/                    the test suite (never shipped)
+  dev-work/                 local development workspace: verification-gate/ (verify.py, GATE.md, coverage.json), feature-map/
+  bin/  runtime-data/       runtime, ignored (FFmpeg, settings, logs, models, wheels, receipts)
+  Archives/  dist/          protected, local and ignored (historical archives, built ZIPs)
+  test-files/               owner fixtures, never touched
+  UI-Tool-Screenshots/  voice-previews/  Cloned-Voice-Uploads/  tracked supporting assets
+.venv/          the application environment; also holds .venv/engines/{qwen3,omnivoice}; rebuilt on each machine, never committed
 ```
 
-Release zips (built by `shared/release.py` into `dist/`) contain README + `config.toml` + the OS's
-launcher + the committed (git-tracked) `scripts/` tree + exactly the six named Chatterbox WAVs.
-Both OS zips share code/references and differ only in launcher. No other `files/` content ships.
-Packaged-asset changes must be committed before building.
+`scripts/Universal/` no longer exists (Retired: the v0.5.0 layout was lifted to `scripts/` in v0.6.7; any mention of it is stale).
 
-## Current Version
+## 5. Runtime, setup, launch and repair (Implemented)
 
-**Current state (2026-11-20, supersedes the paragraphs below for status):** v0.8.1 is in development on branch `0.8.1` (from `master` `f93e2db`, which merged the macOS v0.8.0 revision `0.8.0+macos.1`; that macOS release is not yet published, its qualification is the owner's). The source is one shared Windows + macOS code base again, identity `0.8.1`. The published Windows release is still v0.8.0. See Handoff for the checkpoint state.
+- **Entry.** `Setup_and_Run-audiobook-creation-tool.bat/.command` runs a fast health check (about 150 ms) and launches the GUI; an unhealthy
+  environment goes to repair. Windows launches on the venv's `python.exe` with a hidden console; `pythonw.exe` is never started because Smart App
+  Control blocks it (Decisions 2026-11-18).
+- **Provisioning.** Stage 0 (`bootstrap_host.ps1` / `bootstrap_host_macos.sh`) finds Python 3.11/3.12 or, with consent, installs per-user
+  python.org 3.12.10. The app environment installs only from a complete **hash lock** (170 packages on Windows) through a verified local store;
+  pip, NLTK and Hugging Face caches stay inside the app folder. First run prepares the base app only; the optional-component panel then offers
+  five components (OmniVoice last and unchecked) acquired from pinned identities under a one-use consent (Decisions 2026-10-25, 2026-10-27).
+- **Unified layout.** One `.venv` holds `.venv/engines/qwen3` and `.venv/engines/omnivoice`; repair, replace and rollback keep them; engine
+  leases refuse a repair while a worker runs; set-aside folders (`.venv.replaced*`, `.venv.discarded*`) are ignored and never packaged. The older
+  `.venv-qwen3` is Retired and kept only for rollback until the owner retires it.
+- **FFmpeg** is user-scope (winget or Homebrew) or a pinned portable copy under `files/bin/ffmpeg/<version>`, proved by running it; no PATH fallback.
+- **Path depth.** Windows paths are counted in UTF-16 (`shared.long_paths`): the app folder may be 87 characters or fewer with long paths off
+  (83 with OmniVoice), 123 (119) with the Win32 long-paths switch; README documents the limits.
+- **Portability.** A release ZIP holds committed files only (README, config.toml, launchers, tracked `scripts/`), built clean; setup self-heals
+  Kokoro on every launch; Clear Downloaded Data is a closed four-id catalog run by a post-exit helper.
 
-**Current state (2026-11-14, supersedes the paragraphs below for status):** v0.8.0 is the current
-Windows release: tag `v0.8.0` on the release commit (resolve with `git rev-parse v0.8.0^{commit}`), GitHub release
-"v0.8.0 — Audiobook Creation Tool" with `AudiobookTool-Windows-v0.8.0.zip` (Windows only), on the owner's maintainer
-release exception (top section). v0.7.3 (tag `v0.7.3` = `dbf38f7`) was published by the owner on 2026-11-12 and is now
-the previous Windows release. macOS v0.8.0 is not supported or published; the latest macOS build stays v0.6.6.
+## 6. Architecture invariants (Implemented; the rules behind the code, with their Decisions entries)
 
-**Current state (2026-11-13, supersedes the paragraph below for status):** v0.7.3 is the released baseline: merged to `master` and tagged `v0.7.3` = `dbf38f7`; its GitHub publication is the owner's manual step (see the Changelog). The v0.8.0 OmniVoice candidate is in progress on `feature/0.8.0-omnivoice-integration` with identity 0.8.0 (section at the top; `Handoff.md`): not merged, tagged or published.
+- **Interface.** `scripts/shared/ui_theme.py` has three branches: Windows dark with the `Compact.*` style catalogue, macOS Aqua (native controls;
+  four outlined role styles draw a same-size outline image), and classic for Linux. The `ACT.*` and `Compact.*` styles are isolated; widgets are
+  styled only through the shared style helpers; there is one appearance setting. Every tool must fit 920x600 (Windows) or 1024x800 (macOS) with
+  no whole-panel scroll. The TTS panel is the visual reference for control language. A Tk object is only touched on the main thread; a closed
+  Tk root is never touched by a worker.
+- **Configuration.** Three layers, last wins: code defaults, valid values in `config.toml`, then the output location chosen in the app
+  (`settings.json`). Each `config.toml` value is checked on its own and falls back with a report; unknown keys are mentioned once.
+  Outputs go to `<base>/<Tool>-Outputs/<Tool>-N`. `developer_mode` is a strict boolean, shipped false (reference-transcript tools are
+  developer-only). Voice identity is (backend, voice_id); labels and order are cosmetic.
+- **Cancellation and containment.** A publication commit is ordered against Cancel (`authorized_commit`); collection never runs on the
+  cancelling thread; every FFmpeg step runs under one supervisor and can be stopped; Windows workers sit in Job Objects, POSIX workers are never
+  reaped before their process group has ended and an identity that cannot be proved is never signalled; retry staging lives exactly as long as
+  Retry Failed can reach it. Cancel acknowledgement target is about 1 s on macOS.
+- **Acquisition.** Observation is not permission: a model, wheel or binary is acquired only from a pinned identity (commit, size, SHA-256 in
+  `scripts/tts/model_assets.py` and the manifests), under consent, and inference loads only verified local copies and never downloads.
+- **Release.** The ZIP is built clean from committed files; launchers are byte-proved; reference WAVs are the 18 tracked recordings; a release,
+  tag and publication are separate, separately authorized steps (never done by an agent unasked).
+- **Private artifacts.** Clone transcripts, approved selections and listening packs are private: never opened, copied or committed.
 
-**v0.7.0 is the current published release (2026-11-02):** tag `v0.7.0` = `c0896d8` (= `master`), GitHub
-release with `AudiobookTool-Windows-v0.7.0.zip` (Windows only). **v0.7.1** (Edge multi-file workers) was merged to
-`master` by fast-forward on 2026-11-04 (`204c33b`) and is not tagged or published. **v0.7.2** is a release candidate on
-`feature/0.7.2-windows-hardening-verification` (identity 0.7.2 since 2026-11-10; section at the top; `Handoff.md`):
-not merged, tagged or published. The v0.6.6 text below is historical.
+## 7. User data and output safety (Implemented; never weaken)
 
-The later bundled-reference cleanup above retains identity 0.6.6. The following original
-publication/tag/asset facts describe the historical GitHub release, not the local cleanup-master
-rebuild awaiting manual asset replacement.
+Sources are never modified. Outputs are copies published whole-or-nothing from private staging; nothing is silently overwritten (TTS Overwrite
+is off unless ticked for a run); the run folder is reserved atomically at validated start. Two opt-in exceptions exist: Cover beside-source
+(replace needs toggle, radio and per-run confirmation, uses `os.replace`) and the Maker's custom destination. Output names are sanitised,
+case-insensitively collision-checked, contained, and never follow links; importing is read-only. Cancel stops active work promptly (only Pause
+drains active files). Settings are written atomically to `files/runtime-data/settings.json`; the GUI never rewrites `config.toml`; Reset touches
+nothing else. Private TTS scratch lives in `%TEMP%\act-tts` with dead-owner recovery. There is no Save Job or session restore (owner decision).
+A process killed from outside can leave `.work` residue (documented boundary).
 
-**v0.6.6 is the current published release (2026-09-30).**
-PR [#13](https://github.com/elmatthe/audiobook-creation-tool/pull/13) is merged into `master` as
-`7222083a732bbb0f1ef91e104725fc9a5cd2d141`, the verified master SHA at publication.
-Tag `v0.6.6` points exactly to that commit. The
-[GitHub Release](https://github.com/elmatthe/audiobook-creation-tool/releases/tag/v0.6.6) is published,
-neither draft nor prerelease.
+## 8. Verification policy (Implemented; Phase 1A will change it)
 
-| Published archive | Bytes | Approved SHA-256 |
-|---|---:|---|
-| [AudiobookTool-Windows-v0.6.6.zip](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.6.6/AudiobookTool-Windows-v0.6.6.zip) | 786842 | `e8e1e7cafb97c2915e5a25af65759356799b46838732eb4e2b887dc3a1f96c75` |
-| [AudiobookTool-MacOS-v0.6.6.zip](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.6.6/AudiobookTool-MacOS-v0.6.6.zip) | 788642 | `fe2462917936e45d4c224736784c4d8f52bc51fefc4b7929651df641e7521de6` |
+`files/dev-work/verification-gate/GATE.md` is the authoritative policy and command reference; `verify.py` there is the one gate (`scripts/verify.py`
+is gone). Exit code 0 alone never passes: the gate reads JUnit, a session probe, the skip policy and collection coverage; skipped, blocked or
+interrupted work never counts as passing. Until Phase 1A: never run `--mode full`, `qualification`, `changed`, `focused --feature` or any
+`--journey` without the owner's authorization for that run; use `--mode focused --test <named selectors>` or guarded direct targeted pytest as
+GATE.md describes. The 56 native journeys take over mouse and keyboard; a locked desktop is BLOCKED. Scratch is repository-contained
+(`files/run-temp/`) except the approved `%TEMP%\act-gate`. Feature changes are recorded in `files/dev-work/feature-map/` and `coverage.json`, which
+must be restamped after source changes. Test rules that bite: AST guards, not substring guards; Windows tests must skip, never fail, on macOS.
 
-GitHub's live asset digests match these approved hashes. The published artifacts retain
-the committed-source proof at `files/release-history/v0.6.6-integration-package-proof.json`
-(package source `1e100e98b5c4f4a11020bdce0e98a631df8b0ee7`). This documentation closeout does not
-rebuild packages; their embedded pre-publication README remains part of the approved artifacts.
+## 9. Documentation and workspace conventions (Implemented)
 
-The approved **v0.6.7 manual/follow-up backlog remains deferred, never passed**:
+- `md-instructions/` holds exactly five permanent documents in exact case and nothing else: `Briefing.md`, `Handoff.md`, `Feature-Map.md`,
+  `Decisions.md`, `Changelog.md`. The gate reads real directory entries because path lookups are case-insensitive. Decisions is append-only,
+  newest first, with a navigation index at its top; Changelog keeps release history with an index at its top.
+- Plans: `files/plans/`. Release qualification records: `files/release-history/`. Protected archives: `files/Archives/`, `dist/`.
+- **Two kinds of checkout (D-5).** The repository is public. A fresh public checkout (clone, source ZIP, release ZIP) has no AI Workspace
+  files and works fully. A development checkout adds local-only `AGENTS.md`, root `CLAUDE.md`, `AI-WORKSPACE.md`, `.ai/` and `.claude/`
+  (gitignored, never staged or pushed); the application and its tests never need them. The owner's canonical `AI-WORKSPACE.md` is not yet
+  installed (Handoff); an older stale `.claude/CLAUDE.md` in the owner's primary checkout still loads as a parent-directory file there.
+- Branches: `master` integrates; `0.8.2` is long-running. The owner's primary checkout (`0.8.1`, daily use, uncommitted owner work) is never
+  switched, reset or edited by an agent; `0.8.2` is developed in the worktree `files/dev-work/wt082` (documentation and static work only: its
+  root is too deep for guarded tests and engine installs; the verification location is owner decision D-1).
 
-- Native macOS all-six-tool Light/Dark, minimum/maximized geometry, Aqua rendering,
-  keyboard/dialog/menu behavior and native automated suites.
-- Hands-on clean Windows/macOS double-click setup, Python/FFmpeg acquisition, cold network
-  install, Gatekeeper quarantine/App Translocation, optional models, repair and relaunch.
-- Physical Windows 125%/150% scaling and the hands-on all-tool visual matrix.
-- Long real-workload Pause/Resume/Cancel/Retry Failed drills, listening judgments
-  (including Kokoro's accepted early breakpoint) and real phone-photo Cover checks.
-- Broader TXT encoding support and sharper per-monitor DPI rendering remain future work.
+## 10. Protected paths
 
-USAC remains a real-media evidence waiver; accepted Kokoro breakpoint, density and wording
-decisions stand. Publication does not turn these evidence gaps into manual acceptance.
+Never modify, clean or reorganize: `dist/`, `files/Archives/`, `.venv/`, `files/runtime-data/`, `files/bin/`, owner fixtures (`files/test-files/`,
+`files/test-for-manual-listen-*`), listening evidence and regenerated audio under `files/dev-work/`, active worktrees, other agents' scratch,
+unknown paths and ACL-locked folders. Phase 2 owns classified cleanup of historical artifacts.
 
-v0.6.6 implementation, integration and publication are complete. Exactly the four canonical
-documents remain tracked under `md-instructions/`; `files/Archives/` remains ignored/local-only.
-The feature branch is retained. No v0.6.7 implementation has started in this closeout.
+## 11. Direction (Approved future; none of it is built)
 
-The dated version checkpoints below are historical. Their unpublished/merge/tag/publication
-and next-action statements are superseded by the published state above; verification remains
-evidence for the scope and platform actually tested.
+The active plan `files/plans/Developer-Experience-Upgrade.md` (Revision 3) sets the v0.8.2 direction: Phase 0 documentation (0A done; 0B this
+compaction), 1A/1B a proportional, resource-aware verification gate and lean evidence, 2 artifact lifecycle and cleanup, 3 uv feasibility and
+packaging contracts (Windows then macOS), 4 base bootstrap and locked provisioning, 5 an engine registry with Qwen3 and OmniVoice migrated and
+Kokoro and Chatterbox Turbo **isolated** into their own environments, 6 migration and legacy retirement, 7 user-facing documentation and
+deterministic distributions (VERSION becomes 0.8.2 only then), 8 performance and native qualification readiness, 9 independent Codex review.
+**None of the following is implemented today**: uv provisioning, six verification modes, isolated Kokoro or isolated Chatterbox on Windows.
+Do not duplicate the plan here.
 
-### Version checkpoint history
+**Pending decisions:** D-1 verification location (before 1A), D-2 external scratch, D-3 ACL-locked folders, D-4 the owner's uncommitted
+plan/release-history archiving, D-6 PowerShell-blocked fallback, D-8 disk cost vs offline repair depth (see `Handoff.md`).
 
+## 12. Known limits (Implemented behaviour; details and evidence in `Handoff.md` and `Decisions.md`)
 
-**Historical checkpoint — 2026-09-30, Phase 15 Step 1 reconciliation complete.** Source
-`21e36163ccc992ef4ba94cb16e58caeda8f236c8` is pushed. The obsolete plan/references/code archive are retired;
-exactly the four canonical docs are tracked and optional Archives copies are ignored/unchanged.
-The warranted package refresh has exact 82-member source/hash/extraction/launcher proof and
-six-panel Windows Tk/in-place theme plus bounded Mac shell smoke. Current candidate evidence is
-`files/release-history/v0.6.6-integration-package-proof.json`; Phase-14 proof/archives remain
-historical. Focused 212/0/0 and static gates pass; no new full suite or manual PASS is claimed.
-Identity 0.6.6 remains unpublished; v0.4.0 remains published. Push the evidence-only checkpoint,
-repeat Step 1 read-only on that HEAD and STOP. Step 2 (PR) and every later gate require separate
-approval. Handoff preserves the live gate/closeout facts and v0.6.7 backlog; Phase 16 has not begun.
-All earlier phase/package-state statements below are dated history where superseded.
+- **Qualification scope.** Windows is qualified on HOME-PC at 100% scaling only; 125%/150% scaling, Windows 10, other GPUs, a non-admin
+  target and a fresh VM are unproven. The app is DPI-unaware by decision. macOS qualification (P7) is pending: `*.PREPARATION` and
+  `WORKSPACE-SCALING` features carry a pending macOS standing; no clean Apple Silicon Mac with 16 GB or more has been available.
+- **Security software.** Smart App Control blocks unsigned natives (sklearn `.pyd`, FFmpeg, `pythonw.exe`); a fresh venv can pull unsigned
+  transitive wheels. WinError 206 appears on over-deep paths.
+- **Engines.** Two app copies can run Qwen3 and OmniVoice on one GPU together; OmniVoice outputs can reach full scale; Qwen3 is English-only
+  and slow (RTF about 1.35); Chatterbox says "Tamar" wrongly and has frozen pause tuning (Decisions 2026-11-25); the 900 s worker stall deadline
+  was measured only on CUDA.
+- **Text and audio.** Narration of about 24.85 hours or more cannot be encoded; a final heading with no text is not spoken; TXT input is UTF-8
+  only; xHE-AAC/USAC was never verified on real media; PDF cleaning has five pinned limits (ACT72-064).
+- **macOS containment.** `setsid` escapees are unreachable, a helper can survive an app kill in a 0.2 s window, a cancel on a hung filesystem
+  call cannot be interrupted; repository folders on macOS are created world-writable pending an owner decision.
+- **Large workspaces.** Residual Tk work remains: Cover standard Start up to 143 ms at 5,000 images, replace-originals validation 1.3 s at
+  5,000, Converter planning not cancellable; the M4B Maker and Editor do not refuse actions during a folder scan (owner call).
 
+## 13. Retired history (not in production)
 
+EPUB input and `ebooklib`/`bs4`/`lxml` (v0.6.1); the root `.venv-omnivoice` and `.venv-qwen3` locations; `scripts/Universal/` and
+`scripts/verify.py`; a four-document contract and the exact-four tests; `pythonw.exe` launching; the macOS-only `0.8.0+macos.1` tag (it shipped
+inside v0.8.1); per-version sections of the old Briefing. Release lineage: v0.6.6 (2026-09-30), v0.7.0 (2026-11-02), v0.7.2, v0.7.3
+(2026-11-12), v0.8.0 (2026-11-14, owner exception, Windows), v0.8.1 (2026-11-21 UTC, Windows and macOS); see `Changelog.md`'s index and
+`files/release-history/`.
 
-**Historical checkpoint — 2026-09-30, Phase 15 Step 1 reconciliation.** Phase 14 is approved at
-`caadf5d4db0b51ef5d04182d92430bcaacdac63c`; identity remains **0.6.6, unpublished RC**, latest
-published release **v0.4.0**. The maintainer retires the completed instruction drop, old planning
-references and tracked archive in favor of exactly the four canonical documents. All earlier
-active-plan/permanent-archive/current-action statements are historical where superseded.
-Handoff carries the integration/closeout gates and v0.6.7 manual backlog. Native Aqua uses
-`CompactAqua.*` with inherited native layouts and metrics. The bounded verifier/reference updates
-change four shipped files and therefore require refreshed committed-source archives; original
-Phase-14 packages/proof are retained. No application AST, dependency pin or launcher changes.
-Focused verification and new package proof are recorded in Handoff; no full-suite rerun is
-claimed. No PR/merge/tag/release/publication or Phase 16 is authorized by this reconciliation.
+## 14. Where to read next
 
-
-**Historical checkpoint — 2026-09-30, Phase 14 COMPLETE.** Phase 13 READY is maintainer-approved at
-`56012558a93853ec2b4847297a0372b4050743e7`. Application identity is now **0.6.6**, an
-**unpublished release candidate**; `version.py`, `config.toml` and live version guards agree.
-The `[Unreleased]` candidate notes cover all Plan-9 phases and retain earlier dated history.
-Final archives are built through the real release path from committed packaged content;
-their exact source/hash/launch/verification evidence is recorded in Handoff at this checkpoint.
-Hands-on native Mac, clean-machine setup, physical scaling, listening and long real-workload
-checks remain deferred to v0.6.7. Integration, tag, release and publication require separate
-maintainer authorization; Phase 15 has not started. The older dated states below are history
-and are superseded on current identity and next action only.
-Final Windows/macOS archives contain 82 committed-content members each (source `3bb7425801ae18e4a0a40ef27baceb8d5c64a692`);
-real Windows setup/batch launch and both extracted code trees pass automated smoke, with Mac
-shell paths proved through Git Bash and interpreter shims. Full verification is **7,905 passed /
-58 accounted skips / zero failures or errors**, strict compile and whitespace checks PASS.
-Handoff and the tracked package-proof record hold exact hashes and evidence limits.
-**STOP for explicit release/integration authorization; Phase 15 has not started.**
-
-
-**Phase-12 acceptance — 2026-09-29.** Phase 11 is maintainer-approved at
-`1a218f96ab57c53758186ac1e2cd9f483ce22d96`. Phase 12 is complete with a passing final full gate,
-awaiting maintainer review. It validated the complete current tree,
-including all six tools and the packaging/bootstrap path; evidence and skip accounting are in
-`Handoff.md`. Test-only changes make two literals warning-safe and correct temporary-path
-assumptions in eSpeak and cleanup tests; no application behavior changes. The standing v0.6.7
-manual backlog remains authoritative: Windows automated geometry
-at 1024×800 does not claim native Aqua acceptance, and synthetic/stubbed jobs do not claim
-listening or long real-workload validation. Identity remains **`0.6.2`, unreleased** until Phase 14.
-The next phase is Phase 13's fresh independent review, only after maintainer acceptance of Phase 12.
-
-**Historical supersession — 2026-09-27.** Supersedes the 2026-09-26 paragraph immediately below
-on merge state and Plan 9 allocation only; its `0.6.2` version-identity statement stands unchanged.
-Pull request #12 merged `feature/0.6.5-tts-quality-refactor` into `master` as merge commit
-`f7fb762e63bc7d46d099ddc8cead2dc68fb188e0`: **v0.6.5 TTS Quality Refinement is confirmed merged**,
-not merely complete-and-awaiting-integration as the paragraph below states. **Plan 9 is no longer
-DISPLACED** — it is reassigned to **v0.6.6**, the final v0.6.x implementation plan
-(`md-instructions/0.6.6-ui-parity-hardening-release.md`, on
-`feature/0.6.6-ui-parity-hardening-release`, created from that verified `origin/master`). No version
-bump, tag, package, or release accompanies this merge or reassignment; identity remains `0.6.2`,
-unreleased.
-
-**Historical supersession — 2026-09-26.** Application version identity remains **`0.6.2`,
-unreleased**, exactly as described below. The following older narrative is retained as history
-where it says v0.6.4 is "not merged" or the v0.6.5/Plan-9 assignment is "unchanged":
-**v0.6.4 merged through PR #11**, merge `1f9bdcf347edaad36d68e237933d3ac6036d0a42`;
-**v0.6.5 is the completed TTS Quality Refinement plan, not Plan 9**. Plan 9 remains
-**DISPLACED — FUTURE ALLOCATION UNASSIGNED**, with its approved future scope preserved.
-No version bump, tag, package, or release accompanies the TTS closeout or this reconciliation.
-
-**v0.6.2** — set at the v0.6.2 Plan 5 closeout on 2026-08-31. v0.4.0 is still the latest
-*published* GitHub release (remote:
-[elmatthe/audiobook-creation-tool](https://github.com/elmatthe/audiobook-creation-tool)).
-
-**This is a version identity, not a release.** `version.py` and `config.toml` read `0.6.2`, and
-that is the whole of it: there is **no `[0.6.2]` changelog heading, no tag, no GitHub release, no
-built archive and no publication**. Plan 5 **is** integrated — it merged into `master` through
-**pull request #6** on 2026-09-02 as merge commit `7fc9d18b69a2a5b802cc88ef9eada99f17a3df6f`,
-with `feature/0.6.2-m4b-converter-upgrade` retained at `393a5625` — but merging published nothing,
-and release remains Plan 9's. v0.6.0 Drops 1–3 (Plans 1–3) never carried a
-version of their own and still do not; v0.6.1 was the first bump since v0.5.1 and v0.6.2 the
-second. The wider v0.6.x initiative is **not** complete. Plan 6 (the shared multi-Book
-workspace) and its MP3 Tool adoption (the v0.6.3 focused MP3 redesign) are implemented, accepted on
-both platforms, and **merged into `master` through pull request #10** on 2026-09-13 as merge commit
-`e0bab662b385734807bf264d8f450aebac053dcc` (parent 1 `83a2bfc7`, parent 2 `4b988676`); branch
-`feature/0.6.3-drop1-shared-multi-book-workspace` retained. The M4B Maker and M4B Metadata Editor
-adoptions were delivered together as **v0.6.4** on `feature/0.6.4-m4b-maker-metadata-editor` (cut
-from that merge) and accepted on both platforms on 2026-09-15 — **not merged, not released**,
-version identity still `0.6.2`. The roadmap's separate Plan 7 (Maker alone) / Plan 8 (MP3 + Editor)
-split was superseded by the maintainer on 2026-09-13 into that one drop (`Decisions.md`,
-2026-09-17); the old Plan 9 assignment — v0.6.5 = final visual parity, hardening, packaging and
-release — is unchanged and undrafted.
-
-## High-Level State
-
-**2026-11-03:** v0.7.0 is published (2026-11-02); v0.7.1 Edge multi-file workers awaits independent review and
-owner acceptance (top section, `Handoff.md`). The 2026-09-30 paragraph below is historical.
-
-**2026-09-30 final state:** v0.6.6 is complete, merged through PR #13 and published under
-tag `v0.6.6` at the release merge SHA recorded above. README is the compact user guide with
-direct Windows/macOS release-asset links. The four canonical docs carry the final release
-facts and retained v0.6.7 backlog. Remaining manual checks keep their approved deferral status.
-The later maintainer-authorized bundled-reference cleanup is recorded above. Its future
-v0.6.7 branch has no unique commit; additional feature work still needs a separate instruction.
-
-### Historical implementation and integration records
-
-The following dated records describe their checkpoints, not today's release or next action.
-Earlier pending integration, displaced plans, version identities and v0.4.0-latest claims
-are superseded by the final published state above. Retired planning/drop/archive references
-remain historical references and must not be restored.
-
-
-**Current-state supersession — 2026-09-27.** Supersedes the "not merged" / integration-pending
-statements in both paragraphs below: pull request #12 is **merged**
-(`f7fb762e63bc7d46d099ddc8cead2dc68fb188e0`), so `feature/0.6.5-tts-quality-refactor`'s integration
-is no longer pending — it is done. The trailer disposition, Phase 9 closeout facts, and every other
-statement in the paragraphs below stand unchanged. **Plan 9 is reassigned to v0.6.6** (see Current
-Version above and `Decisions.md`, 2026-09-27).
-
-**Trailer-disposition amendment — 2026-09-26, after `1c3844d`: RESOLVED by explicit maintainer
-decision.** Existing AI `Co-Authored-By` trailers in the completed v0.6.5 feature-branch history
-at `1c3844dc2b6904b42d9f22af53b7c6023c42ec71` are **ACCEPTED as historical metadata**;
-do not rewrite history to remove them. This bounded acceptance covers those existing commits
-only; **no future commit may add an AI `Co-Authored-By` trailer**. See Handoff's current
-disposition for the exact bounded range. This supersedes only the pending-trailer statements
-in the retained record below. Next action is independent integration-readiness recheck, then
-the maintainer's separate merge decision; no READY verdict or merge authorization is implied.
-
-**Current state — 2026-09-26: v0.6.5 TTS Quality Refinement is COMPLETE and maintainer-approved
-through Phase 9**, including the final smoke/listening gate at
-`ee6c2b712a845f68e0106d219a803b313805ed88`. Closeout
-`bffb7dbf557f7a2656247f336666a4458937b1f3` retired `0.6.5-tts-quality-refactor.md`;
-there is no active v0.6.5 temporary plan. The feature branch
-`feature/0.6.5-tts-quality-refactor` is **not merged** and awaits an independent
-integration-readiness recheck and the maintainer's separate merge decision. The initial
-integration review found documentation contradictions (addressed by this reconciliation) and
-an unresolved AI co-author trailer issue (still requires explicit maintainer disposition).
-This is not a READY verdict or a history-policy waiver. **This paragraph supersedes the older
-v0.6.4 narrative below on merge state and next action:** v0.6.4 is already merged through PR #11;
-its pre-merge recheck is no longer the current action. Its implementation and acceptance
-description remains valid history. Version identity stays `0.6.2`; Plan 9 remains
-**DISPLACED — FUTURE ALLOCATION UNASSIGNED**.
-
-**v0.6.4 — M4B Maker + M4B Metadata Editor — COMPLETE, ACCEPTED on both platforms on 2026-09-15,
-and CLOSED at Phase 15 on 2026-09-17 (`41361ab`); not merged and not released.** Both M4B tools became thin
-panels over Tk-free workflow / plan / engine / batch modules on the shared multi-Book workspace, with
-separate business models: the Maker builds one chaptered `.m4b` per Book (one Book per folder of
-MP3s) from six Shared fields and four Book-only fields, Decision 51A naming, Fast-first with Safe
-fallback, silence between tracks, and a standard run or the explicit custom destination; the Editor
-gives every imported file its own page, preserves by default (blank ≠ remove), starts Shared blank,
-and offers Save Tags / Clear All Tags (keep chapters) / Remove Series Numbering as frozen plans with
-positional blank-line-preserve chapter edits and no audio re-encode. Both stage privately and publish
-each Book atomically after a read-back validation, number series parts success-only through the shared
-allocator, run under one `JobController` with Pause/Resume/Cancel and Retry Failed from the frozen
-plan, and show one Summary | Detailed log. `Clear All Imports` was added to all three multi-Book tools
-by maintainer direction at Phase 12. Windows (Phase 12) and macOS (Phase 13) were each accepted by the
-maintainer on the real launcher with real media; the macOS minimum window became **1024×800** by the
-Phase 13 ruling. Phase 11's combined hardening matrix found and fixed two real defects (ffmetadata
-escaping; junctions in staging cleanup). Latest gates: Windows (Phase 12 amendment, `6cc3eaa`)
-7,395 / 7,364 / 31 / 0; macOS (`f9247c4`) 7,427 / 7,372 / 55 / 0; the Phase 14 Windows gate is
-recorded in `Handoff.md`; `verify.py` PASS. `launcher.TOOLS` still holds exactly six tools. At Phase
-15, after explicit maintainer approval, both the retained Plan-6 drop
-`0.6.3-drop1-shared-multi-book-workspace.md` and the completed v0.6.4 temporary plan were
-**retired**. Their lasting contracts remain in the permanent records. The current action is the
-independent read-only integration-readiness recheck, followed by the maintainer's PR/merge decision
-if it returns READY.
-
-**v0.6.3 focused MP3 redesign (Plan 6 foundation + MP3 Tool adoption) — COMPLETE and ACCEPTED
-on both platforms on 2026-09-12; MERGED into `master` through pull request #10 (`e0bab662`,
-2026-09-13); not released.** The MP3 Tool became a multi-Book
-workspace with Shared → Book → blank metadata precedence, one signed Time, explicit previewed
-artwork (JPG/PNG embedded as-is, HEIC/HEIF converted in memory when the machine can decode them),
-per-Book Chapter Titles and numbering, exactly two actions — Write ID3 Tags and Combine MP3s → One
-MP3 — run sequentially from one frozen plan under one `JobController` with atomic per-Book
-publication, Pause/Resume/Cancel and Retry Failed, one Summary | Detailed log, and a clean tag
-whitelist. Windows Phase 11 and macOS Phase 12 were each accepted by the maintainer on the real
-launcher with real media (playback, source safety, failure isolation and retry included); the
-macOS minimum window became 1024×720 by ruling (since raised to 1024×800 at v0.6.4 Phase 13),
-Windows keeps 920×600. Latest gates at that closeout: Windows 6,925 / 6,909 / 16 / 0; macOS
-6,945 / 6,888 / 57 / 0, `verify.py` PASS. `launcher.TOOLS` still holds exactly six tools.
-
-All six tools are built, live-verified on Windows (v0.1.0 test matrix: 18/18 applicable rows
-PASS; later releases re-verified their areas) **and on macOS (2026-07-08: full per-tool live
-pass under the Finder shell — the `0.5.0-macos-component-verify` plan)**, and shipped through
-GitHub Releases v0.1.0–v0.4.0.
-v0.4.0 added Kokoro self-heal on every launch, the in-tree HF model cache, and the 5-voice
-verification harness. v0.5.0 is a multi-drop line: Drop 1 (this restructure — no tool behaviour
-changes), then metadata, TTS, script hardening, and UI drops.
-
-**v0.6.2 (Plan 5 — M4B Converter upgrade) — COMPLETE, APPROVED and CLOSED on 2026-08-31; not
-merged and not released.** The Converter became a full audiobook-conversion tool: whole-book or
-**split-by-chapter** output over a **complete timeline** (nothing before the first chapter or after
-the last is dropped), three metadata modes over one strict five-field allowlist, whole-book chapter
-maps **with their titles** retained under Preserve and Replace, artwork copied rather than
-re-encoded, **per-book folders** for split output, shared importer / job-control / destination /
-reservation adoption, occurrence-identity duplicates, a fully frozen run including its
-configuration, Pause/Resume/Cancel and Retry Failed, and success-only optional track numbering that
-is **off by default**. Sources are never modified. `launcher.TOOLS` still holds exactly six tools.
-
-**How Plan 5 was validated, and what it deliberately did not prove.** Phase 15 completed the
-**Windows** manual matrix and Phase 16 the **macOS** one, both on the maintainer's real audiobook
-corpus — twelve real M4Bs converted whole and split, with the resulting outputs mechanically
-audited (durations, chapter maps, chapter titles, tag frames, artwork bytes, placement) rather than
-eyeballed. Phase 16 accepted a small number of rows as **WAIVED / EVIDENCE GAP, not as PASS**: a
-real xHE-AAC (USAC) source was not available on either platform, so neither the Windows Media
-Foundation route nor the macOS `aac_at` route has a live end-to-end xHE decode behind it; the code
-paths are covered by tests and by the refusal-rather-than-truncate contract only. Phase 17 was an
-independent bug hunt using three fresh reviewer contexts that had not participated in the
-implementation, with every reported finding mechanically confirmed before it was accepted and every
-resulting regression proved load-bearing by mutation; it found and fixed six defects, including a
-whole-book truncation that reported success, lost chapter titles, an ID3 version that Explorer
-would not read, two occurrences collapsing into one folder, a panel permanently wedged by any
-worker exception, and a run that followed live Preferences instead of its own frozen configuration.
-
-**v0.6.0 Drop 1 (Windows UI prototype) — approved 2026-08-02, not released.** The Windows
-design system, the converted launcher shell and the converted M4B Metadata Editor passed the
-maintainer's visual gate against the ten-image evidence matrix under
-`files/UI-Prototype-Screenshots/v0.6.0-drop1/` (1920×1080, maximized, true 100% and true 125%
-Windows display scaling). **Approval is of the design contract, not a release:** `version.py`
-is still `0.5.1`, no v0.6.0 exists, and the remaining five panels are unconverted. The eight
-further v0.6.x plans are named in the sequencing note but undrafted; **Plan 2 is the next
-implementation-planning target.**
-
-**v0.6.0 Drop 2 (configuration, output, and application maintenance) — approved 2026-08-08,
-not released.** Plan 2 delivered the committed root `config.toml` with per-key fallback and
-once-per-launch warnings, Preferences & Data with the shared output base and Reset, the
-`output_paths` reservation/collision/mirroring service adopted by all six tools, the two
-confirmed destination exceptions, the four-asset downloaded-data inventory with post-exit
-cleanup and rebuild, and `config.toml` in both release archives. Approved at Phase 8
-`0e7ad0c264cb2a46f3c64f968e24f00963cb1987`; Phase 9 is the documentation/retirement commit, not
-another feature phase.
-
-**v0.6.1 (Plan 4 — TTS and Cover Image workflows) — COMPLETE, APPROVED, CLOSED and MERGED
-through pull request #5 (merge `81c9c06`); not released.** The first plan to adopt Plans 2 and 3
-inside production panels. It
-delivered: the **unified PDF/TXT queue** in TTS Audiobook; the **retirement of EPUB** from every
-production surface with its source retained in Git history and optional maintainer-local
-`files/Archives/archived-code/epub-tts/` copies; the Cover **Details / List / Medium Thumbnail** browser;
-**HEIC/HEIF capability detection** with decode and encode reported separately and **format
-preserved rather than silently substituted**; the **Chatterbox** engine with its **four
-maintainer-authorized voices** on **CPU-first** device selection and a truthful degraded path;
-shared importer, output-service and job-control adoption in both panels; the one-explicit-encode
-MP3 finalization contract; and the natural-boundary Chatterbox chunk planner. `launcher.TOOLS`
-still holds exactly six tools.
-
-**How Plan 4 was validated.** The **Windows manual matrix is complete and explicitly approved**
-(HOME-PC, 1920×1080 at 100%, closed 2026-08-19). It ran in maintainer-authorized blocks and
-produced five real defects, each root-caused before being fixed rather than patched around: a
-silently truncated Chatterbox long-form synthesis (Kokoro's 3,000-character chunker was ten times
-Turbo's supported input); an existing `.venv` skipping newly pinned requirements; a clipped
-first-run setup dialog; a settings allowlist written with key names no writer in this repository
-uses; and — the largest — **every TTS final MP3 encoded on ffmpeg's defaults at 32 kbps**, which
-made players report exactly half the true duration. An uncontrolled multi-second silence in
-Chatterbox long-form output was then root-caused to seventeen raw newlines reaching the model and
-fixed by the natural-boundary planner, taking the worst interior gap from **8.73 s to 2.90 s**.
-The maintainer listened to and approved the regenerated chapters.
-
-**Live macOS validation was performed — it is a pass, not a deferral.** Phase 13 ran on an Apple
-M4 Pro (`arm64`, macOS 26.5.2, native Python 3.12.13, not Rosetta) from the approved Phase 12
-commit, and the official `.command` launcher built the environment unaided. It caught four
-failures Windows could not: a real case-folding identity defect on case-insensitive APFS (fixed
-with a seam that **asks the volume, never the platform**); `sanitize_relative` letting a
-Windows-shaped path become a literal `C:` folder on POSIX; one shell-aware test defect; and the
-Cover panel's primary action being unreachable under Aqua, fixed by converting one outer stack
-from `pack` to `grid` with measured row weights. **Genuine HEIC passed 12/12** against a real
-maintainer-supplied file — HEIC in, HEIC out, no `.jpg` anywhere, source SHA-256 unchanged. Kokoro
-died with a native abort traced to espeak-ng's fixed 160-byte data-path buffer overflowing this
-venv's 147-character path; the repository-owned `shared/espeak_data.py` seam links a short root at
-the wheel's own data and does nothing at all where the path already fits. **All four Chatterbox
-voices synthesized on real Metal** — every one of the 694,834,668 parameters on `mps:0`, 3.1–3.5 GB
-of live Metal allocation, no CPU model ever built — and the maintainer listened to all four and
-**approved all four on 2026-08-21**.
-
-**Phase 14 (full regression and the approval gate) found and fixed a real production defect.**
-`enable_mousewheel` took the shared root's single global `<MouseWheel>` slot on hover and gave it
-back only on `<Leave>` — but the launcher's tool switch `pack_forget()`s a panel out from under
-the pointer and closing one destroys it, and **neither fires `<Leave>`**. The stranded binding
-scrolled the tool the user had just left and, once its widget was gone, fired at a Tcl command
-that no longer existed on every wheel tick. Release is now also wired to `<Unmap>` and
-`<Destroy>` and is **ownership-guarded**, so a stale region cannot steal the wheel from the region
-the pointer is actually over. Phase 14 also closed a **testing** hole with no production
-component: every live-Tk module turned a failed `tk.Tk()` into a skip, and one full-suite run
-silently dropped forty-nine Chatterbox integration tests while still exiting zero. The
-classification now lives once in `files/tests/tk_gate.py` and is made from the platform rather
-than from the text of the error — **fail** where a windowing system is part of the platform,
-**skip** only where a display is genuinely optional.
-
-**Plan 4's deferrals, recorded as deferrals and not as passes.** The **Windows 125% scaling
-matrix** was not run (it belongs to the later UI-compression phase, Plan 9) and Windows **DPI
-awareness** is still unresolved. A credible **`.DS_Store`-into-release-packaging defect**, exposed
-by the first Mac checkout, was root-caused and a narrow fix prototyped, then **deliberately left
-uncommitted** — packaging is Plan 9's scope — so it **is not fixed**. A general **pronunciation
-override** capability (global and per-voice) is a recorded future requirement and is **not
-implemented**. Chatterbox narration timing is **frozen** for this release with a small amount of
-residual pause accepted by ear. One native `pythonw.exe` / `torch_cpu.dll` `0xC0000005` access
-violation is **historical, characterised from its minidump, and never reproduced in nine
-controlled attempts or any later run — it is not claimed to be fixed**, and diagnostics were added
-so a recurrence is observable.
-
-**v0.6.0 Drop 3 (shared importing and job-control foundation) — approved 2026-08-10, MERGED
-through pull request #4 (merge `809a43e`); not released.** Plan 3 delivered the four shared modules
-described under Architecture —
-`importing.py`, `import_coordination.py`, `job_control.py` and `job_ui.py` — plus 1,460 tests and
-a developer-only manual harness. **It is infrastructure, not a feature a user can reach:** no
-production panel or launcher imports any of it, `launcher.TOOLS` still holds exactly six tools,
-and no tool's behaviour changed. The Windows manual matrix was run on HOME-PC by the maintainer
-against generated disposable fixtures and **explicitly approved**; the automated gate at closeout
-is **2,534 collected, 2,521 passed, 13 skipped, 1 pre-existing warning**, theme 17/17,
-`verify.py` PASS, compile exit 0.
-
-**What Plan 3's evidence does and does not cover.** The maintainer's attestation is the complete
-manual result; the supplied screenshots visually support only a subset of it (harness startup,
-fixture generation, a 50-file import, list clearing, a completed 1/1 job, the Summary milestones,
-a 380-file repository import, an active 106/380 job at 28% with an ETA of `1m 36s`, per-occurrence
-failure messages, and Pause/Cancel availability while running). Two gaps are recorded rather than
-filled: **exact 100%-display-scaling confirmation was never independently recorded**, so the
-functional Windows matrix is a pass while the true-100% claim is not asserted; and the harness's
-literal source-tree before/after console line was not supplied, so repository verification stands
-as corroborating evidence of source integrity rather than as the harness's own output. The
-maintainer also imported the repository folder as a root (380 supported files) — **broader than
-the plan's disposable-fixture-only preference and recorded as a test-scope deviation.** It mutated
-nothing, and that is provable rather than asserted: importing is pinned to `scandir` and `lstat`,
-the worktree stayed completely clean with no untracked file, `git diff HEAD` was empty, and every
-tracked file and all 22 approved screenshots remained byte-identical. **Windows 125% scaling and
-live macOS validation were not run for Plan 3 and remain deferred to Plan 9.**
-
-**Plans 3 and 4 are now MERGED into `master`** — Plan 3 through pull request #4 (merge `809a43e`)
-and Plan 4 through pull request #5 (merge `81c9c0600ca74a42a22bd09d367a702bee9708fe`, a normal merge
-commit). Both feature branches were retained, not deleted. **v0.6.2 Plan 5 (M4B Converter upgrade)
-is COMPLETE, APPROVED and CLOSED** as of 2026-08-31 on `feature/0.6.2-m4b-converter-upgrade`,
-branched from that verified `master`; its temporary implementation drop has been retired, and its
-lasting record lives here, in `Changelog.md`, `Decisions.md`, `Handoff.md` and the Master
-Implementation Plan Index. **Plan 5 is now also MERGED**, through **pull request #6** on
-2026-09-02 (merge `7fc9d18b69a2a5b802cc88ef9eada99f17a3df6f`, a normal two-parent merge commit;
-parent 1 `81c9c060`, parent 2 the approved feature head `393a5625`); the feature branch was
-**retained**, not deleted. It reached integration through a first review that returned NOT READY
-on documentation grounds, a documentation remediation, a recheck that returned NOT READY on one
-test-only Windows portability defect, that defect's correction, a final recheck that returned
-READY, and an independent PR review that returned READY TO MERGE. **Merging published nothing:**
-tag, release and packaging remain undone and belong to Plan 9. Code/version identity is now
-**`0.6.2`**, and the **published GitHub release remains `v0.4.0`** — no tag, release or package
-exists for any of these plans. *(Superseded, kept as
-history: this paragraph previously said Plan 5 was ACTIVE with Phase 0 complete and Phase 1 not
-started and identity still at `0.6.1`; before that, that the next action was Plan 4 integration
-review, that both branches were unmerged, and that Plan 5 had not been drafted or started. An
-earlier sentence still further back described Plan 4 as the next unopened work, true until Plan 4
-opened on 2026-08-11.)*
-
-**How Plan 2 was validated, and what was deliberately not validated.** The evidence is a clean
-extraction of the real Windows archive into a disposable root whose path carries a space, an
-apostrophe and non-ASCII characters: the real `.bat` launcher detected the absent environment,
-ran the full pinned install, launched the application, read `config.toml` from the extraction,
-created runtime state only in its own `files/runtime-data/`, and used the healthy fast path on
-the next launch with no console. A live **Edge TTS** synthesis produced a real 12.66 s MP3, and
-all six tools' output routes, run numbering, mirroring, both destination exceptions, and the
-post-exit cleanup plus `.venv` rebuild were exercised end to end. The Windows manual matrix
-finished **46/46 PASS**, after a first pass of **44/46** that exposed two genuine defects —
-both fixed before approval:
-
-- **MP3 Combine failed on any path containing an apostrophe.** The ffmpeg concat list escaped
-  `'` as `\'`, but inside single quotes ffmpeg treats every character literally, so the quote
-  closed the token early and truncated the path. It now uses ffmpeg's documented
-  close-escape-reopen form (`'` → `'\''`) and leaves backslashes alone. Spaces, Unicode,
-  apostrophes and all three together are covered by tests that run the real binary.
-- **An already-built panel kept showing the old output location** after a preference change.
-  The shared display registry described above fixes it; the run was always correct, but the
-  displayed destination now is too.
-
-**Two validations are explicitly deferred, and neither is a pass.** **Live macOS was not
-performed for Plan 2** — the aqua path is import- and build-tested only. **The Windows 125%
-scaling/screenshot matrix was not performed**; Windows stayed at true 100% throughout, no
-registry edit or DPI simulation was used, and by maintainer decision the true 125% pass belongs
-to the later dedicated UI-compression/no-scroll phase, once the remaining features are in and
-the layout is stable. Plan 2's screenshot evidence is the twelve-image 100% set under
-`files/UI-Prototype-Screenshots/v0.6.0-drop2/`, plus the `920×600` reachability result; the ten
-Plan 1 images are unchanged.
-
-**Non-Windows preservation is a standing contract.** macOS `aqua`/Finder and the Linux/other
-`classic` fallback must not change as Windows evolves. At the v0.6.0 Drop 1 approval this was
-proven by AST-level comparison against `master`: `_apply_darwin`, `_apply_classic`,
-`_classic_font_family`, `_resolve_color`, `_blend`, `_is_dark`, `_mac_font_family`,
-`enable_mousewheel`, all five `ProgressIndicator` methods, `launcher._build_ui_darwin` and
-`launcher._build_ui_classic` are **byte-identical**; `apply_theme` gained only its `win32`
-arm. Four automated tests keep it that way (`test_apply_theme_on_current_platform` aqua arm,
-`test_classic_branch_other_platform`, `test_non_windows_theme_builds_the_unconverted_layout`,
-`test_an_aqua_bundle_builds_the_historical_layout`). **A live macOS re-verification of the
-v0.6.0 line has not been performed** — it is an explicitly approved deferral, not a pass, and
-the exact five-step smoke test is written out in `Handoff.md`.
-
-### Known limitations and retained follow-up
-
-**Known limitations (documented, not bugs):**
-- **Main environment reproducibility (audit ACT67-AUD-010, 2026-10-21).** `scripts/requirements.txt` pins direct dependencies (plus the
-  qualified `srsly==2.5.3`), not the full transitive set, so two installs can differ (spaCy 3.8.15 vs 3.8.16 was observed); Chatterbox's
-  weights are downloaded without a pinned model revision. Only `.venv-qwen3` is fully hash-pinned. A full lock is a separate owner decision.
-- **Python 3.11 vs Qwen3.** Ordinary ACT accepts a 3.11 or 3.12 app environment; the optional Qwen3 voices need exactly 3.12 (cp312 wheels).
-  On a 3.11 environment the Qwen3 installer refuses with a clear message and the eight Qwen3 voices stay unavailable; nothing else is affected.
-- **Current v0.6.6 disposition (Phase 13, 2026-09-29).** The historical Plan-9 targets below
-  are superseded by the frozen v0.6.6 contract: all six core-control groups must fit without
-  core scrolling at Windows 920×600 and Mac 1024×800. Windows geometry/keyboard suites cover
-  minimum through maximized sizes and logical scaling sizes; native Aqua, physical scaling,
-  listening, clean-machine and long real-workload checks remain deferred to v0.6.7 by the
-  maintainer. Those deferrals are evidence gaps, never manual passes.
-- **TXT encoding contract — 2026-09-29 (maintainer ruling, v0.6.6 Phase 11).** A `.txt` source is
-  **UTF-8, with or without a BOM**, on every engine and on both the Add Files and folder paths. No
-  ANSI/cp1252 or guessed-encoding fallback exists in v0.6.6. Another encoding fails that one item
-  and is never mis-read. The README tells users how to re-save as UTF-8. Broader encoding support is
-  **deferred to v0.6.7**.
-- **TTS text encoding and Kokoro break placement — 2026-09-28 (v0.6.6 Phase 10).**
-  - A `.txt` source must be UTF-8. A leading byte-order mark is fine. A legacy "ANSI"/cp1252 file
-    fails that one item, with a technical decode message, and the rest of the run continues.
-  - Edge rejects empty, header-only, heading-only and punctuation-only direct sources before
-    synthesis. The local engines reject text left empty after stripping Title/Author headers;
-    their heading/body parsing is different. No all-engine punctuation-only rejection is proved.
-  - Kokoro may break a long text at an earlier sentence end than the last one in its
-    3,000-character window. No text is lost; this is accepted without listening evidence.
-  - The Edge engine's CLI-only `--format m4b` path is hardened. The app itself only writes MP3.
-
-  See `Decisions.md` 2026-09-28.
-- **DPI disposition — 2026-09-28 (v0.6.6 Phase 9).** This supersedes the next bullet's
-  "unresolved … reserved for Plan 9" wording only; its facts stand. **The process stays
-  DPI-unaware for v0.6.x, by decision.** Staying unaware keeps the logical layout scale-invariant.
-  The v0.6.6 cross-tool suite measures the logical maximized sizes at 125% and 150% on
-  1920×1080, and all six tools pass. A tripwire test blocks any silent DPI opt-in. Sharp-text
-  per-monitor DPI awareness is future work (a v0.6.7+ candidate) and needs a full re-measure.
-  See `Decisions.md` 2026-09-28.
-- **The application is DPI-unaware on Windows — unresolved future work, not finished
-  behaviour.** `GetProcessDpiAwareness` returns `UNAWARE`, and neither the venv's
-  `python.exe` / `pythonw.exe` nor the base Python 3.12.10 they are copied from carries a
-  `dpiAware` manifest entry; `pythonw.exe` is what `Setup_and_Run` launches, so this is the
-  real end-user path. At 100% scaling there is no virtualization and rendering is 1:1. At
-  125% Windows bitmap-scales the whole window: the app's coordinate space never changes (Tk
-  still reports 96 px/inch), so **text is slightly soft rather than re-rendered at 120 DPI**.
-  The same fact is why **nothing clips, overlaps or reflows at 125%** — every dimension
-  scales by an identical factor, and the measured geometry at 1024×720 and 920×600 is
-  byte-identical to the 100% pass. This did **not** block the v0.6.0 Drop 1 approval because
-  the app stays usable and unclipped, but it is **explicitly unresolved Windows work**
-  reserved for Plan 9 or an appropriately scoped future plan. Fixing it means a manifest or
-  a `SetProcessDpiAwareness` call at startup plus a re-measure of every fixed pixel metric —
-  a real behaviour change, deliberately not attempted during the prototype.
-- **The final GUI fit contract (target for Plan 9, binding on all new UI now).** At the
-  reference environments — Windows 11 at 1920×1080 with both 100% and 125% display scaling,
-  plus the approved live macOS reference display — the **maximized** launcher must show each
-  complete tool view **without a whole-panel or whole-form scrollbar where practical**: the
-  bounded configuration sections, primary actions, run controls, progress/status and output
-  location all visible at once. Reach that with adaptive layout (responsive columns, compact
-  spacing, wrapping, collapsible secondary material, local list sizing) rather than by putting
-  a whole tool inside a permanently scrolling canvas. **Scrolling stays valid for genuinely
-  unbounded content** — imported-file lists, book/job collections, chapter-title collections,
-  long metadata/result details, Summary/Details logs, thumbnail browsers — and must be kept
-  *local to that region*, with primary actions, Cancel/Pause/Resume, progress, status and
-  output access still reachable. "Full screen" here means the ordinary window maximized by the
-  OS; it does **not** mean an F11 borderless mode and does **not** change the startup geometry
-  or force auto-maximizing. At the `920×600` minimum no plan promises every variable-length
-  section is simultaneously visible — the requirement is graceful adaptation: no unreachable
-  primary action, no unresolvable overlap, no clipped confirmation button. `MIN_SIZE` and
-  `DEFAULT_GEOMETRY` are unchanged (below). The M4B Metadata Editor's permanently scrolling
-  form was an accepted Plan 1 limitation, not the final target; **v0.6.4 Phase 10 discharged it** —
-  the rebuilt Editor has no whole-form canvas and only its chapter box and log scroll.
-- **Windows geometry, deliberately unchanged; macOS has its own minimum since v0.6.3.**
-  `MIN_SIZE = (920, 600)` and `DEFAULT_GEOMETRY = "1024x720"` stay as they are on Windows and
-  the classic branch. The aqua bundle returns `AQUA_MIN_SIZE = (1024, 800)` and opens the launcher
-  at `AQUA_GEOMETRY` (the same size) — the maintainer's v0.6.4 Phase 13 ruling (2026-09-15), which
-  raised the v0.6.3 Phase 12 floor of 1024×720 (2026-09-12); see *The M4B Maker and M4B Metadata
-  Editor* above and `Decisions.md` (2026-09-17); the launcher
-  applies whatever `theme["min_size"]` says. The **M4B Converter's historical minimum-size
-  clipping was discharged by v0.6.6 Phase 4**: its rebuilt guided workflow keeps the primary
-  action, run controls and Activity visible. All six tools are covered by real Windows shell
-  geometry tests. The earlier Editor, Maker and MP3 Tool checks found no clipping at
-  any size or scaling — every region is mapped inside a 920×600 window on Windows (proved on a
-  deiconified root) and at 1024×800 on macOS; since v0.6.4 the Editor has no scroll region other
-  than its chapter box and log.
-- **Windows combobox popdowns follow Light/Dark** through the shared appearance helper;
-  the historical unthemed-popdown deferral is discharged. **The Windows title bar stays
-  OS-owned**: the frozen v0.6.6 contract explicitly excludes that native decoration. No Win32
-  title-bar override is planned for this release.
-- **xHE-AAC decode is routed but unproven on real media.** ffmpeg's native AAC decoder cannot
-  decode xHE-AAC (USAC) M4Bs. Since v0.6.2 the M4B Converter routes such a source through
-  **Windows Media Foundation** on Windows, and macOS uses Apple's `aac_at`; where neither route
-  can decode, the run reports it rather than writing a truncated book. Both routes remain
-  **unverified end to end** — no real USAC audiobook has been available on either platform
-  (macOS 2026-07-08, Windows and macOS again through Plan 5's Phases 15–16, 2026-08-31) — so this
-  is an evidence gap, recorded as a waiver and never as a pass. The other five tools still use
-  ffmpeg's native decoder and are unchanged.
-- **Fresh one-click clean-machine install** (winget Python 3.12 + multi-GB torch + 300 MB
-  model) is verified in pieces, not yet end-to-end on a virgin box.
-- The `.bat` entry point briefly flashes its own cmd window on launch (the GUI itself never
-  shows a console); eliminating it entirely would need a shortcut shim — deferred.
-
-**Owner ground rules:** non-technical users are the audience; no visible consoles; every
-dependency `==`-pinned; repo root stays minimal; upstream credit (GPL-3.0): epub2tts-edge
-(Christopher Aedo), edge-tts, Kokoro-82M.
+| Need | Read |
+|---|---|
+| Live state, open issues, next action | `Handoff.md` |
+| Why something is the way it is | `Decisions.md` index, then the dated entry |
+| What shipped when | `Changelog.md` index |
+| What a feature must do and how it is verified | `Feature-Map.md`, `files/dev-work/feature-map/`, `coverage.json` |
+| What verification may run | `files/dev-work/verification-gate/GATE.md` |
+| The active plan | `files/plans/Developer-Experience-Upgrade.md` |
+| Release qualification evidence | `files/release-history/` |

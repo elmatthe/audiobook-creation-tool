@@ -19,7 +19,7 @@ samples lie about the shipped engine.
 
 *It does not solve "Tamar".* The maintainer still hears "Ta-Mar" where they want
 "Tay-mar". That is a **general pronunciation-override requirement**, recorded in
-Handoff and deferred to its own designed feature. A guard below fails if anyone
+Decisions (2026-11-25, Phase 0B; it lived in Handoff until then) and deferred to its own designed feature. A guard below fails if anyone
 tries to satisfy it by special-casing the word.
 """
 
@@ -288,7 +288,7 @@ def _engine_code_only() -> str:
 
 
 def test_tamar_was_not_solved_by_special_casing_it():
-    """The requirement is recorded in Handoff, not hard-coded in the engine."""
+    """The requirement is recorded in Decisions, not hard-coded in the engine."""
     code = _engine_code_only()
     for token in ("tamar", "tay-mar", "taymar", "ascended",
                   "pronunciation_map", "phoneme_overrides", "lexicon"):
@@ -298,10 +298,16 @@ def test_tamar_was_not_solved_by_special_casing_it():
 
 
 def test_the_pronunciation_requirement_is_still_documented_somewhere():
-    """Deferring it must not mean losing it."""
-    handoff = (Path(__file__).resolve().parent.parent.parent
-               / "md-instructions" / "Handoff.md").read_text(encoding="utf-8")
-    assert "Tay-mar" in handoff
+    """Deferring it must not mean losing it.
+
+    v0.8.2 Phase 0B moved the requirement from Handoff (compacted to current state) to its durable home,
+    Decisions.md, whose entry also states it is open. The pin keeps its meaning: it fails if the requirement
+    is ever dropped from the permanent record.
+    """
+    decisions = (Path(__file__).resolve().parent.parent.parent
+                 / "md-instructions" / "Decisions.md").read_text(encoding="utf-8")
+    assert "Tay-mar" in decisions
+    assert "not solved" in decisions.lower()
 
 
 def test_the_engine_does_not_carry_a_word_substitution_table():

@@ -13,7 +13,28 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ---
 
+### Release-history index (navigation only; added by Phase 0B on 2026-11-25)
+
+Nothing below is moved or rewritten. Find a section with its heading text.
+
+- `[0.8.2]` — development branch `0.8.2` (long-running; nothing tagged, merged or published).
+- `[0.8.1]` — published 2026-11-21 (UTC), Windows and macOS; shipped on a maintainer exception.
+- `[0.8.0+macos.1]` — macOS-only revision; never tagged separately, it shipped inside 0.8.1 (its heading still reads as a candidate, as written then).
+- `[0.8.0]` — 2026-11-14, OmniVoice; Windows release on maintainer-accepted evidence.
+- `[0.7.3]` — 2026-11-12 hotfix; then `v0.7.2 release-readiness history` and the `[Unreleased] — v0.7.2 Phase …` blocks (Phases 3 to 9), then one plain
+  `[Unreleased]` block holding the v0.7.0-era and v0.6.7-era work before `[0.7.0]` (2026-11-02).
+- `[0.6.6]` — 2026-09-30 (the v0.6.x checkpoint history is inside and below it).
+- `[0.5.0]` 2026-07-06, `[0.4.0]` 2026-06-05, `[0.3.2]` and `[0.3.1]` 2026-06-04, `v0.2.0 — Installer Hardening (macOS)`, `[0.1.3]` to `[0.1.0]` 2026-05-29/30.
+- The file ends with early planning residue (`Decisions (Phase 0)`, `Open Questions`, `Session Log`); treat it as history.
+
 ## [0.8.2] - unreleased (development branch `0.8.2`; nothing is tagged, merged or published)
+
+**Changed (documentation and development process; the app is unchanged)**
+- `md-instructions/` now holds exactly five permanent documents (`Briefing.md`, `Handoff.md`, `Feature-Map.md`, `Decisions.md`, `Changelog.md`); active
+  plans live in `files/plans/`. The Feature-Map is an index of the maps under `files/dev-work/feature-map/`.
+- Handoff and Briefing were compacted to current state (Phase 0B). The full earlier documents are recoverable with
+  `git show 85462005bc203e6b33fd975e2709fe3d9014b7b3:md-instructions/Handoff.md` (and `Briefing.md`). Decisions and this file gained navigation indexes only.
+- The v0.8.1 release status above was corrected to published. The Tay-mar pronunciation requirement now lives in Decisions.
 
 **Fixed (TTS: OmniVoice chapters that could never convert)**
 - Chapters whose text has a cut-off word in its own paragraph (for example a thought that breaks off after two letters and an ellipsis) no longer fail with OmniVoice. On some seeds the voice renders such a fragment so quietly that the engine's own clean-up removes all of it; every chunk's seed is fixed, so those chapters failed the same way every time (four Shadow Slave chapters in the owner's mass run). Such a chunk is now rendered again with further seeds derived from its own, up to 24 renderings, until it speaks. Words are never replaced by silence or another voice, a chunk that speaks at once is rendered exactly as before (every file the app could already make is unchanged), Cancel is honoured between renderings, and a chunk that stays silent on every seed still fails its file, now saying how many renderings were tried (in the detailed log and the failure record). 10 regression tests added.
@@ -84,10 +105,15 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 - A Chapter Titles change made without a key release (for example a mouse paste) is no longer lost when a run starts or when moving to another Book.
 - The previous run's kept staging is removed by the new run's worker instead of on the window's thread.
 
-## [0.8.1] - unreleased (release candidate; tagging and publication await the owner)
+## [0.8.1] - 2026-11-21 — published (GitHub release `v0.8.1`, Windows and macOS ZIPs; tag at release-preparation commit `6a7be75`)
 
 One shared Windows + macOS version again after the macOS-only `0.8.0+macos.1` revision (which was prepared but never tagged or
-published). Nothing is tagged or published yet.
+published).
+
+**Release status (corrected 2026-11-25, v0.8.2 Phase 0B).** v0.8.1 was published on GitHub on 2026-11-21 at 05:45:50 UTC (2026-11-20 23:45 at
+UTC-6) with `AudiobookTool-Windows-v0.8.1.zip` and `AudiobookTool-MacOS-v0.8.1.zip`. It shipped on the maintainer's recorded verification
+exception (below): publication does not mean every acceptance item passed. The text under this heading was written while v0.8.1 was a release
+candidate and is otherwise unchanged.
 
 **Release preparation (documents only; no application code, no `scripts/` change)**
 - Final independent Codex review: **PASS WITH LIMITATIONS** for `f7a0b51e697cf71cf8d51887ed548a10908918ec` (M1, M2 and M3 independently closed).

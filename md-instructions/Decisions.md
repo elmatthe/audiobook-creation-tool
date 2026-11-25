@@ -2,6 +2,110 @@
 
 Append-only. Newest entries on top. Each entry: date, decision, why, signed by whoever made it.
 
+### Index of standing decisions (navigation only; added by Phase 0B on 2026-11-25)
+
+This index changes nothing below it. Every line names a dated entry; find it with `grep -n "^## <date> — <first words>"` or your editor's
+search. Entries are never moved or rewritten (append-only), so the index cites headings, not line numbers. A later entry supersedes an
+earlier one only where this index or the entry itself says so. The index lists what still governs the code and the process; anything
+not listed is history, recoverable here and through Git.
+
+**Documents, Git and process**
+- 2026-11-25 — v0.8.2 Phase 0B: Handoff and Briefing compaction, this index, the open pronunciation requirement, D17 recorded.
+- 2026-11-25 — v0.8.2 Phase 0A: five permanent documents (exact case), plans in `files/plans/`, a local-only AI Workspace (D-5), v0.8.1 published (D-7), interim verification rule.
+- 2026-11-21 — v0.8.2 is a long-running development branch: nothing is merged, tagged or released per fix; identity stays 0.8.1.
+- 2026-08-29 — Project work lives in the repository; external workspaces need permission.
+- 2026-07-08 — AI-WORKSPACE.md and the vibe-coding templates are excluded from version control (reaffirmed by Phase 0A).
+- 2026-07-07 — No AI co-author trailers in commit messages, ever (maintainer is sole author; a harness attribution reminder does not override it).
+- 2026-07-06 — One commit per drop for the entire v0.5.0 sequence (historical; v0.5.0 only).
+
+**Verification gate**
+- 2026-11-06 — Phase 2 closeout: verification is targeted first, one planned full gate per phase on a committed candidate.
+- 2026-11-06 — The canonical gate moves to `files/dev-work/verification-gate`; scratch stays short (the `%TEMP%\act-gate` exception).
+- 2026-11-06 — The gate owns its Windows error mode, and why a run can lose a flag.
+- 2026-11-07 — The journeys' application runs at Low integrity so its file dialogs cannot write the owner's history.
+- 2026-11-11 — Phase 8 checkpoint after a Windows Update restart: a blocked gate is fixed at its cause, not rerun.
+- 2026-11-22 — v0.8.2: Windows excuses the `files/dev-work/` "no colliding test basename" skip, and only that one.
+
+**Setup, environment and packaging**
+- 2026-11-13 — v0.8.0 unified `.venv` layout: OmniVoice at `.venv/engines/omnivoice`; an earlier `.venv-omnivoice` is never used.
+- 2026-11-13 — v0.8.0 Phase 3: OmniVoice is the fifth component of the optional installer, used only with the installer's receipt.
+- 2026-11-18 — Windows starts the app on the venv's `python.exe` with a hidden console; `pythonw.exe` is never started (Smart App Control).
+- 2026-10-31 — The app environment installs only from a complete hash lock through a verified local store.
+- 2026-10-27 — Owner-approved Option B: base preparation is separate from optional acquisition (an out-of-order entry near the end of the file; see the ordering note).
+- 2026-10-25 — P04C closes on the nested Qwen3 layout: `.venv/engines/qwen3` is canonical; legacy `.venv-qwen3` kept unused for rollback.
+- 2026-10-25 — Optional voices are acquired only from pinned identities, under a spent consent; inference loads only verified local copies.
+- 2026-10-24 — Developer mode is a typed `config.toml` boolean, shipped false; reference-transcript tools are developer-only.
+
+**Engines, voices and platforms**
+- 2026-11-16 — macOS P4C: one platform capability policy (`scripts/shared/engine_policy.py`) decides the engines; macOS offers Edge, Kokoro and OmniVoice (20 voices).
+- 2026-11-16 — Owner decisions Q1=A, Q2=A, Q3=A: Mac-first scope with an approved Edge/Kokoro fallback; unsupported engines removed from the Mac UI.
+- 2026-11-16 — P4B owner-accepted with its memory performance exception: the Mac-GPU worker keeps its 16-chunk bound.
+- 2026-10-24 — Voice identity is (backend, voice_id); labels and order are cosmetic; the six recordings per engine are fixed by table.
+- 2026-11-20 — v0.8.1 Checkpoint C1: an OmniVoice chunk with nothing to say, trimmed to zero samples, is a 0.2 s pause; refined by the next line.
+- 2026-11-25 — v0.8.2: an OmniVoice chunk with words that comes back empty is rendered again with further seeds derived from its own (24 renderings at most).
+- 2026-11-18 — P5 closeout: the darwin map is complete; long-form real-media evidence; App Nap measured.
+- 2026-11-18 — P5-H: on a Mac a narration that reaches the assembly gate is joined on disk, never in memory.
+- 2026-11-18 — P5-D: on POSIX a synthesis worker is never reaped before its process group has been ended (a series of P5 containment entries follows it).
+- 2026-11-20 — Expedited macOS release readiness: Cancel acknowledgment about 1 s; D16 route C; no further wholesale containment redesign (route C was overtaken: v0.8.1 shipped both ZIPs).
+
+**Output, cancellation and data safety**
+- 2026-11-03 — TTS output is published atomically through one contract; Overwrite is off unless ticked for a run.
+- 2026-11-05 — Cancel stops active work promptly, finished narration included; only Pause drains active files.
+- 2026-11-04 — No low-memory path can hang: every Edge FFmpeg route is supervised and stoppable.
+- 2026-11-08 — Cancel stops a running FFmpeg step in the MP3 Tool and the M4B Maker through one small supervisor.
+- 2026-11-22 — v0.8.2 Windows qualification: Import Folder replaces only the Books the user agreed to replace.
+- 2026-11-21 — v0.8.2: no persistence feature for the MP3 workspace; the guarantee is responsiveness and kept edits within the session.
+
+**User interface**
+- 2026-11-20 — v0.8.1 Checkpoint A: shared identity 0.8.1; engine roster decided only by the capability policy; dialog history written only on accepted selection.
+- 2026-11-20 — v0.8.1 Checkpoint E: on Aqua the four outlined role styles draw a same-size outline image element.
+
+**Ordering notes.** The file is newest-first from the top down to `2026-07-06 — verify.py adopted as the mechanical gate`. Known breaks, left in
+place (append-only): `2026-10-01 — Strip only recognised embedded MP3 join metadata before strict decoding` sits among the 2026-09-20 entries;
+`2026-10-19` entries sit among the 2026-10-20 ones near `2026-10-20`; and the last eight entries (`2026-10-27 — Owner-approved Option B`,
+`2026-10-30 — Release installer`, and six dated 2026-11-09 for v0.7.2 Phase 6 batches A to E and its final candidate) were appended after the
+2026-07-06 entry. D16 and D18 (macOS) are recorded inside the 2026-11-18 P5 closeout entry; D17 is recorded in the entry below.
+
+**Archival split.** Not performed. A recommendation (index plus per-era archive files, never reordering) is in the Phase 0B report for the
+planning chat to approve; until then this file stays whole.
+
+## 2026-11-25 — v0.8.2 Phase 0B: Handoff and Briefing are compacted to current state with Git recovery; the Tay-mar requirement and D17 get a Decisions home; v0.8.1 is recorded as published
+
+**Decision.** `md-instructions/Handoff.md` holds the current state only (an `## Execution Snapshot` of `- **Key:** value` lines in the shape the
+owner's local `scripts/project-status.py` reads, work in progress, open issues and blockers, owner decisions, verification and evidence,
+recent checkpoints). `md-instructions/Briefing.md` describes the application as it is (architecture, constraints, conventions) and separates
+implemented architecture from approved future architecture, pending feasibility decisions and retired history. Everything else they used to
+carry is recoverable and not repeated: the last pre-compaction commit is `85462005bc203e6b33fd975e2709fe3d9014b7b3`, so
+`git show 85462005bc203e6b33fd975e2709fe3d9014b7b3:md-instructions/Handoff.md` and the same path for `Briefing.md` return the full documents
+(2.7 MB and 200 KB). Decisions and Changelog are not rewritten; they gain navigation indexes only. A permanent plan-by-era split of Decisions
+and Changelog is a proposal awaiting the owner's approval, not a decision.
+
+**Why.** The Handoff had grown to 27,317 lines and the Briefing to 1,794: a new agent session could not orient without reading years of
+development logs, and most open items were buried in superseded blocks. One authoritative home per durable fact, with Git for history.
+
+**v0.8.1 is published.** The GitHub release `v0.8.1` was published 2026-11-21T05:45:50Z (2026-11-20 23:45 at the maintainer's UTC-6 clock) with
+`AudiobookTool-Windows-v0.8.1.zip` and `AudiobookTool-MacOS-v0.8.1.zip`; the tag `v0.8.1` is the commit `6a7be7525222f93cd569b356e5467d270c971fe0`
+on `master`. The macOS-only `0.8.0+macos.1` revision was never tagged separately: it shipped inside v0.8.1. Publication does not mean every
+acceptance item passed: v0.8.1 shipped on the maintainer's recorded exception (no passing final canonical Full gate) and its not-qualified
+list stands (`files/release-history/ACT-v0.8.1-Windows-MacOS-Release-Acceptance.md`). `VERSION` stays 0.8.1 until Phase 7.
+
+**Open requirement: the pronunciation of Tamar (moved here from the Handoff so the compaction cannot lose it).** The maintainer requires that
+the name Tamar be spoken "Tay-mar"; Chatterbox says "Ta-mar" or "Tay-Mar" inconsistently. This is **not solved and not claimed solved**. It is
+deliberately not implemented as a word rule: it needs a separately designed, general pronunciation-override facility (entries such as
+`Tamar -> Tay-mar`, with global and per-voice scopes) and a research spike that keeps two things apart: A, a deterministic override that can be
+guaranteed per engine, and B, generation consistency, which cannot be fully guaranteed. Other observed names (for example Nephis and
+Ascended) are evidence only and are never hard-coded. No engine carries a word-substitution table, and `files/tests/test_chatterbox_selected_tuning.py`
+fails if any such token appears in executable engine code and fails if this requirement disappears from this document. Chatterbox pause and
+rhythm tuning stays frozen at the maintainer's Phase 12 values; further tuning needs its own authorisation.
+
+**D17 (macOS plan, recorded here because the plan may be retired in Phase 2).** Preemptible Cancel for the local engines: on macOS, Kokoro and Chatterbox (where offered) run
+in the supervised local-engine worker under the Cancel contract C1 to C5; on Windows, Kokoro and Chatterbox stay in-process with
+between-chunk Cancel exactly as released. Adopting the worker on Windows is a later decision with Windows qualification. The Developer
+Experience Upgrade plan (Phase 5C) supersedes it for Kokoro and Chatterbox when Phases 5C and 5D land. D16 and D18 stay inside the 2026-11-18 P5 closeout entry.
+
+**Consequences.** The Tay-mar pin in `test_chatterbox_selected_tuning.py` now reads this file (its meaningful requirement is unchanged). The
+Decisions ordering breaks stay documented in the index above; no entry was moved.
+
 ## 2026-11-25 — v0.8.2 Phase 0A: five permanent documents, active plans in `files/plans/`, a local-only AI Workspace (D-5), v0.8.1 published (D-7), and an interim verification rule
 
 Signed: the owner (D-5, D-7, the plan location and the interim rule, through the planning chat's Phase 0A prompt); recorded by Claude Code (Opus 5.5), HOME-PC. Plan: `files/plans/Developer-Experience-Upgrade.md` (Revision 3).
