@@ -10,6 +10,7 @@ earlier one only where this index or the entry itself says so. The index lists w
 not listed is history, recoverable here and through Git.
 
 **Documents, Git and process**
+- 2026-11-25 — v0.8.2 Pre-Phase 1A: `C:\ACT-Dev` development checkout (D-1), the main application environment is always root `.venv/`, A5 and A6 approved in principle, DOC-1 archival in Phase 2.
 - 2026-11-25 — v0.8.2 Phase 0B: Handoff and Briefing compaction, this index, the open pronunciation requirement, D17 recorded.
 - 2026-11-25 — v0.8.2 Phase 0A: five permanent documents (exact case), plans in `files/plans/`, a local-only AI Workspace (D-5), v0.8.1 published (D-7), interim verification rule.
 - 2026-11-21 — v0.8.2 is a long-running development branch: nothing is merged, tagged or released per fix; identity stays 0.8.1.
@@ -68,6 +69,26 @@ place (append-only): `2026-10-01 — Strip only recognised embedded MP3 join met
 
 **Archival split.** Not performed. A recommendation (index plus per-era archive files, never reordering) is in the Phase 0B report for the
 planning chat to approve; until then this file stays whole.
+
+## 2026-11-25 — v0.8.2 Pre-Phase 1A: the permanent development checkout is `C:\ACT-Dev` (D-1); the main application environment is always `.venv/` in the application root; A5 and A6 are approved in principle; historical documentation archival is approved for Phase 2 (DOC-1)
+
+**Decision.** (1) **D-1 approved.** Real-environment development and verification of `0.8.2` happens in a dedicated Git clone at `C:\ACT-Dev` (short path, its own real root `.venv/`, no linked environment). It is an explicit exception to the earlier rule that project work stays inside the repository (2026-08-29 entry) and a development location only, not a requirement on ACT users: production code, launchers, packaging and user documentation never hard-code it. Project work, dependencies, environments and disposable artifacts otherwise stay in that checkout, subject to the previously approved narrowly scoped scratch exceptions (`%TEMP%\act-gate`). The old nested worktree `files/dev-work/wt082` and the owner's primary checkout stay as found; retiring the worktree is a later approved cleanup.
+
+(2) **Fixed requirement: the main application virtual environment is always `.venv/` directly inside the ACT application root**, in development checkouts, GitHub source ZIPs and official release ZIPs, on Windows and macOS, with no dependency on `C:\ACT-Dev`. It is not open for redesign. Phase 3's nested-versus-sibling comparison (A1) concerns only the independent engine environments.
+
+(3) **A5 approved in principle:** native OS-backed machine-wide heavyweight verification locking: a Windows named kernel mutex with appropriate machine-wide semantics; the macOS equivalent is evaluated in the Phase 1A architecture spike; any new persistent external lock artifact or location needs separate approval.
+
+(4) **A6 approved in principle:** owner-issued, scoped heavyweight-verification authorization records bound to candidate identity, platform, permitted scope, expiry and execution budget; consumption, concurrency and trust-boundary semantics are defined in the Phase 1A architecture spike.
+
+(5) **DOC-1 approved:** Phase 2 archives classified historical Decisions and Changelog entries into tracked per-era documents (`files/documentation-history/decisions/`, `files/documentation-history/changelog/`), keeps exactly five permanent documents in `md-instructions/`, keeps indexes, links and meaningful historical evidence, and keeps the protected local-only `files/Archives/` separate. Nothing is archived before Phase 2.
+
+**Corrections from the Phase 0B independent review.** The Index of standing decisions above is a navigation aid, not a mechanism that automatically supersedes unlisted decisions: an entry stays in force unless it or a later entry says otherwise. Outstanding historical defects are reassessed for release relevance during the final independent review. `files/run-temp/` is untracked and unignored by an earlier owner decision, a staging hazard recorded for Phase 2.
+
+**Why.** The nested worktree cannot run guarded or depth-sensitive tests (123-character root, no `.venv`, product link checks refuse a junction); a clone at a 10-character root can, as the earlier `C:\t\a82` clone proved. One predictable root `.venv/` keeps every distribution and launcher on the location they already assume.
+
+**Not authorized by this entry.** Implementing the A5 lock, the A6 authorization records, any new verification mode or the archival; uv or any packaging change; heavyweight runs; merging, tagging or releasing.
+
+Signed: the owner (decisions, via the planning chat); recorded by Claude Code (Sonnet 5.5).
 
 ## 2026-11-25 — v0.8.2 Phase 0B: Handoff and Briefing are compacted to current state with Git recovery; the Tay-mar requirement and D17 get a Decisions home; v0.8.1 is recorded as published
 

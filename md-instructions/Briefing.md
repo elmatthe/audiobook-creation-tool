@@ -147,10 +147,11 @@ must be restamped after source changes. Test rules that bite: AST guards, not su
 - **Two kinds of checkout (D-5).** The repository is public. A fresh public checkout (clone, source ZIP, release ZIP) has no AI Workspace
   files and works fully. A development checkout adds local-only `AGENTS.md`, root `CLAUDE.md`, `AI-WORKSPACE.md`, `.ai/` and `.claude/`
   (gitignored, never staged or pushed); the application and its tests never need them. The owner's canonical `AI-WORKSPACE.md` is not yet
-  installed (Handoff); an older stale `.claude/CLAUDE.md` in the owner's primary checkout still loads as a parent-directory file there.
+  installed (Handoff); an older stale `.claude/CLAUDE.md` in the owner's primary checkout still loads as a parent-directory file there (not in the development clone `C:\ACT-Dev`).
 - Branches: `master` integrates; `0.8.2` is long-running. The owner's primary checkout (`0.8.1`, daily use, uncommitted owner work) is never
-  switched, reset or edited by an agent; `0.8.2` is developed in the worktree `files/dev-work/wt082` (documentation and static work only: its
-  root is too deep for guarded tests and engine installs; the verification location is owner decision D-1).
+  switched, reset or edited by an agent; `0.8.2` is developed in the permanent short-path clone `C:\ACT-Dev` (owner decision D-1, approved 2026-11-25; its own real root `.venv/`, a development
+  location only, never referenced by application code). The old nested worktree `files/dev-work/wt082` is preserved, documentation-only, and holds protected local evidence.
+- The main application environment is always `.venv/` directly inside the application root, in development checkouts, source ZIPs and release ZIPs on both platforms (fixed requirement).
 
 ## 10. Protected paths
 
@@ -160,7 +161,7 @@ unknown paths and ACL-locked folders. Phase 2 owns classified cleanup of histori
 
 ## 11. Direction (Approved future; none of it is built)
 
-The active plan `files/plans/Developer-Experience-Upgrade.md` (Revision 3) sets the v0.8.2 direction: Phase 0 documentation (0A done; 0B this
+The active plan `files/plans/Developer-Experience-Upgrade.md` (Revision 4) sets the v0.8.2 direction: Phase 0 documentation (0A done; 0B this
 compaction), 1A/1B a proportional, resource-aware verification gate and lean evidence, 2 artifact lifecycle and cleanup, 3 uv feasibility and
 packaging contracts (Windows then macOS), 4 base bootstrap and locked provisioning, 5 an engine registry with Qwen3 and OmniVoice migrated and
 Kokoro and Chatterbox Turbo **isolated** into their own environments, 6 migration and legacy retirement, 7 user-facing documentation and
@@ -168,7 +169,7 @@ deterministic distributions (VERSION becomes 0.8.2 only then), 8 performance and
 **None of the following is implemented today**: uv provisioning, six verification modes, isolated Kokoro or isolated Chatterbox on Windows.
 Do not duplicate the plan here.
 
-**Pending decisions:** D-1 verification location (before 1A), D-2 external scratch, D-3 ACL-locked folders, D-4 the owner's uncommitted
+**Pending decisions:** D-2 external scratch, D-3 ACL-locked folders, D-4 the owner's uncommitted
 plan/release-history archiving, D-6 PowerShell-blocked fallback, D-8 disk cost vs offline repair depth (see `Handoff.md`).
 
 ## 12. Known limits (Implemented behaviour; details and evidence in `Handoff.md` and `Decisions.md`)

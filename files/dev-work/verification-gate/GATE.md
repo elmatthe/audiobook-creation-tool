@@ -74,8 +74,8 @@ pytest's own summary or JUnit XML, never from a pipeline's exit code.
 - **Worktree path depth.** `files/dev-work/wt082` has a 123-character root (the primary checkout 102). There, 22 guarded
   cases fail "disposable consumer process cwd exceeds Windows bound", optional-engine installs exceed their path limits
   and NLTK/model data is absent. Docs and static work only; no real-environment, guarded or depth-sensitive run there.
-- **D-1 (open, due before Phase 1A):** the permanent location for real-environment verification is not decided. Until
-  it is, no agent creates or modifies an external short-path clone without the owner's approval.
+- **D-1 (approved 2026-11-25): `C:\ACT-Dev`** is the permanent short-path development clone for real-environment verification (its own real root `.venv/`).
+  Run the gate, guarded groups and the nested-git-fixture modules there. Every limitation above still applies to a checkout that has no real `.venv` or a deep path.
 
 ## Heavyweight operations: owner authorization required
 
