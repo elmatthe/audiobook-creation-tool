@@ -2,6 +2,14 @@
 
 Append-only. Newest entries on top. Each entry: date, decision, why, signed by whoever made it.
 
+## 2026-11-25 — v0.8.2: an OmniVoice chunk with words that comes back empty is rendered again with further seeds derived from its own (24 renderings at most); never a pause, never another voice
+
+Signed: Claude Code (Opus 5.5), HOME-PC, self-reviewed (not independently reviewed). Evidence: Handoff "v0.8.2 failed-chapter remediation"; `files/dev-work/v082-fc/` (ignored, local).
+- **Decision.** In the worker, a chunk that has a letter or digit and whose rendering returns no samples is rendered again with the next seed of a fixed sequence the app derives from the chunk's own seed inputs (`derive_seed(voice, chunk, attempt)`), up to `SPEECH_RENDERINGS` = 24 renderings including the first. Attempt 0 keeps the released seed. Exhaustion fails the file as before, with the count. Cancel is checked between renderings.
+- **Why.** The four failures are a deterministic property of (fragment text, seed): the model renders a two-letter cut-off word below OmniVoice's -50 dBFS silence threshold on some seeds (26 of 40 for the worst text) and keeps it on others. With a fixed seed a retry can never succeed; a different seed is the only change that leaves the words, the voice and every other chunk alone. 24 renderings put the worst measured text at about 3 in 100,000 and cost about 16 s on CUDA when a chunk never speaks.
+- **Rejected.** A pause for the fragment (drops words the text contains; C1 allows it only for chunks with nothing to say). Merging short paragraphs into a neighbour or changing quotes in speech preparation (changes the plan, the seeds or the spoken text of every chapter with such a paragraph, so all their audio). Turning off OmniVoice's post-processing (changes every rendering; the fragment is still silence). Retrying other failures (an exception, out of memory or non-finite audio is not this condition). Adding a cause to the run Summary line (a shared, pinned contract; the technical cause is already in the Detailed log, the session log and `failures.jsonl`) — left for the owner.
+- **Pipeline revision unchanged (1).** Only chunks that would have failed their file render differently; the eight neighbouring chapters regenerated on the fix are byte-identical to the production MP3s.
+
 ## 2026-11-22 — v0.8.2: Windows excuses the `files/dev-work/` "no colliding test basename" skip, and only that one
 
 Signed: Claude Code (Sonnet 5.5), HOME-PC, self-reviewed. Evidence: Handoff "v0.8.2 Windows skip-policy reconciliation".

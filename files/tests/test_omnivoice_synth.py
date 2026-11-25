@@ -607,8 +607,12 @@ class mps:
     current_allocated_memory = driver_allocated_memory = staticmethod(lambda: 0)
 
 
+#: v0.8.2: the seed the last manual_seed set, so the stand-in model can answer a seed the way the real one does.
+SEEDS = []
+
+
 def manual_seed(seed):
-    pass
+    SEEDS.append(int(seed))
 
 
 def from_numpy(array):
@@ -683,6 +687,12 @@ class OmniVoice:
             torch.fail()
         import numpy as np
         if kwargs.get("text") in torch.PLAN.get("empty_for", ()):  # upstream's answer when its output was all silence
+            return [np.zeros(0, dtype="float32")]
+        # v0.8.2: silent for these seeds only, as the real model is for a word fragment ("Wh...") on some seeds
+        silent_seeds = torch.PLAN.get("empty_for_seeds", {}).get(kwargs.get("text"), ())
+        if torch.PLAN.get("cancel_after_seeds") == len(torch.SEEDS):  # the person clicks Cancel during this rendering
+            open(torch.PLAN["cancel_file"], "w").close()
+        if torch.SEEDS and torch.SEEDS[-1] in silent_seeds:
             return [np.zeros(0, dtype="float32")]
         return [np.full(2400, 0.01, dtype="float32")]
 '''
@@ -1330,7 +1340,9 @@ def test_end_to_end_a_worded_paragraph_rendered_as_silence_still_fails_and_publi
     destination.write_bytes(b"THE OWNER'S EARLIER FILE")
     with pytest.raises(osy.OmniVoiceFailed) as failed:
         fake.convert(text=ELLIPSIS_STORY, script=launcher)
-    assert str(failed.value).endswith(UNUSABLE + " (chunk 3 of 3, worker batch 1 of 1)")
+    # v0.8.2: silent on every one of its seeds, it fails after all of them, and says so
+    assert str(failed.value).endswith(f"{UNUSABLE} in each of {osy.SPEECH_RENDERINGS} renderings, each with its own "
+                                      "seed (chunk 3 of 3, worker batch 1 of 1)")
     assert destination.read_bytes() == b"THE OWNER'S EARLIER FILE" and fake.leftovers() == []
     record = json.loads((fake.jobs / osy.FAILURE_HISTORY).read_text("utf-8"))
     assert record["chunk"]["number"] == 3 and record["chunk"]["audio_shape"] == [0]
@@ -1341,3 +1353,143 @@ def test_a_worker_that_reports_a_pause_for_a_chunk_with_words_is_not_believed(fa
     with pytest.raises(osy.OmniVoiceFailed, match="returned silence for chunk 2 of 5, which has words to speak"):
         fake.convert(text=PARAGRAPHS, plan={"behavior": "claim_silent", "at": 1})
     assert fake.leftovers() == [] and not (fake.tmp / "story.mp3").exists()
+
+
+# --------------------------------------------------------------------------- #
+# v0.8.2: a chunk with words whose rendering came back silent is rendered again with its next seed
+# --------------------------------------------------------------------------- #
+#: The Shadow Slave failures (Chapters 72, 299, 338, 490): a cut-off word in a thought, its own paragraph, so its own
+#: chunk. On some seeds OmniVoice renders such a fragment entirely below -50 dBFS and its post-processing returns no
+#: samples; each chunk's seed is fixed, so the same chapter failed the same way on every attempt.
+FRAGMENT = "’Wh...’"
+FRAGMENT_STORY = "He stopped at the door.\n\n" + FRAGMENT + "\n\nThen he ran down the hall."
+
+
+def _fragment_chunk(voice: str = "omnivoice-male-2"):
+    text = osy.prepare(FRAGMENT_STORY, OFF, osy.OMNIVOICE_ROUTE).text
+    chunk = osy.plan_chunks(text)[1]
+    assert chunk.text == FRAGMENT
+    return chunk
+
+
+def test_the_first_seed_is_the_released_one_and_the_further_seeds_are_derived_from_it():
+    """Every chunk's first rendering keeps the seed it always had (every file made before is unchanged); the further
+    seeds are a fixed function of the same inputs, so a run is still reproducible."""
+    text = "\n\n".join([f"Paragraph {i} is here." for i in range(7)] + [FRAGMENT])
+    chunk = osy.plan_chunks(text)[7]
+    assert (chunk.index, chunk.text) == (7, FRAGMENT)
+    assert osy.derive_seed("omnivoice-male-4", chunk) == 2003012475, "the seed Chapter 72's chunk 8 had in production"
+    seeds = osy.rendering_seeds("omnivoice-male-4", chunk)
+    assert len(seeds) == osy.SPEECH_RENDERINGS == 24 and seeds[0] == 2003012475
+    assert len(set(seeds)) == len(seeds) and all(type(s) is int and 0 <= s < 2**31 for s in seeds)
+    assert seeds == osy.rendering_seeds("omnivoice-male-4", chunk), "the same seeds every time"
+    assert [osy.derive_seed("omnivoice-male-4", chunk, attempt=n) for n in range(len(seeds))] == seeds
+    assert osy.rendering_seeds("omnivoice-male-3", chunk)[1:] != seeds[1:], "the voice is part of every seed"
+    nothing = osy.plan_chunks("He waited.\n\n...")[1]
+    assert osy.rendering_seeds("omnivoice-male-4", nothing) == [osy.derive_seed("omnivoice-male-4", nothing)], \
+        "a chunk with nothing to say is never rendered again (v0.8.1 C1: an empty rendering of it is a pause)"
+
+
+def test_a_job_gives_each_chunk_with_words_its_further_seeds_and_a_chunk_with_nothing_to_say_none(fake):
+    fake.convert(text="He waited.\n\n...\n\n" + FRAGMENT, speech_prep=OFF)
+    chunks = fake.jobs_seen()[0]["chunks"]
+    assert [c["text"] for c in chunks] == ["He waited.", "...", FRAGMENT]
+    for chunk in chunks:
+        planned = next(c for c in osy.plan_chunks("He waited.\n\n...\n\n" + FRAGMENT) if c.index == chunk["index"])
+        assert [chunk["seed"], *chunk["retry_seeds"]] == osy.rendering_seeds("omnivoice-male-2", planned), chunk
+    assert [len(c["retry_seeds"]) for c in chunks] == [osy.SPEECH_RENDERINGS - 1, 0, osy.SPEECH_RENDERINGS - 1]
+
+
+def test_a_job_whose_further_seeds_are_not_whole_numbers_is_refused(tmp_path):
+    from tts import omnivoice_worker as w
+
+    job = synth_job(tmp_path)
+    job["chunks"] = [{"index": 0, "text": "Hello.", "seed": 1, "retry_seeds": [2, 3]}]
+    assert w.job_problems(job, OFFLINE) == []
+    for bad in ("2", [2.0], ["2"], [True], None):
+        job["chunks"] = [{"index": 0, "text": "Hello.", "seed": 1, "retry_seeds": bad}]
+        assert any("seeded" in p for p in w.job_problems(job, OFFLINE)), bad
+
+
+def test_the_real_worker_renders_a_silent_fragment_again_with_its_next_seed(tmp_path):
+    chunks = [{"index": 0, "text": "Before.", "seed": 1, "retry_seeds": [11, 12]},
+              {"index": 1, "text": FRAGMENT, "seed": 2, "retry_seeds": [21, 22, 23]},
+              {"index": 2, "text": "After.", "seed": 3, "retry_seeds": [31]}]
+    code, events = run_stack_worker(tmp_path, {"empty_for_seeds": {FRAGMENT: [2, 21]}}, chunks=chunks)
+    assert code == 0 and [e["event"] for e in events] == ["loaded", "chunk", "chunk", "chunk", "done"], events
+    again = events[2]
+    assert (again["index"], again["renderings"], again["seed"], again["audio_s"]) == (1, 3, 22, 0.1)
+    assert "silent" not in again, "words are never a pause"
+    data, _ = sf.read(str(tmp_path / "chunks" / "chunk-0002.wav"), dtype="float32")
+    assert data.shape == (2400,) and np.allclose(data, 0.01), "the model's own audio from the seed that spoke"
+    assert "renderings" not in events[1] and "renderings" not in events[3], "a chunk that spoke at once: as before"
+
+
+def test_the_real_worker_fails_a_fragment_that_stays_silent_on_every_seed(tmp_path):
+    chunks = [{"index": 0, "text": "Before.", "seed": 1},
+              {"index": 1, "text": FRAGMENT, "seed": 2, "retry_seeds": [21, 22]},
+              {"index": 2, "text": "After.", "seed": 3}]
+    code, events = run_stack_worker(tmp_path, {"empty_for_seeds": {FRAGMENT: [2, 21, 22]}}, chunks=chunks)
+    assert code == 2 and [e["event"] for e in events] == ["loaded", "chunk", "failed"], events
+    failed = events[-1]
+    assert (failed["index"], failed["renderings"], failed["audio_shape"]) == (1, 3, [0])
+    assert failed["message"] == UNUSABLE + " in each of 3 renderings, each with its own seed"
+    assert not (tmp_path / "chunks" / "chunk-0002.wav").exists()
+    assert not (tmp_path / "chunks" / "chunk-0003.wav").exists()
+
+
+def test_the_real_worker_never_renders_a_chunk_with_nothing_to_say_again(tmp_path):
+    chunks = [{"index": 0, "text": "...", "seed": 2, "retry_seeds": [21]}]
+    code, events = run_stack_worker(tmp_path, {"empty_for_seeds": {"...": [2]}}, chunks=chunks)
+    assert code == 0 and events[1]["silent"] is True and "renderings" not in events[1], events
+
+
+def test_the_real_worker_stops_between_renderings_when_cancelled(tmp_path):
+    """A Cancel that lands while a fragment is being rendered again is honoured before its next rendering."""
+    chunks = [{"index": 0, "text": FRAGMENT, "seed": 2, "retry_seeds": list(range(100, 123))}]
+    plan = {"empty_for_seeds": {FRAGMENT: [2, *range(100, 123)]}, "cancel_after_seeds": 3,
+            "cancel_file": str(tmp_path / "cancel")}
+    code, events = run_stack_worker(tmp_path, plan, chunks=chunks)
+    assert code == 130 and events[-1] == {"event": "canceled", "completed": 0}, events
+    assert not (tmp_path / "chunks" / "chunk-0001.wav").exists()
+
+
+def test_end_to_end_a_fragment_whose_first_seeds_were_silent_publishes_the_whole_file(fake, monkeypatch, tmp_path):
+    """The parent and the REAL worker together: the fragment is rendered again with its next derived seed, the MP3
+    is published whole with the model's own audio for it, and the log says how many renderings it took."""
+    seeds = osy.rendering_seeds("omnivoice-male-2", _fragment_chunk())
+    launcher = _real_worker_conversion(fake, monkeypatch, tmp_path, {"empty_for_seeds": {FRAGMENT: seeds[:2]}})
+    fake.convert(text=FRAGMENT_STORY, script=launcher, chunk_pause_ms=700, speech_prep=OFF)
+    assert (fake.tmp / "story.mp3").read_bytes() == b"MP3-BYTES" and fake.leftovers() == []
+    gap, spoken = np.zeros(int(24000 * 0.7)), np.full(2400, 0.01, dtype="float32")
+    expected = np.concatenate([spoken, gap, spoken, gap, spoken]).astype("float32")
+    assert fake.exported["arr"].shape == expected.shape and np.allclose(fake.exported["arr"], expected, atol=1e-4)
+    (noted,) = [line for line in fake.logs if "rendered 3 times" in line]
+    assert noted.startswith("  OmniVoice chunk 2/3 (0.1 s of audio")
+    assert not (fake.jobs / osy.FAILURE_HISTORY).exists(), "nothing failed"
+
+
+def test_end_to_end_a_fragment_silent_on_every_seed_fails_and_records_its_renderings(fake, monkeypatch, tmp_path):
+    seeds = osy.rendering_seeds("omnivoice-male-2", _fragment_chunk())
+    launcher = _real_worker_conversion(fake, monkeypatch, tmp_path, {"empty_for_seeds": {FRAGMENT: seeds}})
+    destination = fake.tmp / "story.mp3"
+    destination.write_bytes(b"THE OWNER'S EARLIER FILE")
+    with pytest.raises(osy.OmniVoiceFailed) as failed:
+        fake.convert(text=FRAGMENT_STORY, script=launcher, speech_prep=OFF)
+    assert str(failed.value).endswith(f"{UNUSABLE} in each of {osy.SPEECH_RENDERINGS} renderings, each with its own "
+                                      "seed (chunk 2 of 3, worker batch 1 of 1)")
+    assert destination.read_bytes() == b"THE OWNER'S EARLIER FILE" and fake.leftovers() == []
+    record = json.loads((fake.jobs / osy.FAILURE_HISTORY).read_text("utf-8"))
+    assert (record["chunk"]["number"], record["chunk"]["renderings"]) == (2, osy.SPEECH_RENDERINGS)
+    assert record["chunk"]["seed"] == seeds[0] and FRAGMENT not in json.dumps(record, ensure_ascii=False)
+
+
+def test_a_later_file_converts_after_one_that_failed_on_every_seed(fake, monkeypatch, tmp_path):
+    """A permanent chunk failure fails its own file only: the next file through the same engine is converted whole."""
+    seeds = osy.rendering_seeds("omnivoice-male-2", _fragment_chunk())
+    launcher = _real_worker_conversion(fake, monkeypatch, tmp_path, {"empty_for_seeds": {FRAGMENT: seeds}})
+    with pytest.raises(osy.OmniVoiceFailed):
+        fake.convert(text=FRAGMENT_STORY, script=launcher, speech_prep=OFF, name="first.mp3")
+    fake.convert(text="A whole chapter that speaks.\n\nAnd ends.", script=launcher, speech_prep=OFF, name="second.mp3")
+    assert not (fake.tmp / "first.mp3").exists() and (fake.tmp / "second.mp3").read_bytes() == b"MP3-BYTES"
+    assert fake.leftovers() == []

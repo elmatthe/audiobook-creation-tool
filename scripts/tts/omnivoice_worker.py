@@ -252,9 +252,14 @@ def job_problems(job: dict, environ: Optional[dict] = None, system: Optional[str
     chunks = job.get("chunks")
     if not isinstance(chunks, list) or not chunks or not all(
             isinstance(c, dict) and type(c.get("index")) is int and isinstance(c.get("text"), str) and c["text"].strip()
-            and type(c.get("seed")) is int for c in chunks):
+            and type(c.get("seed")) is int and _seed_list(c.get("retry_seeds", [])) for c in chunks):
         problems.append("the chunks are not a list of indexed, seeded, non-blank texts")
     return problems
+
+
+def _seed_list(value) -> bool:
+    """A chunk's further seeds (v0.8.2): a list of whole numbers, possibly empty."""
+    return isinstance(value, list) and all(type(s) is int for s in value)
 
 
 def _cancelled(job: dict) -> bool:
@@ -632,23 +637,40 @@ def run_synth(job: dict) -> int:
         t0 = time.perf_counter()
         shape = None
         silent = False
+        words = speakable(chunk["text"])
+        # v0.8.2: the seeds this chunk may be rendered with, in order -- its own, then (a chunk with words only) the
+        # further ones the app derived for it. Nothing past the first is used unless a rendering comes back empty.
+        seeds = [int(chunk["seed"])] + ([int(s) for s in chunk.get("retry_seeds", [])] if words else [])
+        renderings = 0
         try:
-            torch.manual_seed(int(chunk["seed"]))  # seeds the CPU and MPS generators as well
-            if device == "cuda":
-                torch.cuda.manual_seed_all(int(chunk["seed"]))
-            outputs = model.generate(text=chunk["text"], language=job["language"], voice_clone_prompt=prompt,
-                                     generation_config=config, normalize_text=False)
-            _sync(torch, device)
-            wav = np.asarray(outputs[0], dtype=np.float32)
-            shape = list(wav.shape)
+            for seed in seeds:
+                if renderings and _cancelled(job):
+                    emit({"event": "canceled", "completed": done})
+                    return EXIT_CANCELED
+                renderings += 1
+                torch.manual_seed(seed)  # seeds the CPU and MPS generators as well
+                if device == "cuda":
+                    torch.cuda.manual_seed_all(seed)
+                outputs = model.generate(text=chunk["text"], language=job["language"], voice_clone_prompt=prompt,
+                                         generation_config=config, normalize_text=False)
+                _sync(torch, device)
+                wav = np.asarray(outputs[0], dtype=np.float32)
+                shape = list(wav.shape)
+                # v0.8.2: a short fragment with words ("'Wh...'", "'Cr...'": a cut-off word, its own paragraph) is,
+                # on some seeds, rendered entirely below -50 dBFS, and upstream's post-processing then returns no
+                # samples. The chunk's seed is fixed, so the same file failed the same way every time. It is rendered
+                # again with its next seed until it speaks; its words are never replaced by a pause.
+                if not (words and wav.ndim == 1 and wav.size == 0):
+                    break
             # v0.8.1 C1: for a chunk with nothing to say ("..."), the model renders under a second of near-silence;
             # about one seed in five keeps it all below -50 dBFS, upstream's post-processing then removes all of it as
             # silence and returns no samples. That is the right answer, not a failure: the chunk becomes the pause
-            # upstream puts around every rendering. A chunk with words that comes back empty still fails below.
-            if wav.ndim == 1 and wav.size == 0 and not speakable(chunk["text"]):
+            # upstream puts around every rendering. A chunk with words still empty after its every seed fails below.
+            if wav.ndim == 1 and wav.size == 0 and not words:
                 wav, silent = np.zeros(pause_samples(job["generation"], rate), dtype=np.float32), True
             if wav.ndim != 1 or wav.size == 0 or not np.isfinite(wav).all():
-                raise RuntimeError(f"the model returned unusable audio (shape {wav.shape})")
+                every = f" in each of {renderings} renderings, each with its own seed" if renderings > 1 else ""
+                raise RuntimeError(f"the model returned unusable audio (shape {wav.shape}){every}")
             name = f"chunk-{int(chunk['index']) + 1:04d}.wav"
             sf.write(str(out_dir / name), wav, rate, subtype="FLOAT")
         except Exception as exc:  # noqa: BLE001
@@ -660,6 +682,8 @@ def run_synth(job: dict) -> int:
                       **failure_memory(torch, device)}
             if shape is not None:
                 failed["audio_shape"] = shape
+            if renderings > 1:
+                failed["renderings"] = renderings
             emit(failed)
             return EXIT_FAILED
         done += 1
@@ -669,7 +693,8 @@ def run_synth(job: dict) -> int:
                 peaks[key] = max(peaks.get(key, 0), memory[key])
         emit({"event": "chunk", "index": chunk["index"], "of": len(chunks), "wav": name,
               "audio_s": round(wav.size / rate, 3), "gen_s": round(time.perf_counter() - t0, 3), "sample_rate": rate,
-              "peak": round(float(np.abs(wav).max()), 5), **({"silent": True} if silent else {}), **memory})
+              "peak": round(float(np.abs(wav).max()), 5), **({"silent": True} if silent else {}),
+              **({"renderings": renderings, "seed": seed} if renderings > 1 else {}), **memory})
     if device == "cuda":
         emit({"event": "done", "chunks": done, "sample_rate": rate, "device": "cuda:0",
               "wall_s": round(time.perf_counter() - started, 2), "load_s": load_s,

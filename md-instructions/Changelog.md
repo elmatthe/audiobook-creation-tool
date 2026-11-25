@@ -15,6 +15,9 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [0.8.2] - unreleased (development branch `0.8.2`; nothing is tagged, merged or published)
 
+**Fixed (TTS: OmniVoice chapters that could never convert)**
+- Chapters whose text has a cut-off word in its own paragraph (for example a thought that breaks off after two letters and an ellipsis) no longer fail with OmniVoice. On some seeds the voice renders such a fragment so quietly that the engine's own clean-up removes all of it; every chunk's seed is fixed, so those chapters failed the same way every time (four Shadow Slave chapters in the owner's mass run). Such a chunk is now rendered again with further seeds derived from its own, up to 24 renderings, until it speaks. Words are never replaced by silence or another voice, a chunk that speaks at once is rendered exactly as before (every file the app could already make is unchanged), Cancel is honoured between renderings, and a chunk that stays silent on every seed still fails its file, now saying how many renderings were tried (in the detailed log and the failure record). 10 regression tests added.
+
 **Changed (Windows verification policy; the app is unchanged)**
 - The Windows skip policy now excuses exactly one more reason, "files/dev-work/ currently holds no colliding test basename" (max 1), which a clean clone produces because it holds no local test copies. Qwen3 absence and every other unreviewed skip remain failures on Windows. One focused policy test added (`test_macos_p1b_gate.py`).
 

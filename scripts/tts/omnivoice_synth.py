@@ -95,6 +95,12 @@ MPS_CHUNKS_PER_WORKER = 16
 #: Bump deliberately whenever a change can alter generated audio (planning, seeding, generation, assembly).
 PIPELINE_REVISION = 1
 SEED_BASE = 20261113
+#: v0.8.2: the most renderings a chunk with words gets while each comes back empty -- its own seed, then the further
+#: seeds :func:`rendering_seeds` derives. On the real engine a cut-off word in a thought (``'Wh...'``, the Shadow Slave
+#: failures) came back empty on 26 seeds in 40; 24 renderings leave that about a 3-in-100,000 chance, and a chunk that
+#: stays silent on every one costs about 16 s before its file fails as before. A chunk that speaks at once is rendered
+#: exactly as it always was (so PIPELINE_REVISION is unchanged: every file that could be made before is identical).
+SPEECH_RENDERINGS = 24
 
 LANGUAGE = "English"
 #: Windows' device and dtype, as released. Every run asks ``omnivoice_runtime.device_policy`` (these on Windows; the
@@ -148,12 +154,21 @@ def plan_chunks(text: str) -> list[_local.Chunk]:
     return _local.plan_chunks(text, OMNIVOICE_MAX_CHUNK_CHARS)
 
 
-def derive_seed(voice_id: str, chunk: _local.Chunk) -> int:
+def derive_seed(voice_id: str, chunk: _local.Chunk, attempt: int = 0) -> int:
     """Stable per-chunk seed: the same voice, position and words always give the same seed, so a retry renders the same
-    text the same way."""
+    text the same way. *attempt* > 0 (v0.8.2) is the seed of that further rendering of a chunk whose earlier ones came
+    back empty; attempt 0 is the seed every chunk has always had."""
     text_hash = hashlib.sha256(chunk.text.encode("utf-8")).hexdigest()
-    digest = hashlib.sha256(f"{SEED_BASE}|{voice_id}|{chunk.index}|{text_hash}".encode("utf-8")).digest()
+    key = f"{SEED_BASE}|{voice_id}|{chunk.index}|{text_hash}" + (f"|rendering {attempt + 1}" if attempt else "")
+    digest = hashlib.sha256(key.encode("utf-8")).digest()
     return int.from_bytes(digest[:4], "big") & 0x7FFFFFFF
+
+
+def rendering_seeds(voice_id: str, chunk: _local.Chunk) -> list[int]:
+    """Every seed *chunk* may be rendered with, in order (v0.8.2): :data:`SPEECH_RENDERINGS` for a chunk with words,
+    only its own for a chunk with nothing to say (whose empty rendering is a pause, v0.8.1 C1)."""
+    count = SPEECH_RENDERINGS if speakable(chunk.text) else 1
+    return [derive_seed(voice_id, chunk, attempt) for attempt in range(count)]
 
 
 def chunks_per_worker_for(policy: ov.DevicePolicy) -> int:
@@ -185,8 +200,13 @@ def build_job(voice: ov.OmniVoiceVoice, spec: ov.ReferenceSpec, chunks: list, *,
         "engine_lock": str(ov.engine_lock_path()),
         "reference": {key: reference[key] for key in ("wav", "wav_sha256", "frames", "sample_rate", "max_frames")},
         "ref_text": spec.text, "prompt_cache": prompt_cache, "generation": dict(GENERATION),
-        "chunks": [{"index": c.index, "text": c.text, "seed": derive_seed(voice.voice_id, c)} for c in chunks],
+        "chunks": [_job_chunk(voice.voice_id, c) for c in chunks],
     }
+
+
+def _job_chunk(voice_id: str, chunk: _local.Chunk) -> dict:
+    seed, *further = rendering_seeds(voice_id, chunk)
+    return {"index": chunk.index, "text": chunk.text, "seed": seed, "retry_seeds": further}
 
 
 def prompt_cache_entry(spec: ov.ReferenceSpec, *, model_revision: str, omnivoice_version: str,
@@ -553,6 +573,8 @@ def failure_details(terminal: dict, chunk: Optional[_local.Chunk], *, source: Pa
                            "chars": len(chunk.text), "sha256": hashlib.sha256(chunk.text.encode("utf-8")).hexdigest(),
                            "seed": derive_seed(voice_id, chunk), "boundary": chunk.boundary,
                            "gen_s": terminal.get("gen_s"), "audio_shape": terminal.get("audio_shape")}
+        if "renderings" in terminal:  # v0.8.2: how many seeds were tried before the chunk failed for good
+            record["chunk"]["renderings"] = terminal["renderings"]
     return record
 
 
@@ -741,7 +763,9 @@ def omnivoice_file_to_mp3(
                     log(f"  OmniVoice chunk {int(event.get('index', 0)) + 1}/{len(chunks)} ({event.get('audio_s')} s "
                         f"of audio in {event.get('gen_s')} s)"
                         + (" -- no words to speak and its rendering was silent, so it is a pause" if event.get("silent")
-                           else ""))
+                           else "")
+                        + (f" -- rendered {event['renderings']} times: the earlier renderings came back silent"
+                           if type(event.get("renderings")) is int and event["renderings"] > 1 else ""))
                     if progress_callback is not None:
                         progress_callback(len(events), len(chunks))
 

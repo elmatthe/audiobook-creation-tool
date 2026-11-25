@@ -4089,7 +4089,9 @@
             "failed_chunk",
             "failure_location",
             "failure_details",
-            "FAILURE_HISTORY"
+            "FAILURE_HISTORY",
+            "rendering_seeds",
+            "SPEECH_RENDERINGS"
           ]
         },
         {
@@ -4115,7 +4117,8 @@
             "_caused_by",
             "speakable",
             "pause_samples",
-            "failure_memory"
+            "failure_memory",
+            "_seed_list"
           ]
         },
         {
@@ -4167,7 +4170,8 @@
         "On macOS (v0.8.x P5-D-R1) an OmniVoice worker whose identity could not be recorded at spawn is never admitted -- neither supervised the released way, which reaps it first and could report a success or a clean Cancel with nothing vouching for what it left, nor ended by a guess at its group: its leader alone is ended through Popen's guarded kill before it runs and reaped, and the file fails saying the engine was not started under the app's control. Windows keeps the released supervision.",
         "On macOS with a containment owner the one MP3 encode is a contained FFmpeg (guardian's group, ordered start, stopped by Cancel within the FFmpeg bound); without an owner it runs as released (v0.8.x P5-I-R3).",
         "On macOS a voice-engine worker whose group could not be confirmed ended is handed to the owner that started it (the app window's, or a command-line run's own), which keeps ending and reaps it (v0.8.x P5-I-R3 remediation 6).",
-        "v0.8.1 C1: a chunk with no letter or digit in any script (a paragraph of only \"...\", \"......\" or a lone U+FFFD) whose rendering OmniVoice's own post-processing trims to zero samples as silence (all below -50 dBFS, about one seed in five) becomes a 0.2 s pause (upstream's edge padding) and the run log says so; every other rendering is kept unchanged, a chunk with words that comes back empty still fails the file, and a worker that reports a pause for a chunk with words is not believed. A chunk failure's message names the chunk and the worker batch, and last-failure.txt plus a bounded failures.jsonl keep each failure's technical record (source name and SHA-256; chunk index, batch, position, length, SHA-256 and seed; the worker's stage, exception, traceback, timing and GPU memory; the device and the exact engine, model and generation settings), never the narrated words."
+        "v0.8.1 C1: a chunk with no letter or digit in any script (a paragraph of only \"...\", \"......\" or a lone U+FFFD) whose rendering OmniVoice's own post-processing trims to zero samples as silence (all below -50 dBFS, about one seed in five) becomes a 0.2 s pause (upstream's edge padding) and the run log says so; every other rendering is kept unchanged, a chunk with words that comes back empty still fails the file, and a worker that reports a pause for a chunk with words is not believed. A chunk failure's message names the chunk and the worker batch, and last-failure.txt plus a bounded failures.jsonl keep each failure's technical record (source name and SHA-256; chunk index, batch, position, length, SHA-256 and seed; the worker's stage, exception, traceback, timing and GPU memory; the device and the exact engine, model and generation settings), never the narrated words.",
+        "v0.8.2: a chunk with words whose rendering comes back empty (a cut-off word such as 'Wh...' that the model renders below -50 dBFS on some seeds) is rendered again with further seeds derived from its own, up to SPEECH_RENDERINGS (24) renderings, between which Cancel is honoured; its words are never replaced by a pause, a chunk with nothing to say is never rendered again, a chunk that speaks at once keeps its released seed and audio, and a chunk silent on every seed fails its file with the rendering count in the message, the log and the failure record."
       ],
       "selection": [
         "files/tests/test_omnivoice_synth.py",
@@ -4411,6 +4415,46 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_omnivoice_synth.py::test_a_worker_that_reports_a_pause_for_a_chunk_with_words_is_not_believed"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_synth.py::test_the_first_seed_is_the_released_one_and_the_further_seeds_are_derived_from_it"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_synth.py::test_a_job_gives_each_chunk_with_words_its_further_seeds_and_a_chunk_with_nothing_to_say_none"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_synth.py::test_a_job_whose_further_seeds_are_not_whole_numbers_is_refused"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_synth.py::test_the_real_worker_renders_a_silent_fragment_again_with_its_next_seed"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_synth.py::test_the_real_worker_fails_a_fragment_that_stays_silent_on_every_seed"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_synth.py::test_the_real_worker_never_renders_a_chunk_with_nothing_to_say_again"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_synth.py::test_the_real_worker_stops_between_renderings_when_cancelled"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_synth.py::test_end_to_end_a_fragment_whose_first_seeds_were_silent_publishes_the_whole_file"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_synth.py::test_end_to_end_a_fragment_silent_on_every_seed_fails_and_records_its_renderings"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_omnivoice_synth.py::test_a_later_file_converts_after_one_that_failed_on_every_seed"
           }
         ]
       },
@@ -28921,8 +28965,8 @@
     "scripts/tts/model_assets.py": "d2ffd3493fd459e10235bc96b8fa06ea70f23f84506b92122614ff446b3da013",
     "scripts/tts/omnivoice_runtime.py": "2f27bc54fb792a70a30f14aefcc9691cdd53c6734abb272f8b584d9d7ae42883",
     "scripts/tts/omnivoice_setup.py": "bd4f7f1768402b0a58241219382a07d8c16230205f8b0cd2aef93a39a1de90f3",
-    "scripts/tts/omnivoice_synth.py": "d75bd5f501872b8c248d087b86ca172f93877fcd4fcd904dfb8ac964cf3d416e",
-    "scripts/tts/omnivoice_worker.py": "6934292760d59b229e7f58e2f76e0c4ee3364735a787e7884a0330c2dd0bd2fd",
+    "scripts/tts/omnivoice_synth.py": "cd366c7bf9c2332c92d461e69d11a3a78dbacfe1e5a351204be6bd5b46259bd9",
+    "scripts/tts/omnivoice_worker.py": "48b8c28c8858525e0ab372a07b1471015485adda70099fc1240cd8db7f5a92ca",
     "scripts/tts/optional_setup.py": "4d2fb5d341a3006cd83a0c8c686860c1737a2ed909ac465988dee3f8d7544445",
     "scripts/tts/optional_setup_acquire.py": "a9fe41855365ad00e37cf6046235c0af6ef6554a1213af61a6d36e98f65683ed",
     "scripts/tts/optional_setup_authority.py": "c3f10e7ac1113ead6ebdc55e815c2b793c4f071e2d60472d4a5e126646bd9276",
