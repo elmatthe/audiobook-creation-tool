@@ -24,7 +24,13 @@ from pathlib import Path
 
 import pytest
 
+import routine_effects
+
 pytestmark = pytest.mark.skipif(sys.platform != "win32", reason="the measured crash and its exit status are Windows'")
+#: v0.8.2 Phase 1A-1: the two arms start the REAL application window (``launcher.main()``) in a child, so they are never part of
+#: routine verification: a qualification obligation until a Phase 1A-2 admission can run them (helpers/effects.py).
+ACT_EFFECTS = {"test_with_the_accidental_holders_emptied_the_application_still_holds_its_root": ("native-desktop", "real-app-launch"),
+               "test_the_negative_control_crashes_once_the_application_holder_is_gone_too": ("native-desktop", "real-app-launch")}
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 EXIT_TCL_CRASH = 0x80000003
@@ -115,6 +121,7 @@ def _run(tmp_path: Path, mode: str) -> tuple[subprocess.CompletedProcess, dict |
 
 @pytest.fixture(scope="module")
 def both_arms(tmp_path_factory):
+    routine_effects.require("real-app-launch", "test_root_lifetime starts the real application window (launcher.main) in a child")
     tmp = tmp_path_factory.mktemp("root-lifetime")
     return {mode: _run(tmp, mode) for mode in ("accidental-holders-emptied", "release-everything")}
 

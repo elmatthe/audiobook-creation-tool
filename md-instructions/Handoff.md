@@ -7,24 +7,26 @@ why: `Decisions.md` index; what shipped: `Changelog.md` index.
 ## Execution Snapshot
 
 - **Date:** 2026-11-25
-- **Last agent:** Claude Code (Sonnet 5.5), v0.8.2 Pre-Phase 1A
+- **Last agent:** Claude Code (Opus 5.5), v0.8.2 Phase 1A-1
 - **Machine:** HOME-PC (Windows 11)
 - **Branch:** `0.8.2` (long-running, from published v0.8.1), developed in the permanent short-path clone `C:\ACT-Dev` (owner decision D-1, 2026-11-25) with its own real root `.venv/`; the old nested worktree `files/dev-work/wt082` and the owner's primary checkout (`0.8.1`, uncommitted owner work) are preserved as found and were not modified
-- **Status:** Pre-Phase 1A (permanent checkout, local-only workspace files, base environment, outstanding Phase 0A baseline, owner decisions recorded) committed and pushed to origin/0.8.2, awaiting planning-chat review. No application, launcher, dependency, gate or test change (VERSION stays 0.8.1)
-- **Active plan:** `files/plans/Developer-Experience-Upgrade.md` (Revision 4)
-- **Current phase:** v0.8.2 Developer Experience Upgrade, Pre-Phase 1A complete; Phase 1A NOT started
-- **Recommended next execution tier:** planning-chat review of Pre-Phase 1A, then the bounded Phase 1A architecture spike (A5 lock, A6 authorization semantics; design only) in `C:\ACT-Dev`
-- **Last verification:** Pre-Phase 1A, agent-reported, not independent: `verify.py --mode focused --test files/tests/test_verification_gate_contract.py --test files/tests/test_verify_evidence.py` in `C:\ACT-Dev` on a86538b: PASS, 411 passed (299 + 99 + the 13 of the source-boundary guard the gate adds), 0 failed, 0 skipped, no journeys, 353 s (run `2026-11-25_163611_focused_8f89`). The last full gate, on 87dd2bf (2026-11-22), is FAIL/BLOCKED and does not describe this candidate
+- **Status:** Phase 1A-1 (explicit execution plans, Git changed selection, routine capability classification and the routine verification envelope; plan Revision 5) committed and pushed to origin/0.8.2, awaiting planning-chat review. Gate and test infrastructure only: no application, launcher, dependency or packaging change (VERSION stays 0.8.1)
+- **Active plan:** `files/plans/Developer-Experience-Upgrade.md` (Revision 5)
+- **Current phase:** v0.8.2 Developer Experience Upgrade, Phase 1A-1 complete; Phase 1A-2 (heavyweight admission) NOT started
+- **Recommended next execution tier:** planning-chat review of Phase 1A-1, then Phase 1A-2 (A5-W lock, A6-R single-attempt authorization, admission at every heavyweight entrypoint) in `C:\ACT-Dev`
+- **Last verification:** Phase 1A-1, agent-reported, not independent: three focused gate runs in `C:\ACT-Dev` on the final candidate tree, all PASS with `routine-effects` PASS: the Pre-1A baseline command (gate-contract + evidence) 442 passed, 0 failed, 0 skipped, pytest 339 s, 371 s total (run `2026-11-25_194632_focused_4cc8`); the gate self-tests and new modules 529 passed, 3 policy-named skips (`2026-11-25_195248_focused_27c4`); the declared and harness-consumer modules 1,067 passed, 19 policy-named skips (`2026-11-25_194511_focused_9557`). No full run: the last full gate, on 87dd2bf (2026-11-22), is FAIL/BLOCKED and does not describe this candidate
 - **Manual gate:** owner listening to four regenerated Shadow Slave MP3s; owner decisions D-1 to D-4, D-6, D-8; plus the owner-acceptance items below
 - **Relevant evidence:** the old worktree `files/dev-work/wt082` still holds the protected local evidence (see Development Checkout and Evidence Locations); the new gate runs are in `C:\ACT-Dev\files\dev-work\verification-gate\outputs\`; `files/release-history/ACT-v0.8.1-Windows-MacOS-Release-Acceptance.md`
-- **Next exact action:** planning-chat review of Pre-Phase 1A; then the bounded Phase 1A architecture spike in `C:\ACT-Dev` (A5/A6 designs, no implementation). Do not start Phase 1A implementation, merge, tag or release
+- **Next exact action:** planning-chat review of Phase 1A-1; then Phase 1A-2 only on its own prompt. The interim heavyweight restrictions (GATE.md) stay in force. Do not merge, tag or release
 
 ## In Progress
 
-Nothing is mid-implementation. Phase 0A (8546200) and Phase 0B (a86538b) passed planning-chat review. Pre-Phase 1A prepared the real-environment
-workplace: `C:\ACT-Dev` (D-1), its local-only workspace files, its base `.venv/` and the outstanding Phase 0A baseline (PASS), and recorded the
-approved decisions (D-1, A5 and A6 in principle, DOC-1, the root `.venv/` requirement) in the plan, Decisions, Briefing and GATE.md. The archival split
-is approved (DOC-1) and belongs to Phase 2; nothing is archived.
+Nothing is mid-implementation. Phase 1A-1 (this checkpoint) implemented the explicit execution plan (`helpers/execution_plan.py`), the six-mode
+contracts with `--plan`, Git changed-file selection (`helpers/git_changes.py`) routed through the reverse import closure (`helpers/selection.py`), static
+capability classification (`helpers/effects.py`, `ACT_EFFECTS`, `effects.reviewed_bounded`, the ENTRY table of 60 entrypoints) and the runtime routine
+envelope (`files/tests/routine_effects.py`, `routine_pytest.py`, `conftest.py`, `helpers/routine_context.py`); recorded plan Revision 5 (A5-W, A5-M, A6-R,
+ENTRY, the 1A-1/1A-2/1A-3 split); and added the sanitized spike report `files/plans/ASTRA-ARCHITECTURE-SPIKE-VERDICT.md`. GATE.md is the current
+command and policy reference. Pre-Phase 1A (28d8c7b) prepared `C:\ACT-Dev`; DOC-1 archival belongs to Phase 2; nothing is archived.
 
 ## Open Issues and Blockers
 
@@ -51,7 +53,15 @@ review. Items marked (?) could not be proven closed from the record and are kept
   retired `scripts/verify.py` (its bytes are hashed into the locks; leave until a lock regeneration).
 
 **Verification and gate**
-- Interim rule (GATE.md, active until Phase 1A): no `--mode full`, `qualification`, `changed`, `focused --feature` or `--journey` without the owner's authorization.
+- Interim rule (GATE.md, in force until 1A-2/1A-3): no `--mode full` or `--mode qualification --scenario`, no journey, real engine, install, download, benchmark or
+  release build without the owner's authorization for that run. quick, changed, regression, focused `--feature` and qualification `--journey` print their plans only (exit 3).
+- Phase 1A-1 compatibility seams (removal criteria in GATE.md): an owner-authorized Windows full run cannot PASS until 1A-2, because its ordinary stage now runs inside the
+  routine envelope and refuses the declared heavyweight tests of the release partition (`test_root_lifetime.py`'s two application arms, the first-run force-quit test);
+  full and qualification `--scenario` execute outside the new admission (interim rule); the plan-only modes execute from 1A-3; `selection.json` keeps its legacy keys until 1B.
+- Phase 1A-1 limits (GATE.md): a cooperating-verification control, not an OS sandbox (a child given a replacement environment, arbitrary shell code); non-loopback sockets
+  are not refused globally and no ambient model-hub offline flag is imposed (1A-2/1A-3); the whole ordinary suite was NOT run against the new envelope (routine scope only;
+  a static scan found no other routine test that launches a refused root from this checkout, so residual risk is a test that does so dynamically); macOS is unverified
+  (`test_macos_*` paths and the A5-M lock are not exercised here).
 - Windows full gate on `87dd2bf` (run `2026-11-22_092257_full_910a`, short-path clone, offline-built `.venv`): **FAIL/BLOCKED**, self-reviewed. Journeys 55 PASS +
   1 NOT APPLICABLE, guarded 457 + 75, coverage 273 of 273. Two environmental failures remain: the Kokoro tallest-notice case needs the real 327 MB Kokoro
   snapshot inside the checkout (links are refused); `test_qwen3_calm_harness` needs the Qwen3 engine and Base model (3.07 GB) and its skip is deliberately not
@@ -143,6 +153,7 @@ review. Items marked (?) could not be proven closed from the record and are kept
 
 ## Pending Owner Decisions
 
+- **Approved (Phase 1A-1, plan Revision 5, 2026-11-25):** A5-W (Windows machine-wide lock, control directory in `C:\ACT-Dev`, fail closed, no checkout-local fallback), A5-M (macOS shared machine-common location only after native proof and approval; macOS heavyweight blocked until then), A6-R (single-attempt authorization), ENTRY (entrypoint classification), the 1A-1/1A-2/1A-3 split. None of the lock or authorization machinery is implemented yet (1A-2).
 - **Approved (Pre-Phase 1A, 2026-11-25):** D-1 the permanent development clone `C:\ACT-Dev` (done); A5 machine-wide lock and A6 scoped authorization records in principle (designed in the Phase 1A spike, not implemented); DOC-1 historical archival in Phase 2; fixed requirement: the main application environment is always `.venv/` directly inside the ACT application root (Phase 3 A1 concerns independent engine environments only).
 - **D-2** external scratch under `C:\t\` (about 14.5 GB) — by Phase 2. **D-3** ACL-locked folders (owner-run `takeown`/`icacls` or leave) — by Phase 2. **D-4** adopt the owner's uncommitted plan and release-history archiving on `0.8.2` or keep them tracked — by Phase 2 (D17 is now in Decisions).
 - **D-6** Windows PowerShell-blocked fallback (`curl.exe`/`tar.exe` with hashes, recommended, or drop it) — by Phase 4. **D-8** disk cost versus offline repair depth (the A4 retention proposal) — at the Phase 3 report.
@@ -159,9 +170,31 @@ review. Items marked (?) could not be proven closed from the record and are kept
   `files/dev-work/v0.8.2-cp1-evidence` to `cp6-evidence` and `v0.8.2-qual-evidence`; earlier gate runs `files/dev-work/verification-gate/outputs/`; the Phase 0A review bundle `files/run-temp/p0a-review/`; the Phase 0B ledgers
   and reconciliation `files/run-temp/p0b/`. Prefix them with `<primary checkout>\files\dev-work\wt082\`. Gate runs in `C:\ACT-Dev` write to its own `files/dev-work/verification-gate/outputs/`.
 - Abandoned gate scratch under `%TEMP%\act-gate` from earlier full runs (runs 2cf1, 52ac, 910a, d0db; `--audit-scratch` reports about 31.6 GiB, hard links may be double-counted) is untouched: owner decision D-2 / Phase 2.
+- Phase 1A-1 left two folders of its own that it was not permitted to delete: `%TEMP%\act-gate\fd57` (1.06 GiB, the retained scratch of its failed iteration run `2026-11-25_192340_focused_5fd4`; `--audit-scratch` reports it abandoned and owned by that run) and `C:\t\p1a1` (about 0.46 GB of direct-run basetemps). Both are disposable; the owner may remove them. Free space on C: was about 6 GiB at the end of Phase 1A-1: check it before any expensive run.
 
 ## Verification and Evidence
 
+- **Phase 1A-1 (this checkpoint, agent-reported, not independent).** In `C:\ACT-Dev`, on the final candidate tree (gate tree digest `72ec515f…`; the commit adds only this
+  Handoff update on top of it), three focused gate runs, each PASS with `routine-effects` PASS (no heavyweight effect refused in any stage), `tree` unchanged and
+  `--status --require-current` PASS: (1) the Pre-1A baseline command, `--test files/tests/test_verification_gate_contract.py --test files/tests/test_verify_evidence.py`:
+  442 passed (314 gate-contract, 115 evidence, 13 source-boundary), 0 failed, 0 skipped, pytest 339.02 s, 371.1 s total, run `2026-11-25_194632_focused_4cc8`
+  (the historical Pre-1A baseline on a86538b stays 411 passed, 0 failed, 0 skipped, pytest 353.453 s, 384.922 s total, run `2026-11-25_163611_focused_8f89`; the
+  architecture spike inspected it and did not rerun it); (2) the gate self-tests and the new modules (`test_execution_plan` 78, `test_routine_effects` 61,
+  `test_native_acceptance`, `test_verification_coverage`, `test_dev_work_isolation`, `test_repository_contract`, `test_suite_isolation`,
+  `test_macos_p1b_closeout_gate`, `test_gate_scratch_exception`, `test_verify_guarded`, `test_surface_discovery`, `test_real_media_acceptance`): 529 passed,
+  3 policy-named skips, pytest 43.15 s, 57.6 s total, run `2026-11-25_195248_focused_27c4`; (3) the declared and mixed modules and the harness consumers
+  (`test_omnivoice_phase1`, `test_root_lifetime`, `test_first_run_setup_ownership`, `test_plan3_boundaries`, `test_plan6_boundaries`, `test_job_ui`,
+  `test_book_workspace_ui`, `test_m4b_metadata_editor_ui`, `test_dialog_containment`, `test_cancel_semantics`; the plan withheld four declared nodes as
+  qualification obligations): 1,067 passed, 19 policy-named skips (POSIX-only), pytest 68.71 s, 76.7 s total, run `2026-11-25_194511_focused_9557`.
+  Iteration runs on earlier trees, superseded: `2026-11-25_192340_focused_5fd4` FAIL (two defects then fixed: plan admission now follows preflight; a synthetic
+  in-process test of the real gate stands the new guard in explicitly; its tree also changed under it because documents were edited during the run),
+  `2026-11-25_193515_focused_6472` and `2026-11-25_194146_focused_7304` PASS, `2026-11-25_194250_focused_7655` FAIL (the envelope refused the containment
+  adapter's read-only `--probe`, started by `test_dialog_containment.py`'s negative control; the entrypoint row now allows exactly `--probe` as data-only).
+  Mutation checks, each CAUGHT by its targeted tests after a passing no-change control (22 passed) and restored byte for byte: the audit hook not installed, the
+  boundary's partition rule disabled, an unrouted path widened to every test, a swallowed refusal not counted, the untracked stream dropped, an opt-in not
+  scrubbed, a declared node not withheld. `--plan` resolved every mode against the real tree. NOT RUN by design: full; execution of quick, changed, regression,
+  focused `--feature` and qualification `--journey` (plan only); qualification; journeys; real engines; installs; downloads; benchmarks; distribution builds; the
+  whole ordinary suite.
 - **Pre-Phase 1A (this checkpoint, agent-reported, not independent).** In `C:\ACT-Dev`: `bootstrap.py --headless` offline in 86 s (172 distributions, Tk 8.6.15, no link); `verify.py --mode focused --test
   files/tests/test_verification_gate_contract.py --test files/tests/test_verify_evidence.py`: preflight PASS (policy, identity, guarded specification, interpreter, process ownership, error mode), collection PASS, execution PASS:
   411 collected and passed (299 gate-contract, 99 evidence, 13 source-boundary), 0 failed, 0 skipped, no native journey, no guarded test, 353 s, one `audioop` DeprecationWarning from pydub; `--status --require-current` PASS.
@@ -176,7 +209,8 @@ review. Items marked (?) could not be proven closed from the record and are kept
 
 ## Recent Checkpoints (newest first; cite by `git log`, not by tip)
 
-- Pre-Phase 1A — permanent checkout `C:\ACT-Dev`, local-only workspace files, base environment, outstanding Phase 0A baseline PASS, owner decisions recorded (this commit).
+- Phase 1A-1 — explicit execution plans, Git changed selection, routine capability classification and envelope, plan Revision 5 (this commit).
+- 28d8c7b Pre-Phase 1A — permanent checkout `C:\ACT-Dev`, local-only workspace files, base environment, outstanding Phase 0A baseline PASS, owner decisions recorded.
 - a86538b Phase 0B — Handoff/Briefing compaction, Decisions and Changelog indexes, v0.8.1 release status corrected.
 - 8546200 Phase 0A: five-document contract, plan moved to `files/plans/`, local-only workspace, interim verification rule. 3546a4f plan readiness review.
 - 56c83cf OmniVoice silent chunk re-rendered with derived seeds (Shadow Slave chapters 72, 299, 338, 490).

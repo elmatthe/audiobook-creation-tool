@@ -35,10 +35,14 @@ from pathlib import Path
 
 import pytest
 
+import routine_effects
 from shared import bootstrap, child_ownership
 from shared import optional_setup_client as client
 from shared import optional_setup_protocol as proto
 from shared import subprocess_utils
+
+#: v0.8.2 Phase 1A-1: this test maps the real first-run setup window and force-quits it (helpers/effects.py).
+ACT_EFFECTS = {"test_force_quitting_the_first_run_window_ends_its_worker_pip_and_helper": ("native-desktop",)}
 
 tk = pytest.importorskip("tkinter")
 from tkinter import messagebox, ttk  # noqa: E402
@@ -814,6 +818,7 @@ bootstrap.run_with_gui(skip_kokoro_default=False)
 
 @POSIX_ONLY
 def test_force_quitting_the_first_run_window_ends_its_worker_pip_and_helper(app_copy, ev, sentinel):
+    routine_effects.require("native-desktop", "the real first-run setup window, force-quit")
     (ev / "standin.py").write_text(STANDIN, encoding="utf-8")
     base = app_copy / "files" / "runtime-data" / "python" / "bin" / "python3.12"
     window = subprocess.Popen([str(base), "-I", "-c", WINDOW_DRIVER, str(app_copy), str(ev), "plan=block"],

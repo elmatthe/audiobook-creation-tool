@@ -550,4 +550,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    import routine_effects  # v0.8.2 Phase 1A-1: a real driver never starts inside routine verification
+
+    routine_effects.refuse_under_routine("manual_plan3_harness.py")
     raise SystemExit(main())

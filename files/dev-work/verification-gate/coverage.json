@@ -26565,7 +26565,7 @@
     {
       "id": "ACT.GATE.SELECTION",
       "tool": "verification-gate",
-      "title": "Focused and changed selection",
+      "title": "Explicit execution plans and changed selection",
       "release_required": true,
       "applicability": {
         "platforms": [
@@ -26574,29 +26574,60 @@
       },
       "source": [
         {
+          "path": "files/dev-work/verification-gate/helpers/execution_plan.py",
+          "symbols": [
+            "ExecutionPlan",
+            "ExecutionPlan.record",
+            "Request",
+            "Context",
+            "resolve",
+            "check_request",
+            "full_plan",
+            "validate",
+            "split",
+            "feature_obligations",
+            "journey_migration"
+          ]
+        },
+        {
+          "path": "files/dev-work/verification-gate/helpers/git_changes.py",
+          "symbols": [
+            "collect",
+            "resolve_base",
+            "parse_name_status",
+            "candidate_identity",
+            "ChangeSet"
+          ]
+        },
+        {
           "path": "files/dev-work/verification-gate/helpers/selection.py",
           "symbols": [
             "parse_selector",
-            "select_for_changes",
-            "journeys_for_changes"
+            "journeys_for_changes",
+            "ReverseIndex",
+            "route_changes"
           ]
         },
         {
           "path": "files/dev-work/verification-gate/verify.py",
           "symbols": [
-            "GateRun.select",
-            "GateRun._changed_selection",
-            "GateRun._focused_selectors"
+            "resolve_plan",
+            "plan_context",
+            "GateRun.admitted_plan",
+            "_ordinary_scope",
+            "_pytest_command"
           ]
         }
       ],
       "contracts": [
         "a selector is a test identity, never a command fragment",
-        "an unknown test, feature or journey is an invalid invocation",
-        "a change with no route widens to everything rather than selecting nothing",
-        "a changed run is never full acceptance"
+        "every request resolves into one explicit execution plan, validated again before anything runs; an empty collection selects nothing, and only --mode full names the release partition",
+        "an unknown test module id, feature, component, journey or scenario, or an invalid mode and selector combination, is an invalid invocation (exit 64) and nothing runs",
+        "a changed path without a complete route is a selection gap that keeps the scope INCOMPLETE; nothing widens to the whole suite, and no relevant change is NOT RUN",
+        "a focused run never starts a journey; quick, changed, regression, focused --feature and qualification --journey resolve and print their plans only until Phase 1A-3; a plan is never a PASS"
       ],
       "selection": [
+        "files/tests/test_execution_plan.py",
         "files/tests/test_verification_gate_contract.py",
         "files/tests/test_verify_evidence.py"
       ],
@@ -26609,7 +26640,7 @@
           },
           {
             "kind": "behavior",
-            "test": "files/tests/test_verification_gate_contract.py::test_changed_mode_widens_to_everything_for_an_unmapped_path"
+            "test": "files/tests/test_verification_gate_contract.py::test_changed_mode_reports_an_unmapped_path_as_a_gap_and_never_widens"
           },
           {
             "kind": "behavior",
@@ -26617,11 +26648,142 @@
           },
           {
             "kind": "behavior",
-            "test": "files/tests/test_verification_gate_contract.py::test_an_unknown_feature_is_an_invalid_invocation_with_a_record"
+            "test": "files/tests/test_verification_gate_contract.py::test_an_unknown_feature_is_an_invalid_invocation_before_anything_runs"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_verification_gate_contract.py::test_a_focused_journey_is_refused_with_the_way_forward"
           },
           {
             "kind": "behavior",
             "test": "files/tests/test_native_acceptance.py::test_a_change_reaches_its_tools_journeys_and_a_gate_change_reaches_them_all"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_execution_plan.py::test_only_the_full_constructor_names_the_release_partition"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_execution_plan.py::test_the_full_plan_cannot_be_narrowed_at_the_boundary"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_execution_plan.py::test_a_staged_change_reversed_in_the_working_tree_is_still_a_change"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_execution_plan.py::test_a_deleted_test_never_satisfies_itself"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_execution_plan.py::test_a_parse_error_is_a_gap_never_no_dependencies"
+          }
+        ]
+      },
+      "exceptions": []
+    },
+    {
+      "id": "ACT.GATE.ROUTINE-EFFECTS",
+      "tool": "verification-gate",
+      "title": "Routine capability classification and heavyweight-effect refusal",
+      "release_required": true,
+      "applicability": {
+        "platforms": [
+          "windows"
+        ]
+      },
+      "source": [
+        {
+          "path": "files/tests/routine_effects.py",
+          "symbols": [
+            "install",
+            "scrub",
+            "admitted",
+            "require",
+            "classify_launch",
+            "refuse_under_routine",
+            "expected_refusals"
+          ]
+        },
+        {
+          "path": "files/tests/routine_pytest.py",
+          "symbols": [
+            "main"
+          ]
+        },
+        {
+          "path": "files/dev-work/verification-gate/helpers/effects.py",
+          "symbols": [
+            "Classifier",
+            "module_facts",
+            "unclassified_boundaries",
+            "tracked_entrypoints",
+            "entrypoint_problems"
+          ]
+        },
+        {
+          "path": "files/dev-work/verification-gate/helpers/routine_context.py",
+          "symbols": [
+            "refuse_under_routine",
+            "within_marked_root"
+          ]
+        },
+        {
+          "path": "files/dev-work/verification-gate/verify.py",
+          "symbols": [
+            "GateRun.check_routine_effects"
+          ]
+        }
+      ],
+      "contracts": [
+        "every pytest process of this checkout runs inside the routine envelope: real-engine opt-ins and overrides are scrubbed and third-party plugin autoload is off before any test module is imported",
+        "nothing grants a heavyweight effect before a Phase 1A-2 admission: not an environment variable, not running under pytest, not a flag",
+        "a refused effect fails its test and the run even when the test caught it, in any phase, in a child, or after the session ended",
+        "a declared or unclassified heavyweight test is never part of a routine plan (requested: INCOMPLETE; reached: a qualification obligation); markers and file names classify nothing",
+        "every executable verification entrypoint is classified, and the maintained heavyweight roots refuse to start inside routine verification"
+      ],
+      "selection": [
+        "files/tests/test_routine_effects.py",
+        "files/tests/test_execution_plan.py"
+      ],
+      "journeys": [],
+      "verification": {
+        "all_of": [
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_routine_effects.py::test_a_swallowed_refusal_fails_its_test_in_every_phase_and_the_session"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_routine_effects.py::test_a_refusal_at_import_or_after_the_session_still_fails_the_run"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_routine_effects.py::test_an_inherited_opt_in_is_scrubbed_before_any_test_module_is_imported"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_routine_effects.py::test_a_real_gate_root_started_through_an_intermediary_refuses_in_the_child"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_routine_effects.py::test_the_real_gate_never_executes_a_run_inside_routine_verification"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_routine_effects.py::test_every_refused_entrypoint_guards_itself_before_it_does_anything"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_execution_plan.py::test_the_real_suite_has_no_unclassified_live_boundary"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_execution_plan.py::test_every_executable_verification_entrypoint_is_classified"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_execution_plan.py::test_a_mixed_module_selected_whole_runs_only_its_routine_tests"
           }
         ]
       },
@@ -27232,7 +27394,7 @@
           },
           {
             "kind": "behavior",
-            "test": "files/tests/test_verification_gate_contract.py::test_an_unreviewed_inventory_stops_full_and_changed_runs"
+            "test": "files/tests/test_verification_gate_contract.py::test_an_unreviewed_inventory_stops_a_full_run"
           },
           {
             "kind": "discovery",

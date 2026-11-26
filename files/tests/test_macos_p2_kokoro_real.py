@@ -33,10 +33,20 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+import routine_effects
+
 NATIVE_P2 = "native macOS only (P2): the local-engine worker, POSIX containment and real Kokoro"
-OPT_IN = "loads the Kokoro model; set ACT_KOKORO_P2_REAL=1 where it is installed"
+OPT_IN = ("loads the Kokoro model: a real-engine test, never routine; it runs only under a Phase 1A-2 admission "
+          "(ACT_KOKORO_P2_REAL alone grants nothing)")
 pytestmark = [pytest.mark.skipif(sys.platform != "darwin", reason=NATIVE_P2),
-              pytest.mark.skipif(os.environ.get("ACT_KOKORO_P2_REAL") != "1", reason=OPT_IN)]
+              pytest.mark.skipif(not routine_effects.admitted("real-engine"), reason=OPT_IN)]
+#: v0.8.2 Phase 1A-1: every test here loads and interrupts the real Kokoro model (helpers/effects.py).
+ACT_EFFECTS = {"*": ("real-engine",)}
+
+
+@pytest.fixture(autouse=True)
+def _real_engine_boundary():
+    routine_effects.require("real-engine", "test_macos_p2_kokoro_real loads the real Kokoro model")
 
 from shared import child_ownership  # noqa: E402
 from shared.cancellation import ConversionCancelled  # noqa: E402

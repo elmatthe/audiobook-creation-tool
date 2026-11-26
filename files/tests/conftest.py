@@ -20,8 +20,16 @@ from pathlib import Path
 
 import pytest
 
-import cache_sandbox
-import gate_session_probe
+import routine_effects
+
+# v0.8.2 Phase 1A-1: every pytest process of this repository is a routine verification process. Installed here, before any
+# test module is imported, for raw targeted runs too; the gate's bootstrap (routine_pytest.py) has normally done it before
+# pytest itself was imported. It scrubs real-engine opt-ins and overrides and refuses heavyweight launches and declared
+# boundaries; nothing grants them before Phase 1A-2 admission (routine_effects.py).
+routine_effects.install()
+
+import cache_sandbox  # noqa: E402
+import gate_session_probe  # noqa: E402
 
 # Collection can import librosa/Numba before any fixture is entered.
 NUMBA_TEST_CACHE = cache_sandbox.install()
@@ -30,6 +38,48 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 SCRIPTS_ROOT = REPO_ROOT / "scripts"
 if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
+
+
+#: This session's effect ledger, fixed once when the session starts: a test that points a child at a private ledger (the
+#: synthetic controls of test_routine_effects.py) never changes which ledger this session counts.
+_SESSION_LEDGER: list[str] = []
+
+
+def _child_refusals() -> list[dict]:
+    """Refusals recorded by this session's children in the shared ledger (this process's own are counted in memory)."""
+    path = _SESSION_LEDGER[0] if _SESSION_LEDGER else os.environ.get(routine_effects.LEDGER_ENV)
+    return [row for row in routine_effects.read_ledger(path) if row.get("pid") != os.getpid() and not row.get("expected")]         if path else []
+
+
+def _unexpected_effects() -> list[dict]:
+    return routine_effects.unexpected() + _child_refusals()
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """A refused heavyweight effect is never a pass, even when the test that caused it caught the refusal, and even when it
+    happened during collection or outside any test."""
+    if _unexpected_effects() and session.exitstatus == 0:
+        session.exitstatus = pytest.ExitCode.TESTS_FAILED
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _routine_effect_ledger(tmp_path_factory):
+    """A raw run has no gate ledger: give this session one, so a refusal in a child process is seen here too."""
+    if not os.environ.get(routine_effects.LEDGER_ENV):
+        os.environ[routine_effects.LEDGER_ENV] = str(tmp_path_factory.mktemp("effects") / "ledger.jsonl")
+    _SESSION_LEDGER[:] = [os.environ[routine_effects.LEDGER_ENV]]
+    yield
+
+
+@pytest.fixture(autouse=True)
+def _no_refused_heavyweight_effect(_routine_effect_ledger):
+    """Fail the test that caused a refused heavyweight effect, whether or not it caught the refusal (routine_effects.py)."""
+    before = len(_unexpected_effects())
+    yield
+    new = _unexpected_effects()[before:]
+    if new:
+        pytest.fail("refused heavyweight effect(s) in routine verification: "
+                    + "; ".join(f"{row.get('effect')}: {row.get('detail')}" for row in new[:3]), pytrace=False)
 
 
 def pytest_configure(config):

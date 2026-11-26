@@ -263,6 +263,9 @@ def _init(self, root, *args, **kwargs):
 launcher.LauncherApp.__init__ = _init
 
 if __name__ == "__main__":
+    import routine_effects  # v0.8.2 Phase 1A-1: a real driver never starts inside routine verification
+
+    routine_effects.refuse_under_routine("macos_gui_driver.py")
     code = launcher.main()
     note("MAIN_RETURNED", code, time.time())
     sys.exit(code)

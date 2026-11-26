@@ -149,4 +149,9 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    import importlib.util as _guard_util  # v0.8.2 Phase 1A-1: never inside routine verification (helpers/routine_context.py)
+    _guard_spec = _guard_util.spec_from_file_location("act_gate_routine_context", Path(__file__).resolve().parents[1] / "helpers" / "routine_context.py")
+    _guard = _guard_util.module_from_spec(_guard_spec)
+    _guard_spec.loader.exec_module(_guard)
+    _guard.refuse_under_routine("scaling/calibrate.py", "scaling")
     sys.exit(main())

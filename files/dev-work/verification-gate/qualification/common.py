@@ -218,8 +218,21 @@ class Scenario:
             print(json.dumps({"status": status, "reason": reason[:500]}), flush=True)
 
 
+def _refuse_under_routine(name: str, argv) -> None:
+    """v0.8.2 Phase 1A-1: a qualification scenario never starts inside routine verification (helpers/routine_context.py,
+    loaded by path so this folder's imports stay as they are)."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("act_gate_routine_context",
+                                                  Path(__file__).resolve().parents[1] / "helpers" / "routine_context.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    module.refuse_under_routine(f"qualification scenario {name}", "real-app-launch", argv)
+
+
 def start(name: str, argv=None, *, network: tuple[str, ...] = ()) -> Scenario | int:
     """The scenario, or the exit code of a refusal: an ``--out`` outside the gate's outputs is refused with nothing written."""
+    _refuse_under_routine(name, argv)
     args = parse(argv, network=network)
     try:
         return Scenario(name, args)

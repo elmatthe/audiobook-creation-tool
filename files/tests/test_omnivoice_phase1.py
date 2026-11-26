@@ -22,6 +22,14 @@ from pathlib import Path
 
 import pytest
 
+import routine_effects
+
+#: v0.8.2 Phase 1A-1: the one real clone is a real-engine test, never routine. The ambient ACT_OMNIVOICE_P1_REAL opt-in is scrubbed and
+#: grants nothing; the test runs only under a Phase 1A-2 admission (routine_effects.admitted), and routine plans list it as an obligation.
+ACT_EFFECTS = {"test_real_clone_proof": ("real-engine",)}
+REAL_CLONE_REASON = ("loads the multi-gigabyte model: a real-engine test, never routine; it runs only under a Phase 1A-2 admission "
+                     "(ACT_OMNIVOICE_P1_REAL alone grants nothing)")
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEV_TOOLS = REPO_ROOT / "files" / "dev-tools"
 
@@ -534,9 +542,9 @@ def test_silence_is_not_audible(tmp_path):
 # --------------------------------------------------------------------------- #
 # The one real clone (opt-in: loads the model once)
 # --------------------------------------------------------------------------- #
-@pytest.mark.skipif(os.environ.get("ACT_OMNIVOICE_P1_REAL") != "1",
-                    reason="loads the multi-gigabyte model; set ACT_OMNIVOICE_P1_REAL=1 where it is installed")
+@pytest.mark.skipif(not routine_effects.admitted("real-engine"), reason=REAL_CLONE_REASON)
 def test_real_clone_proof(manifest):
+    routine_effects.require("real-engine", "test_real_clone_proof loads the multi-gigabyte OmniVoice model")
     layout = p1.Layout(REPO_ROOT)
     evidence = layout.evidence_root / f"{time.strftime('%Y%m%d-%H%M%S')}-pytest-prove"
     report = p1.prove(manifest, layout, evidence, timeout_s=1800, out=lambda _: None)

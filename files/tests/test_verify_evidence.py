@@ -22,6 +22,7 @@ import subprocess
 import sys
 import threading
 import time
+import types
 import _thread
 from pathlib import Path
 
@@ -403,17 +404,31 @@ def test_the_real_gate_lists_the_static_gates_in_order():
 
 
 def test_the_evidence_pytest_command_adds_only_reporting_to_the_ordinary_scope(tmp_path):
+    """v0.8.2 Phase 1A-1: pytest starts through the routine bootstrap (files/tests/routine_pytest.py), and only the full plan's
+    release partition stands for the whole ordinary suite; an explicit plan passes its selectors, and nothing is implicit."""
     module = load_gate("act_verify_evidence_command")
     junit = tmp_path / "pytest.xml"
-    command = module._pytest_command(junit, token="run-pytest", basetemp=tmp_path / "b", cache=tmp_path / "c")
-    assert command[:5] == [sys.executable, "-u", "-m", "pytest", str(module.TESTS_DIR)]
-    assert command[5:5 + len(module._ignore_arguments())] == module._ignore_arguments()
-    rest = command[5 + len(module._ignore_arguments()):]
+    partition = module.execution_plan.ORDINARY_PARTITION
+    command = module._pytest_command(junit, token="run-pytest", basetemp=tmp_path / "b", cache=tmp_path / "c",
+                                     targets=[partition])
+    assert command[:4] == [sys.executable, "-u", str(module.TESTS_DIR / "routine_pytest.py"), str(module.TESTS_DIR)]
+    assert command[4:4 + len(module._ignore_arguments())] == module._ignore_arguments()
+    rest = command[4 + len(module._ignore_arguments()):]
     assert rest == ["-q", "-ra", f"--junitxml={junit}", "-o", "junit_suite_name=run-pytest", f"--basetemp={tmp_path / 'b'}",
                     "-o", f"cache_dir={tmp_path / 'c'}", "-o", f"faulthandler_timeout={module.FAULTHANDLER_SECONDS}"]
-    pytest_arguments = command[command.index("pytest") + 1:]
+    pytest_arguments = command[3:]
     for narrowing in ("-x", "-k", "-m", "--lf", "--deselect", "--maxfail", "-p"):
         assert narrowing not in pytest_arguments
+    chosen = module._pytest_command(junit, token="t", basetemp=tmp_path / "b", cache=tmp_path / "c",
+                                    targets=["files/tests/test_a.py", "files/tests/test_b.py::test_x"])
+    assert chosen[3:5] == ["files/tests/test_a.py", "files/tests/test_b.py::test_x"] and str(module.TESTS_DIR) not in chosen
+    for targets in ([], [partition, "files/tests/test_a.py"]):
+        with pytest.raises(ValueError):
+            module._pytest_command(junit, token="t", basetemp=tmp_path / "b", cache=tmp_path / "c", targets=targets)
+        with pytest.raises(ValueError):
+            module._collect_command(token="t", basetemp=tmp_path / "b", cache=tmp_path / "c", targets=targets)
+    with pytest.raises(TypeError):
+        module._pytest_command(junit, token="t", basetemp=tmp_path / "b", cache=tmp_path / "c")  # no implicit scope
 
 
 # --------------------------------------------------------------------------- #
@@ -436,6 +451,23 @@ def test_the_evidence_pytest_command_adds_only_reporting_to_the_ordinary_scope(t
     ["--mode", "full", "--preflight-only", "--collect-only"],
     ["--status", "x", "--mode", "full"],
     ["--mode", "full", "--require-current"],
+    # v0.8.2 Phase 1A-1 mode contracts
+    ["--mode", "focused", "--journey", "mp3.write-id3-then-combine"],
+    ["--mode", "focused", "--test", "files/tests/test_a.py", "--journey", "mp3.write-id3-then-combine"],
+    ["--mode", "regression"],
+    ["--mode", "regression", "--test", "files/tests/test_a.py"],
+    ["--mode", "full", "--component", "gate"],
+    ["--mode", "full", "--feature", "ACT.X.Y"],
+    ["--mode", "quick", "--test", "files/tests/test_a.py"],
+    ["--mode", "quick", "--base", "HEAD"],
+    ["--mode", "changed", "--test", "files/tests/test_a.py"],
+    ["--mode", "qualification", "--scenario", "m4b-scaling", "--journey", "x.y"],
+    ["--mode", "qualification", "--journey", "x.y", "--network", "online-edge"],
+    ["--mode", "focused", "--feature", " "],
+    ["--mode", "regression", "--component", ""],
+    ["--status", "x", "--plan"],
+    ["--evidence", "--component", "gate"],
+    ["--mode", "full", "--plan", "--preflight-only"],
 ])
 def test_malformed_arguments_exit_64_without_running_a_gate(verify, monkeypatch, capsys, argv):
     monkeypatch.setattr(verify, "_pytest_command", lambda junit, **kw: pytest.fail("pytest was started"))
@@ -770,6 +802,11 @@ def test_the_real_non_pytest_gates_are_recorded_exactly_as_they_report(monkeypat
     monkeypatch.setattr(module.GateRun, "preflight_children", lambda self: True)
     monkeypatch.setattr(module.GateRun, "collect", lambda self, selection: True)
     monkeypatch.setattr(module.GateRun, "run_guarded", lambda self, selection: self.check("guarded", "PASS", "synthetic"))
+    # v0.8.2 Phase 1A-1: the real gate refuses to execute a run against this checkout inside routine verification. Every
+    # heavyweight stage of this run is a stand-in (fake pytest child, collection and guarded stubbed, a synthetic policy
+    # with no journey), so this fresh module instance stands the guard in as well; the audit hook still refuses any real
+    # heavyweight launch from this process.
+    monkeypatch.setattr(module, "routine_context", types.SimpleNamespace(refuse_under_routine=lambda *args, **kwargs: None))
     module.main(["--mode", "full"])
     target = next((tmp_path / "outputs").iterdir())
     recorded = {item["name"]: item for item in load(target, "results.json")["checks"]}

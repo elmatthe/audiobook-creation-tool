@@ -120,6 +120,10 @@ class Closures:
     def __init__(self, root: Path) -> None:
         self.root = Path(root)
         self._edges: dict[str, set[str]] = {}
+        #: Files that could not be read or parsed: their edge set is unknown, never "no dependencies" (v0.8.2 Phase 1A-1).
+        self.unparsed: set[str] = set()
+        #: Every dotted name each parsed file imports, resolved or not, so a deleted module's consumers can still be found.
+        self.names: dict[str, set[str]] = {}
 
     def _resolve_module(self, dotted: str, base: Path | None = None) -> str | None:
         parts = dotted.split(".")
@@ -156,13 +160,19 @@ class Closures:
         try:
             tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
         except (OSError, SyntaxError, ValueError):
+            if path.is_file() or relative.endswith(".py"):
+                self.unparsed.add(relative)
             return found
         here = path.parent
+        raw = self.names.setdefault(relative, set())
         for node in ast.walk(tree):
             names: list[str] = []
             if isinstance(node, ast.Import):
                 names = [alias.name for alias in node.names]
+                raw.update(names)
             elif isinstance(node, ast.ImportFrom):
+                raw.update([node.module or ""] + [f"{node.module}.{alias.name}" if node.module else alias.name
+                                                  for alias in node.names])
                 if node.level:
                     base = here
                     for _ in range(node.level - 1):
@@ -422,8 +432,13 @@ def rerun_plan(entries: list[dict], platform: str) -> list[str]:
     scenarios = [entry["item"] for entry in entries if entry["kind"] == "scenario" and entry["status"] not in PASSED]
     gate = "files/dev-work/verification-gate/verify.py"
     plan = []
-    if tests or journeys:
-        plan.append(f"{gate} --mode focused --platform {platform} " + " ".join(
-            [f"--test {test}" for test in tests] + [f"--journey {journey}" for journey in journeys]))
-    plan += [f"{gate} --mode qualification --platform {platform} --scenario {scenario}" for scenario in scenarios]
+    if tests:
+        plan.append(f"{gate} --mode focused --platform {platform} " + " ".join(f"--test {test}" for test in tests))
+    # v0.8.2 Phase 1A-1: a journey is never part of a focused run. Its rerun is a qualification, which needs the owner's
+    # authorization for that run and executes only once Phase 1A-3 activates it (plan only until then).
+    if journeys:
+        plan.append(f"{gate} --mode qualification --platform {platform} " + " ".join(f"--journey {j}" for j in journeys)
+                    + "   [owner authorization; plan only until Phase 1A-3]")
+    plan += [f"{gate} --mode qualification --platform {platform} --scenario {scenario}   [owner authorization]"
+             for scenario in scenarios]
     return plan

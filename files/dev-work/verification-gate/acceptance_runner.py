@@ -261,4 +261,7 @@ def main(argv=None) -> int:
 
 
 if __name__ == "__main__":
+    from helpers.routine_context import refuse_under_routine  # v0.8.2 Phase 1A-1: never inside routine verification
+
+    refuse_under_routine("acceptance_runner.py", "native-desktop", data_only={"--list"})
     sys.exit(main())

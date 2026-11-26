@@ -57,7 +57,10 @@
           "fault:": 3,
           "pause:": 1
         }
-      }
+      },
+      "effects": [
+        "scaling"
+      ]
     },
     "edge-low-memory": {
       "phase": 8,
@@ -79,7 +82,11 @@
           "low-memory:": 11,
           "containment:": 3
         }
-      }
+      },
+      "effects": [
+        "external-network",
+        "real-app-launch"
+      ]
     },
     "optional-engines": {
       "phase": 8,
@@ -101,7 +108,11 @@
           "installed ": 4,
           "containment:": 3
         }
-      }
+      },
+      "effects": [
+        "real-engine",
+        "real-app-launch"
+      ]
     },
     "fresh-windows": {
       "phase": 8,
@@ -124,7 +135,12 @@
           "repair:": 3,
           "containment:": 3
         }
-      }
+      },
+      "effects": [
+        "install",
+        "external-network",
+        "real-app-launch"
+      ]
     }
   },
   "later_phase_requirements": [],
@@ -158,10 +174,12 @@
     }
   },
   "required_self_tests": [
+    "files/tests/test_execution_plan.py",
     "files/tests/test_gate_scratch_exception.py",
     "files/tests/test_native_acceptance.py",
     "files/tests/test_real_media_acceptance.py",
     "files/tests/test_repository_contract.py",
+    "files/tests/test_routine_effects.py",
     "files/tests/test_surface_discovery.py",
     "files/tests/test_verification_coverage.py",
     "files/tests/test_verification_gate_contract.py",
@@ -215,9 +233,9 @@
       },
       {
         "id": "omnivoice-real-clone-opt-in",
-        "pattern": "^loads the multi-gigabyte model; set ACT_OMNIVOICE_P1_REAL=1 where it is installed$",
+        "pattern": "^loads\\ the\\ multi\\-gigabyte\\ model:\\ a\\ real\\-engine\\ test,\\ never\\ routine;\\ it\\ runs\\ only\\ under\\ a\\ Phase\\ 1A\\-2\\ admission\\ \\(ACT_OMNIVOICE_P1_REAL\\ alone\\ grants\\ nothing\\)$",
         "max": 1,
-        "why": "v0.8.0: the one routine skip of files/tests/test_omnivoice_phase1.py::test_real_clone_proof, the only test with this reason. It loads the multi-gigabyte OmniVoice model and runs only with ACT_OMNIVOICE_P1_REAL=1 on a computer where the engine is installed; the routine gate never sets it. This skip is evidence of nothing: the real clone is proven only by that opt-in run (Phase 1, recorded in the Handoff) and by the release qualification and owner listening that coverage.json lists as release-pending for OmniVoice."
+        "why": "v0.8.0, reason renamed in v0.8.2 Phase 1A-1: the one routine skip of files/tests/test_omnivoice_phase1.py::test_real_clone_proof, the only test with this reason. It loads the multi-gigabyte OmniVoice model; it is declared real-engine (ACT_EFFECTS), never part of a routine plan, and runs only under a Phase 1A-2 admission: the ambient ACT_OMNIVOICE_P1_REAL opt-in is scrubbed and grants nothing. This skip is evidence of nothing: the real clone is proven only by an admitted run and by the release qualification and owner listening that coverage.json lists as release-pending for OmniVoice."
       },
       {
         "id": "native-macos-p1a",
@@ -397,9 +415,9 @@
       },
       {
         "id": "kokoro-p2-real-opt-in",
-        "pattern": "^(loads\\ the\\ Kokoro\\ model;\\ set\\ ACT_KOKORO_P2_REAL=1\\ where\\ it\\ is\\ installed)$",
+        "pattern": "^loads\\ the\\ Kokoro\\ model:\\ a\\ real\\-engine\\ test,\\ never\\ routine;\\ it\\ runs\\ only\\ under\\ a\\ Phase\\ 1A\\-2\\ admission\\ \\(ACT_KOKORO_P2_REAL\\ alone\\ grants\\ nothing\\)$",
         "max": 12,
-        "why": "v0.8.x P2: the routine skip of every test in files/tests/test_macos_p2_kokoro_real.py, the only file with this reason. They load the Kokoro model and interrupt real inference, so they run only with ACT_KOKORO_P2_REAL=1 on a Mac where Kokoro is installed in the checkout (an opted-in run without it FAILS); the routine gate never sets it. This skip is evidence of nothing: their results are the opted-in P2 runs recorded in the Handoff."
+        "why": "v0.8.x P2, reason renamed in v0.8.2 Phase 1A-1: the routine skip of every test in files/tests/test_macos_p2_kokoro_real.py, the only file with this reason. They load the Kokoro model and interrupt real inference; the module is declared real-engine (ACT_EFFECTS), never part of a routine plan, and runs only under a Phase 1A-2 admission: the ambient ACT_KOKORO_P2_REAL opt-in is scrubbed and grants nothing. This skip is evidence of nothing: their results are the opted-in P2 runs recorded in the Handoff."
       }
     ]
   },
@@ -409,10 +427,20 @@
     ]
   },
   "changed": {
+    "about": "v0.8.2 Phase 1A-1 (plan Revision 5): how a changed plan routes each changed path (helpers/selection.py route_changes; helpers/git_changes.py collects the paths). always: the guards a nonempty changed plan adds. local_only: owner-declared local-only paths (exact, or a directory ending in /), excluded while untracked and a policy violation if tracked. no_selection: documents that never invalidate code evidence in the evidence ledger (helpers/evidence_ledger.py); changed plans route them to static checks instead. routes: reviewed path-to-test routes (the first matching entry wins). static: path-to-static-check routes. obligations: what a change owes beyond routine scope. suite_wide: test infrastructure every test depends on: representative controls are selected and the change is a selection gap (a broader regression is owed). max_routed_modules: a reverse import closure larger than this is a gap, never a silent widening. There is no conservative full: an unresolved path is a selection gap.",
     "always": [
       "files/tests/test_application_source_boundary.py",
       "files/tests/test_repository_contract.py",
       "files/tests/test_verification_coverage.py"
+    ],
+    "local_only": [
+      ".ai/",
+      "AI-WORKSPACE.md",
+      "AGENTS.md",
+      "CLAUDE.md",
+      ".claude/",
+      "scripts/project-status.py",
+      "files/run-temp/"
     ],
     "no_selection": [
       "files/plans/",
@@ -424,6 +452,25 @@
       "scripts/project-status.py"
     ],
     "routes": {
+      "md-instructions/Decisions.md": [
+        "files/tests/test_chatterbox_selected_tuning.py",
+        "files/tests/test_speech_g1.py",
+        "files/tests/test_epub_retirement.py",
+        "files/tests/test_repository_contract.py"
+      ],
+      "md-instructions/Changelog.md": [
+        "files/tests/test_epub_retirement.py",
+        "files/tests/test_repository_contract.py"
+      ],
+      "md-instructions/": [
+        "files/tests/test_repository_contract.py",
+        "files/tests/test_plan3_boundaries.py"
+      ],
+      "README.md": [
+        "files/tests/test_long_paths.py",
+        "files/tests/test_epub_retirement.py",
+        "files/tests/test_repository_contract.py"
+      ],
       "files/dev-work/verification-gate/": [
         "files/tests/test_gate_scratch_exception.py",
         "files/tests/test_native_acceptance.py",
@@ -455,21 +502,766 @@
       ],
       "scripts/shared/release.py": [
         "files/tests/test_release_packaging.py"
+      ],
+      "Setup_and_Run-audiobook-creation-tool.bat": [
+        "files/tests/test_bootstrap_host.py",
+        "files/tests/test_cleanup_state.py",
+        "files/tests/test_release_packaging.py"
+      ],
+      "Setup_and_Run-audiobook-creation-tool.command": [
+        "files/tests/test_cleanup_state.py",
+        "files/tests/test_release_packaging.py"
+      ],
+      "scripts/requirements.txt": [
+        "files/tests/test_base_packages.py"
+      ],
+      "scripts/requirements-lock-windows-py312.txt": [
+        "files/tests/test_base_packages.py"
+      ],
+      "scripts/requirements-lock-macos-arm64-py312.txt": [
+        "files/tests/test_base_packages.py"
       ]
     },
-    "full_on": [
-      "scripts/shared/",
-      "scripts/requirements",
-      "scripts/qwen3-",
-      "files/tests/conftest.py",
-      "files/tests/guarded_",
-      "files/tests/gate_",
-      "files/tests/source_probe.py",
-      "files/tests/write_tripwire.py",
-      "files/tests/cache_sandbox.py",
-      "files/tests/tk_gate.py",
-      "Setup_and_Run"
+    "static": {
+      "md-instructions/": [
+        "docnames",
+        "docs",
+        "doc-links"
+      ],
+      "files/plans/": [
+        "doc-links"
+      ],
+      "files/release-history/": [
+        "doc-links"
+      ],
+      "README.md": [
+        "doc-links"
+      ],
+      "files/dev-work/feature-map/": [
+        "doc-links"
+      ],
+      "files/dev-work/verification-gate/GATE.md": [
+        "doc-links"
+      ],
+      "files/dev-work/verification-gate/verification.json": [
+        "json-validity"
+      ],
+      "files/dev-work/verification-gate/coverage.json": [
+        "json-validity"
+      ],
+      "files/tests/guarded_groups.json": [
+        "json-validity"
+      ],
+      "scripts/requirements.txt": [
+        "deps"
+      ],
+      "scripts/requirements-lock-windows-py312.txt": [
+        "deps"
+      ],
+      "scripts/requirements-lock-macos-arm64-py312.txt": [
+        "deps"
+      ],
+      "config.toml": [
+        "config"
+      ]
+    },
+    "obligations": {
+      "README.md": {
+        "kind": "archive",
+        "why": "README.md is packaged: release-archive evidence is invalidated until the archives are rebuilt and checked"
+      },
+      "Setup_and_Run-audiobook-creation-tool.bat": {
+        "kind": "qualification",
+        "why": "the Windows launcher: a fresh-windows qualification is owed"
+      },
+      "Setup_and_Run-audiobook-creation-tool.command": {
+        "kind": "platform",
+        "why": "the macOS launcher: native macOS verification is owed"
+      },
+      "scripts/requirements.txt": {
+        "kind": "qualification",
+        "why": "a dependency change: setup and repair qualification is owed"
+      },
+      "scripts/requirements-lock-windows-py312.txt": {
+        "kind": "qualification",
+        "why": "a dependency lock change: setup and repair qualification is owed"
+      },
+      "scripts/requirements-lock-macos-arm64-py312.txt": {
+        "kind": "platform",
+        "why": "the macOS dependency lock: native macOS setup verification is owed"
+      }
+    },
+    "suite_wide": {
+      "files/tests/conftest.py": [
+        "files/tests/test_suite_isolation.py",
+        "files/tests/test_routine_effects.py",
+        "files/tests/test_verify_guarded.py",
+        "files/tests/test_application_source_boundary.py"
+      ],
+      "files/tests/routine_effects.py": [
+        "files/tests/test_suite_isolation.py",
+        "files/tests/test_routine_effects.py",
+        "files/tests/test_verify_guarded.py",
+        "files/tests/test_application_source_boundary.py"
+      ],
+      "files/tests/routine_pytest.py": [
+        "files/tests/test_suite_isolation.py",
+        "files/tests/test_routine_effects.py",
+        "files/tests/test_verify_guarded.py",
+        "files/tests/test_application_source_boundary.py"
+      ],
+      "files/tests/guarded_pytest.py": [
+        "files/tests/test_suite_isolation.py",
+        "files/tests/test_routine_effects.py",
+        "files/tests/test_verify_guarded.py",
+        "files/tests/test_application_source_boundary.py"
+      ],
+      "files/tests/write_tripwire.py": [
+        "files/tests/test_suite_isolation.py",
+        "files/tests/test_routine_effects.py",
+        "files/tests/test_verify_guarded.py",
+        "files/tests/test_application_source_boundary.py"
+      ],
+      "files/tests/gate_session_probe.py": [
+        "files/tests/test_suite_isolation.py",
+        "files/tests/test_routine_effects.py",
+        "files/tests/test_verify_guarded.py",
+        "files/tests/test_application_source_boundary.py"
+      ],
+      "files/tests/cache_sandbox.py": [
+        "files/tests/test_suite_isolation.py",
+        "files/tests/test_routine_effects.py",
+        "files/tests/test_verify_guarded.py",
+        "files/tests/test_application_source_boundary.py"
+      ],
+      "files/tests/tk_gate.py": [
+        "files/tests/test_suite_isolation.py",
+        "files/tests/test_routine_effects.py",
+        "files/tests/test_verify_guarded.py",
+        "files/tests/test_application_source_boundary.py"
+      ],
+      "files/tests/source_probe.py": [
+        "files/tests/test_suite_isolation.py",
+        "files/tests/test_routine_effects.py",
+        "files/tests/test_verify_guarded.py",
+        "files/tests/test_application_source_boundary.py"
+      ],
+      "files/tests/guarded_groups.json": [
+        "files/tests/test_suite_isolation.py",
+        "files/tests/test_routine_effects.py",
+        "files/tests/test_verify_guarded.py",
+        "files/tests/test_application_source_boundary.py"
+      ]
+    },
+    "max_routed_modules": 40
+  },
+  "quick": {
+    "about": "v0.8.2 Phase 1A-1: the fixed, named static checks and the small reviewed import smoke of --mode quick. No selector narrows or widens it, it collects no pytest inventory and runs no journey. Plan only until Phase 1A-3 activates its execution; a future quick PASS names exactly these checks.",
+    "checks": [
+      {
+        "id": "docnames",
+        "what": "md-instructions/ holds exactly the five permanent documents (verify.py check_doc_names)"
+      },
+      {
+        "id": "docs",
+        "what": "Changelog.md and Briefing.md are de-templated with a real version entry (check_docs)"
+      },
+      {
+        "id": "doc-links",
+        "what": "relative links of the permanent documents, GATE.md and the active plan resolve"
+      },
+      {
+        "id": "json-validity",
+        "what": "verification.json, coverage.json and guarded_groups.json parse; config.toml parses"
+      },
+      {
+        "id": "deps",
+        "what": "requirements.txt is '=='-pinned and its hash lock records and locks it (check_requirements)"
+      },
+      {
+        "id": "config",
+        "what": "the committed config.toml validates with developer_mode = false (check_config)"
+      },
+      {
+        "id": "import-smoke",
+        "what": "an isolated child imports the reviewed side-effect-free modules below"
+      }
+    ],
+    "import_smoke": [
+      "shared.version",
+      "shared.config",
+      "shared.paths"
     ]
+  },
+  "regression": {
+    "about": "v0.8.2 Phase 1A-1: the reviewed, bounded component scopes of --mode regression (repeatable --component). A component expands through the coverage.json features of its tools (each feature's selection and behavioural tests) plus any integration tests named here; the plan publishes the actual expansion. There is no unnamed default and no 'all'. Plan only until Phase 1A-3.",
+    "components": {
+      "gate": {
+        "tools": [
+          "verification-gate"
+        ],
+        "tests": [
+          "files/tests/test_execution_plan.py",
+          "files/tests/test_routine_effects.py"
+        ]
+      },
+      "setup": {
+        "tools": [
+          "setup"
+        ]
+      },
+      "shared": {
+        "tools": [
+          "shared"
+        ]
+      },
+      "launcher": {
+        "tools": [
+          "launcher"
+        ]
+      },
+      "tts": {
+        "tools": [
+          "tts-audiobook"
+        ]
+      },
+      "mp3": {
+        "tools": [
+          "mp3-tool"
+        ]
+      },
+      "converter": {
+        "tools": [
+          "m4b-converter"
+        ]
+      },
+      "maker": {
+        "tools": [
+          "m4b-maker"
+        ]
+      },
+      "metadata": {
+        "tools": [
+          "m4b-metadata-editor"
+        ]
+      },
+      "cover": {
+        "tools": [
+          "cover-image"
+        ]
+      },
+      "m4b": {
+        "tools": [
+          "m4b-converter",
+          "m4b-maker",
+          "m4b-metadata-editor"
+        ]
+      }
+    }
+  },
+  "effects": {
+    "about": "v0.8.2 Phase 1A-1 (helpers/effects.py): the effect vocabulary is native-desktop, real-app-launch, real-engine, external-network, install, scaling and release-build. Tests declare effects sparsely, at the real boundary (ACT_EFFECTS in the module). reviewed_bounded lists test modules whose source shows a live-boundary indicator but which were reviewed as bounded for routine verification; any other module with an indicator and no declaration is an unclassified boundary (withheld as a gap, and a contract test fails).",
+    "reviewed_bounded": {
+      "files/tests/test_book_workspace_ui.py": "imports the Plan 6 harness in-process and builds it under a withdrawn window",
+      "files/tests/test_dialog_containment.py": "drives the acceptance runner and Windows containment in-process with refusing stand-ins: in-process with stand-ins, or source text only: no real window, input, engine, install or network",
+      "files/tests/test_job_ui.py": "reads and imports the Plan 3 harness for static boundary checks; starts no window",
+      "files/tests/test_m4b_metadata_editor_ui.py": "reads the UI prototype fixture's source text only",
+      "files/tests/test_macos_p5_clear_downloaded_data.py": "imports the acceptance runner's registry: in-process with stand-ins, or source text only: no real window, input, engine, install or network",
+      "files/tests/test_macos_p5_first_run_choices.py": "reads the runner registry; its macOS tripwire child replaces the window start with refused attempts (no window is created)",
+      "files/tests/test_macos_p5_platform_exception.py": "imports the acceptance runner's registry: in-process with stand-ins, or source text only: no real window, input, engine, install or network",
+      "files/tests/test_native_acceptance.py": "judges synthetic acceptance reports; lists the runner's registry with --list (data-only): in-process with stand-ins, or source text only: no real window, input, engine, install or network",
+      "files/tests/test_plan3_boundaries.py": "names the Plan 3 harness in static boundary checks",
+      "files/tests/test_plan6_boundaries.py": "names the Plan 6 harness in static boundary checks",
+      "files/tests/test_routine_effects.py": "the routine envelope's own negative controls: real opt-in names appear only to prove they are scrubbed, every refused launch names an engine interpreter that does not exist or a harmless data-only target, and each child gets a private ledger"
+    }
+  },
+  "entrypoints": {
+    "about": "v0.8.2 Phase 1A-1, decision ENTRY: every executable verification entrypoint (a __main__ block under the gate, files/dev-tools or the test helpers), classified. class: active (verification infrastructure, integrated with the controls), maintained (developer qualification tools: integrated or disabled until admitted in Phase 1A-2), obsolete (experiments kept for history: retirement is Phase 2), bounded (a reviewed short disposable fixture), support. routine: what a routine verification process may do with it -- refused (only --help), data-only (only --help and the listed data_only flags), bounded (permitted). files/tests/routine_effects.py enforces this table at launch; the contract test of helpers/effects.py keeps it equal to the tree.",
+    "files/dev-work/verification-gate/verify.py": {
+      "class": "active",
+      "effects": [
+        "native-desktop",
+        "real-app-launch"
+      ],
+      "routine": "data-only",
+      "why": "the gate: focused --test is routine; full, qualification and journeys need the owner's authorization (Phase 1A-2 admission). A routine test may start only its readers",
+      "data_only": [
+        "--status",
+        "--evidence",
+        "--audit-scratch",
+        "--plan"
+      ]
+    },
+    "files/dev-work/verification-gate/acceptance_runner.py": {
+      "class": "active",
+      "effects": [
+        "native-desktop",
+        "real-app-launch"
+      ],
+      "routine": "data-only",
+      "why": "the native acceptance runner: real input into real application windows; --list is data-only (Phase 1A-2 admission)",
+      "data_only": [
+        "--list"
+      ]
+    },
+    "files/dev-work/verification-gate/adapters/macos/app_launcher.py": {
+      "class": "active",
+      "effects": [
+        "native-desktop",
+        "real-app-launch"
+      ],
+      "routine": "refused",
+      "why": "a child of the acceptance runner: starts the real application (Phase 1A-2 admission)"
+    },
+    "files/dev-work/verification-gate/adapters/macos/setup_launcher.py": {
+      "class": "active",
+      "effects": [
+        "native-desktop",
+        "real-app-launch"
+      ],
+      "routine": "refused",
+      "why": "a child of the acceptance runner: starts the real first-run setup window (Phase 1A-2 admission)"
+    },
+    "files/dev-work/verification-gate/adapters/macos/control_target.py": {
+      "class": "active",
+      "effects": [
+        "native-desktop",
+        "real-app-launch"
+      ],
+      "routine": "refused",
+      "why": "a child of the acceptance runner: the control target that real native input drives (Phase 1A-2 admission)"
+    },
+    "files/dev-work/verification-gate/adapters/windows/app_launcher.py": {
+      "class": "active",
+      "effects": [
+        "native-desktop",
+        "real-app-launch"
+      ],
+      "routine": "refused",
+      "why": "a child of the acceptance runner: starts the real application (Phase 1A-2 admission)"
+    },
+    "files/dev-work/verification-gate/adapters/windows/setup_launcher.py": {
+      "class": "active",
+      "effects": [
+        "native-desktop",
+        "real-app-launch"
+      ],
+      "routine": "refused",
+      "why": "a child of the acceptance runner: starts the real first-run setup window (Phase 1A-2 admission)"
+    },
+    "files/dev-work/verification-gate/adapters/windows/control_target.py": {
+      "class": "active",
+      "effects": [
+        "native-desktop",
+        "real-app-launch"
+      ],
+      "routine": "refused",
+      "why": "a child of the acceptance runner: the control target that real native input drives (Phase 1A-2 admission)"
+    },
+    "files/dev-work/verification-gate/adapters/windows/containment.py": {
+      "class": "active",
+      "effects": [
+        "native-desktop"
+      ],
+      "routine": "data-only",
+      "why": "keeps a journey's real Windows file dialogs out of the owner's dialog history; its only __main__ action is the read-only --probe (opens the dialog-state keys for write access and closes them, writing nothing but its own report), which the containment preflight and its negative control start",
+      "data_only": [
+        "--probe"
+      ]
+    },
+    "files/dev-work/verification-gate/helpers/inventory.py": {
+      "class": "maintained",
+      "effects": [],
+      "routine": "bounded",
+      "why": "the inventory reader; its restamp rewrites coverage.json and is the owner's reviewed act, never part of a verification run (Phase 1B retires it)"
+    },
+    "files/dev-work/verification-gate/qualification/edge_low_memory.py": {
+      "class": "active",
+      "effects": [
+        "external-network",
+        "real-app-launch"
+      ],
+      "routine": "refused",
+      "why": "qualification edge-low-memory: real Edge speech through the real TTS panel"
+    },
+    "files/dev-work/verification-gate/qualification/optional_engines.py": {
+      "class": "active",
+      "effects": [
+        "real-engine",
+        "real-app-launch"
+      ],
+      "routine": "refused",
+      "why": "qualification optional-engines: real local-engine synthesis"
+    },
+    "files/dev-work/verification-gate/qualification/fresh_windows.py": {
+      "class": "active",
+      "effects": [
+        "install",
+        "external-network",
+        "real-app-launch"
+      ],
+      "routine": "refused",
+      "why": "qualification fresh-windows: a real first-run install of an extracted copy"
+    },
+    "files/dev-work/verification-gate/qualification/fresh_copy.py": {
+      "class": "active",
+      "effects": [
+        "install",
+        "real-app-launch"
+      ],
+      "routine": "refused",
+      "why": "a child of fresh_windows.py: one real setup action in the copy"
+    },
+    "files/dev-work/verification-gate/qualification/panel_run.py": {
+      "class": "active",
+      "effects": [
+        "real-app-launch",
+        "real-engine",
+        "external-network"
+      ],
+      "routine": "refused",
+      "why": "a child of the qualification scenarios: one contained run of the real TTS panel"
+    },
+    "files/dev-work/verification-gate/qualification/macos_kx10.py": {
+      "class": "active",
+      "effects": [
+        "native-desktop",
+        "real-app-launch"
+      ],
+      "routine": "refused",
+      "why": "macOS qualification macos-kx10: the real application on the desktop"
+    },
+    "files/dev-work/verification-gate/qualification/macos_native_dialogs.py": {
+      "class": "active",
+      "effects": [
+        "native-desktop",
+        "real-app-launch"
+      ],
+      "routine": "refused",
+      "why": "macOS qualification macos-native-dialogs: the real application on the desktop"
+    },
+    "files/dev-work/verification-gate/qualification/macos_visual.py": {
+      "class": "active",
+      "effects": [
+        "native-desktop",
+        "real-app-launch"
+      ],
+      "routine": "refused",
+      "why": "macOS qualification macos-visual: the real application on the desktop"
+    },
+    "files/dev-work/verification-gate/scaling/qualify.py": {
+      "class": "active",
+      "effects": [
+        "scaling"
+      ],
+      "routine": "refused",
+      "why": "scaling: the m4b-scaling qualification (hours)"
+    },
+    "files/dev-work/verification-gate/scaling/calibrate.py": {
+      "class": "active",
+      "effects": [
+        "scaling"
+      ],
+      "routine": "refused",
+      "why": "scaling: budget calibration runs"
+    },
+    "files/dev-work/verification-gate/scaling/bench_run.py": {
+      "class": "active",
+      "effects": [
+        "scaling"
+      ],
+      "routine": "refused",
+      "why": "scaling: the benchmark worker"
+    },
+    "files/dev-work/verification-gate/scaling/recipe.py": {
+      "class": "active",
+      "effects": [
+        "scaling"
+      ],
+      "routine": "refused",
+      "why": "scaling: fixture generation through real FFmpeg"
+    },
+    "files/dev-tools/chatterbox_colon_matrix.py": {
+      "class": "obsolete",
+      "effects": [],
+      "routine": "refused",
+      "why": "Plan 01B checkpoint A6 text matrix (historical; Phase 2 retirement review)"
+    },
+    "files/dev-tools/clone_transcript_bundle.py": {
+      "class": "maintained",
+      "effects": [],
+      "routine": "refused",
+      "why": "regenerates the shipped clone-transcript bundle from the owner-approved file (tests import it in-process)"
+    },
+    "files/dev-tools/clone_transcript_extract.py": {
+      "class": "obsolete",
+      "effects": [],
+      "routine": "refused",
+      "why": "v0.7.0 P03A no-echo transcript extraction (historical; tests import it in-process)"
+    },
+    "files/dev-tools/lock_base_requirements.py": {
+      "class": "maintained",
+      "effects": [
+        "external-network"
+      ],
+      "routine": "refused",
+      "why": "regenerates the base hash locks (Phase 3/4 replace it with uv)"
+    },
+    "files/dev-tools/macos_act_process_check.py": {
+      "class": "maintained",
+      "effects": [],
+      "routine": "refused",
+      "why": "KX-10 owner-manual read-only process check (macOS)"
+    },
+    "files/dev-tools/macos_native_audit.py": {
+      "class": "maintained",
+      "effects": [],
+      "routine": "refused",
+      "why": "P1A simulated native audit of a Mac installation"
+    },
+    "files/dev-tools/macos_p2_kokoro_assets.py": {
+      "class": "obsolete",
+      "effects": [
+        "external-network",
+        "install"
+      ],
+      "routine": "refused",
+      "why": "P2 Kokoro asset acquisition (historical)"
+    },
+    "files/dev-tools/macos_p2_qualify.py": {
+      "class": "maintained",
+      "effects": [
+        "real-engine",
+        "external-network"
+      ],
+      "routine": "refused",
+      "why": "P2 Edge and Kokoro qualification on macOS (Phase 1A-2 admission)"
+    },
+    "files/dev-tools/macos_p4a_omnivoice.py": {
+      "class": "obsolete",
+      "effects": [
+        "external-network",
+        "install"
+      ],
+      "routine": "refused",
+      "why": "P4A OmniVoice feasibility acquisition (historical)"
+    },
+    "files/dev-tools/macos_p4a_omnivoice_run.py": {
+      "class": "obsolete",
+      "effects": [
+        "install",
+        "real-engine"
+      ],
+      "routine": "refused",
+      "why": "P4A OmniVoice feasibility environment and stages (historical)"
+    },
+    "files/dev-tools/macos_p4a_omnivoice_worker.py": {
+      "class": "obsolete",
+      "effects": [
+        "real-engine"
+      ],
+      "routine": "refused",
+      "why": "P4A OmniVoice feasibility engine worker (historical)"
+    },
+    "files/dev-tools/macos_p4b_omnivoice_install_qa.py": {
+      "class": "obsolete",
+      "effects": [
+        "install",
+        "external-network"
+      ],
+      "routine": "refused",
+      "why": "P4B installer fault-path QA (historical)"
+    },
+    "files/dev-tools/macos_p4b_omnivoice_qualify.py": {
+      "class": "maintained",
+      "effects": [
+        "real-engine"
+      ],
+      "routine": "refused",
+      "why": "P4B qualification of the installed OmniVoice engine on macOS (Phase 1A-2 admission)"
+    },
+    "files/dev-tools/macos_p4b_omnivoice_setup.py": {
+      "class": "obsolete",
+      "effects": [
+        "install"
+      ],
+      "routine": "refused",
+      "why": "P4B OmniVoice adoption and install (historical)"
+    },
+    "files/dev-tools/omnivoice_p1.py": {
+      "class": "obsolete",
+      "effects": [
+        "real-engine",
+        "install"
+      ],
+      "routine": "refused",
+      "why": "v0.8.0 Phase 1 OmniVoice environment and real clone proof (historical)"
+    },
+    "files/dev-tools/omnivoice_p1_worker.py": {
+      "class": "obsolete",
+      "effects": [],
+      "routine": "bounded",
+      "why": "v0.8.0 Phase 1 worker; a routine test runs it under the base interpreter with a refused job (it cannot load the model there); an engine-environment interpreter is refused by routine_effects"
+    },
+    "files/dev-tools/omnivoice_p2_smoke.py": {
+      "class": "obsolete",
+      "effects": [
+        "real-engine"
+      ],
+      "routine": "refused",
+      "why": "v0.8.0 Phase 2 real smoke of the six OmniVoice voices (historical)"
+    },
+    "files/dev-tools/omnivoice_p4_acceptance.py": {
+      "class": "maintained",
+      "effects": [
+        "real-engine"
+      ],
+      "routine": "refused",
+      "why": "v0.8.0 Phase 4 owner listening pack and real-engine checks (Phase 1A-2 admission)"
+    },
+    "files/dev-tools/qwen3_calm_experiment.py": {
+      "class": "maintained",
+      "effects": [
+        "real-engine"
+      ],
+      "routine": "refused",
+      "why": "the owner-gated Qwen3 calm-narration experiment (Phase 1A-2 admission)"
+    },
+    "files/dev-tools/qwen3_calm_venv_tools.py": {
+      "class": "maintained",
+      "effects": [],
+      "routine": "bounded",
+      "why": "its selfcheck inspects fixed library configuration in the Qwen3 environment without loading a model (the guarded runner's reviewed profile); any other engine-interpreter use is refused by routine_effects"
+    },
+    "files/dev-tools/qwen3_calm_worker.py": {
+      "class": "maintained",
+      "effects": [
+        "real-engine"
+      ],
+      "routine": "refused",
+      "why": "the calm experiment's Qwen3 worker"
+    },
+    "files/dev-tools/qwen3_transcript_review.py": {
+      "class": "obsolete",
+      "effects": [],
+      "routine": "refused",
+      "why": "v0.6.7 owner transcript review (historical)"
+    },
+    "files/dev-tools/qwen_eval_assets.py": {
+      "class": "obsolete",
+      "effects": [
+        "external-network"
+      ],
+      "routine": "refused",
+      "why": "Plan 01 evaluation asset acquisition (historical)"
+    },
+    "files/dev-tools/qwen_eval_baseline_worker.py": {
+      "class": "obsolete",
+      "effects": [
+        "real-engine"
+      ],
+      "routine": "refused",
+      "why": "Plan 01 Chatterbox and Kokoro baseline worker (historical)"
+    },
+    "files/dev-tools/qwen_eval_worker.py": {
+      "class": "obsolete",
+      "effects": [
+        "real-engine"
+      ],
+      "routine": "refused",
+      "why": "Plan 01 Qwen3 and Whisper evaluation worker (historical)"
+    },
+    "files/dev-tools/speech_ab.py": {
+      "class": "obsolete",
+      "effects": [
+        "real-engine"
+      ],
+      "routine": "refused",
+      "why": "Plan 01B A4 A/B listening corpus (historical)"
+    },
+    "files/dev-tools/speech_characterization.py": {
+      "class": "obsolete",
+      "effects": [],
+      "routine": "refused",
+      "why": "Plan 01B A0 text-route characterization (historical; tests import it in-process)"
+    },
+    "files/dev-tools/voice_previews.py": {
+      "class": "maintained",
+      "effects": [
+        "real-engine"
+      ],
+      "routine": "refused",
+      "why": "the permanent voice previews (owner-gated publication; Phase 1A-2 admission)"
+    },
+    "files/dev-tools/xhe_proof.py": {
+      "class": "maintained",
+      "effects": [],
+      "routine": "refused",
+      "why": "P1A proof 8: xHE-AAC decode agreement on macOS"
+    },
+    "files/tests/edge_cli_m4b_child.py": {
+      "class": "bounded",
+      "effects": [],
+      "routine": "bounded",
+      "why": "the Edge CLI m4b run in its own console inside a kill-on-close job; Edge's network voice is replaced by the test's FLAC parts"
+    },
+    "files/tests/guarded_pytest.py": {
+      "class": "support",
+      "effects": [],
+      "routine": "bounded",
+      "why": "the guarded runner: stricter process, write, network and model guards"
+    },
+    "files/tests/local_engine_stub.py": {
+      "class": "bounded",
+      "effects": [],
+      "routine": "bounded",
+      "why": "the real local-engine worker serving a stand-in engine"
+    },
+    "files/tests/low_memory_probe.py": {
+      "class": "bounded",
+      "effects": [],
+      "routine": "bounded",
+      "why": "one child under a real per-process commit limit inside a kill-on-close job; the network request is replaced"
+    },
+    "files/tests/macos_gui_driver.py": {
+      "class": "active",
+      "effects": [
+        "native-desktop",
+        "real-app-launch"
+      ],
+      "routine": "refused",
+      "why": "the real launcher window for the macOS P1B containment tests (Phase 1A-2 admission)"
+    },
+    "files/tests/manual_plan3_harness.py": {
+      "class": "maintained",
+      "effects": [
+        "native-desktop"
+      ],
+      "routine": "refused",
+      "why": "developer visual harness (Plan 3)"
+    },
+    "files/tests/manual_plan6_harness.py": {
+      "class": "maintained",
+      "effects": [
+        "native-desktop"
+      ],
+      "routine": "refused",
+      "why": "developer visual harness (Plan 6)"
+    },
+    "files/tests/manual_windows_ui_prototype.py": {
+      "class": "maintained",
+      "effects": [
+        "native-desktop"
+      ],
+      "routine": "refused",
+      "why": "developer visual fixture (v0.6.0 UI prototype)"
+    },
+    "files/tests/routine_pytest.py": {
+      "class": "support",
+      "effects": [],
+      "routine": "bounded",
+      "why": "the routine pytest bootstrap the gate starts ordinary pytest through"
+    }
   },
   "acceptance": {
     "about": "The native Windows GUI and real-media journeys. A full run requires every scenario in required_scenarios; the runner's registered set must equal required plus optional, so a scenario cannot appear or vanish without an edit here. optional_scenarios need a declared applicability rule with evidence, and even then say nothing about engine qualification.",
@@ -1193,6 +1985,12 @@
         "SIMULATED",
         "P6a-rehearsal",
         "REAL CLEAN"
+      ],
+      "effects": [
+        "install",
+        "external-network",
+        "real-app-launch",
+        "native-desktop"
       ]
     },
     "macos-native-dialogs": {
@@ -1217,7 +2015,11 @@
           "cover-image / ": 23,
           "containment:": 4
         }
-      }
+      },
+      "effects": [
+        "native-desktop",
+        "real-app-launch"
+      ]
     },
     "macos-visual": {
       "phase": "P1B",
@@ -1237,7 +2039,11 @@
           "light / ": 42,
           "containment:": 4
         }
-      }
+      },
+      "effects": [
+        "native-desktop",
+        "real-app-launch"
+      ]
     },
     "macos-kx10": {
       "phase": "P1B",
@@ -1261,7 +2067,11 @@
           "kx10 / ": 27,
           "containment:": 4
         }
-      }
+      },
+      "effects": [
+        "native-desktop",
+        "real-app-launch"
+      ]
     }
   },
   "darwin_p1b": {

@@ -3,32 +3,37 @@
 
 Run it with the project environment's interpreter, from any directory:
 
-    .venv\\Scripts\\python.exe files/dev-work/verification-gate/verify.py --mode full --platform windows
-    ... --mode focused --test files/tests/test_cancel_semantics.py [--test <node id>] [--feature ACT.TTS.CANCEL] [--journey cover.center-crop]
-    ... --mode changed --base origin/master
-    ... --mode qualification --scenario m4b-scaling
+    .venv\\Scripts\\python.exe files/dev-work/verification-gate/verify.py --mode focused --test files/tests/test_cancel_semantics.py [--test <node id>]
+    ... --mode <any mode> ... --plan                 resolve and print the execution plan; nothing runs, nothing is written
+    ... --mode quick | --mode changed [--base REV] | --mode regression --component ID | --mode focused --feature ID
+    ... --mode qualification --scenario NAME | --mode qualification --journey ID [--journey ...] | --mode full
     ... --status files/dev-work/verification-gate/outputs/<run> [--require-current]
     ... --evidence [--test ID] [--journey ID] [--scenario NAME] [--evidence-root DIR]
 
-What a mode means (plan §6). Which of them an agent may start is GATE.md's interim policy (v0.8.2 Phase 0A), not this
-list: until Phase 1A, only focused --test is routine; --feature, --journey, changed, full and qualification are not.
+Every request resolves into one explicit execution plan first (helpers/execution_plan.py, v0.8.2 Phase 1A-1): what was
+asked for, what would run, the guards it owes, what is withheld and why, the native, qualification and owner obligations
+that stay pending, and the selection gaps that keep a scope incomplete. Nothing is ever selected implicitly: only --mode
+full names the complete release partition. Which plans execute, and who may start them, is GATE.md's policy:
 
-  focused        the named tests or features plus the required guards. PASS for that scope only. --feature also adds the
-                 feature's native GUI journeys, and --journey runs one, so neither is a routine selector.
-  changed        the tests a merge-base diff plus dirty files reach; an unmapped or shared change widens to every test and
-                 every journey. PASS for the selected scope, never full acceptance.
-  full           the native and real-media journeys first, then the whole ordinary suite, every guarded group, deps, docs, docnames,
-                 config, the collection partition, the coverage inventory and the gate's own self-tests. Never routine: only with
-                 the owner's authorization (GATE.md). Requirements owned by later phases are listed as NOT RUN in every result:
-                 this is not full acceptance and not release readiness until they exist and pass.
+  quick          fixed named static checks and a reviewed import smoke. Plan only until Phase 1A-3.
+  focused        --test selectors (routine: executes) or --feature IDs (plan only until Phase 1A-3), plus the required
+                 guard. A feature's journeys are listed as obligations and never run. --journey is not a focused selector.
+  changed        HEAD against staged, unstaged and untracked changes, or --base REV's merge base to HEAD plus those
+                 (helpers/git_changes.py), routed through the reverse import closure and the reviewed routes
+                 (helpers/selection.py). An unresolved path is a selection gap; nothing widens to the whole suite. No
+                 relevant change is NOT RUN. Plan only until Phase 1A-3.
+  regression     repeatable --component IDs from verification.json, expanded through their features. Plan only.
+  qualification  exactly one --scenario (executes; owner authorization required) or a set of --journey IDs (plan only).
+                 A scenario that needs the network runs only with the --network policy it declares.
+  full           the complete release partition: native journeys first, then the whole ordinary suite, every guarded
+                 group, deps, docs, docnames, config, the collection partition, the coverage inventory and the gate's
+                 self-tests. Owner authorization required; never routine. Not full acceptance or release readiness.
   --evidence     not a run: incremental-verification bookkeeping over the runs already recorded (helpers/evidence_ledger.py).
-                 Which earlier results still describe this tree, which a change invalidated and why, and the focused commands
-                 that would rerun exactly those. With no item named, the darwin P1B requirement ledger (darwin_p1b). Never a
-                 canonical PASS: it prints EVIDENCE, never RESULT.
-  qualification  one named expensive scenario, run on its own and never by a routine mode: m4b-scaling (v0.7.2 Phase 7B,
-                 scaling/qualify.py, about three hours) and, since Phase 8, edge-low-memory, optional-engines and fresh-windows
-                 (qualification/). A scenario that needs the network runs only with the --network policy it declares and is
-                 BLOCKED without it. A scenario the policy lists with no runner reports NOT RUN and names its phase.
+                 Prints EVIDENCE, never RESULT. Its rerun suggestions are subject to GATE.md like any other command.
+
+Ordinary pytest runs through files/tests/routine_pytest.py, which establishes the routine restrictions before pytest,
+plugins, conftest.py or any test module is imported (files/tests/routine_effects.py: opt-ins scrubbed, heavyweight
+launches and declared boundaries refused, every refusal recorded and failing the stage).
 
 The gates of a full run, always in this order and all of them even after a failure:
 
@@ -50,14 +55,14 @@ The gates of a full run, always in this order and all of them even after a failu
   config    the committed root config.toml parses, every key validates, its version matches, and it states
             [development] developer_mode = false.
 
-Every invocation that gets past its arguments owns one new directory below outputs/, and no other. See results.json,
-summary.md, start.json, selection.json, logs/ and reports/ there. outputs/ is ignored and disposable; the next run recreates
+Every executed invocation owns one new directory below outputs/, and no other. See results.json, summary.md, start.json,
+selection.json (the execution plan), logs/ and reports/ there. outputs/ is ignored and disposable; the next run recreates
 it. Runs written by the old gate stay where they are and read as legacy, never as current acceptance.
 
 Exit codes are the contract: 0 PASS for the requested scope, 1 FAIL, 2 BLOCKED (a prerequisite is unavailable), 3 NOT RUN or
-incomplete (including no tests executed), 64 invalid invocation or configuration, 130 interrupted. Windows error dialogs are
-turned off for this process and everything it starts before anything starts (helpers/winproc.py explains why that matters
-and what can undo it).
+incomplete (including no tests executed, a plan printed, or a plan not activated), 64 invalid invocation or configuration,
+130 interrupted. Windows error dialogs are turned off for this process and everything it starts before anything starts
+(helpers/winproc.py explains why that matters and what can undo it).
 """
 
 from __future__ import annotations
@@ -75,7 +80,6 @@ import sys
 import tempfile
 import time
 import traceback
-from dataclasses import dataclass, field
 from pathlib import Path
 
 GATE_DIR = Path(__file__).resolve().parent
@@ -86,6 +90,7 @@ _on_path = str(GATE_DIR) in sys.path
 if not _on_path:
     sys.path.insert(0, str(GATE_DIR))
 from helpers import acceptance_report, coverage_model, evidence_ledger, pytest_reports, runstore, scratch as scratch_store, selection as selection_rules, winproc  # noqa: E402
+from helpers import effects as effect_rules, execution_plan, git_changes, routine_context  # noqa: E402
 from helpers import inventory as inventory_tools  # noqa: E402
 
 if not _on_path:
@@ -148,11 +153,17 @@ DARWIN_MANUAL_EVIDENCE = REPO_ROOT / "files" / "dev-work" / "macos-acceptance" /
 
 def platform_scenarios() -> tuple[str, ...]:
     return DARWIN_SCENARIO_NAMES if sys.platform == "darwin" else SCENARIO_NAMES
-MODES = ("focused", "changed", "full", "qualification")
+MODES = execution_plan.MODES
 GATE_ORDER = ("acceptance", "pytest", "guarded", "deps", "docs", "docnames", "config")
 # Never inherited by a stage: each could narrow, extend or redirect what pytest runs without appearing on its command line.
 _SCRUBBED_ENV_PREFIXES = ("PYTEST_", "_PYTEST", "ACT_GATE_")
-_SCRUBBED_ENV = {"PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP", "PYTHONINSPECT", "PYTHONBREAKPOINT"}
+# v0.8.2 Phase 1A-1: an ambient effect ledger is never inherited (each stage names its own), and real-engine opt-ins and
+# destination overrides never reach any stage (files/tests/routine_effects.py scrubs them again inside pytest).
+_SCRUBBED_ENV = {"PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP", "PYTHONINSPECT", "PYTHONBREAKPOINT", "ACT_EFFECT_LEDGER",
+                 "ACT_P2_EVIDENCE", "ACT_XHE_PROOF_APPLE_CAF", "ACT_MAC_FFMPEG"}
+_SCRUBBED_OPT_IN = re.compile(r"^ACT_[A-Z0-9_]*_REAL(_[A-Z0-9_]+)?$")
+EFFECT_LEDGER_ENV = "ACT_EFFECT_LEDGER"
+ROUTINE_PYTEST = "routine_pytest.py"
 # Tests at this depth have a stack dumped into the log long before the stall limit ends them. The slowest is about 80 s.
 FAULTHANDLER_SECONDS = 600
 SUMMARY_BYTES = 1 << 16
@@ -202,10 +213,6 @@ class GuardedSpecError(ValueError):
 
 class PolicyError(ValueError):
     """verification.json or coverage.json is unusable."""
-
-
-class InvocationError(ValueError):
-    """The request is well formed but names something that does not exist: exit 64, with a record of it."""
 
 
 def load_guarded_spec() -> dict | None:
@@ -715,17 +722,35 @@ def coverage_problems(coverage: dict) -> list[str]:
 # --------------------------------------------------------------------------- #
 # One gate run
 # --------------------------------------------------------------------------- #
-def _pytest_command(junit_xml: Path, *, token: str, basetemp: Path, cache: Path, targets=None) -> list[str]:
-    """The whole ordinary scope, or the given selectors, plus reporting and this run's own scratch. Nothing narrows it."""
-    scope = [str(TESTS_DIR), *_ignore_arguments()] if targets is None else list(targets)
-    return [sys.executable, "-u", "-m", "pytest", *scope, "-q", "-ra", f"--junitxml={junit_xml}",
+def _ordinary_scope(targets) -> list[str]:
+    """An explicit plan's ordinary selectors. Only the full plan's ``ORDINARY_PARTITION`` stands for the whole ordinary suite
+    (every test module except the guarded ones); there is no implicit "everything" (v0.8.2 Phase 1A-1)."""
+    targets = list(targets)
+    if not targets:
+        raise ValueError("an empty ordinary selection has no pytest command")
+    if targets == [execution_plan.ORDINARY_PARTITION]:
+        return [str(TESTS_DIR), *_ignore_arguments()]
+    if execution_plan.ORDINARY_PARTITION in targets:
+        raise ValueError("the release partition cannot be combined with other selectors")
+    return targets
+
+
+def _routine_pytest() -> list[str]:
+    """Ordinary pytest through the routine bootstrap: restrictions first, then pytest (files/tests/routine_pytest.py)."""
+    return [sys.executable, "-u", str(TESTS_DIR / ROUTINE_PYTEST)]
+
+
+def _pytest_command(junit_xml: Path, *, token: str, basetemp: Path, cache: Path, targets) -> list[str]:
+    """The plan's ordinary scope plus reporting and this run's own scratch. Nothing narrows it."""
+    scope = _ordinary_scope(targets)
+    return [*_routine_pytest(), *scope, "-q", "-ra", f"--junitxml={junit_xml}",
             "-o", f"junit_suite_name={token}", f"--basetemp={basetemp}", "-o", f"cache_dir={cache}",
             "-o", f"faulthandler_timeout={FAULTHANDLER_SECONDS}"]
 
 
-def _collect_command(*, token: str, basetemp: Path, cache: Path, targets=None) -> list[str]:
-    scope = [str(TESTS_DIR), *_ignore_arguments()] if targets is None else list(targets)
-    return [sys.executable, "-u", "-m", "pytest", *scope, "--collect-only", "-q",
+def _collect_command(*, token: str, basetemp: Path, cache: Path, targets) -> list[str]:
+    scope = _ordinary_scope(targets)
+    return [*_routine_pytest(), *scope, "--collect-only", "-q",
             f"--basetemp={basetemp}", "-o", f"cache_dir={cache}", "-o", f"junit_suite_name={token}"]
 
 
@@ -741,25 +766,16 @@ def _dialog_probe_source(stub: Path) -> str:
             "    print(json.dumps({'mode':hex(mode),'winerror':getattr(e,'winerror',None)}))\n")
 
 
-@dataclass
-class Selection:
-    kind: str
-    ordinary: list[str] | None = None  # None: the whole ordinary scope
-    guarded: dict[str, list[str]] | None = None  # None: every group whole; {} no guarded group
-    journeys: list[str] | None = None  # None: every registered journey; [] none
-    requested: list[str] = field(default_factory=list)
-    notes: dict = field(default_factory=dict)
-
-    def record(self) -> dict:
-        return {"kind": self.kind, "ordinary": self.ordinary, "guarded": self.guarded, "journeys": self.journeys,
-                "requested": self.requested, **self.notes}
-
-
 class GateRun:
     """Everything one invocation does between reserving its directory and finalizing its result."""
 
-    def __init__(self, args, argv: list[str], record: runstore.RunRecord, established: dict) -> None:
+    def __init__(self, args, argv: list[str], record: runstore.RunRecord, established: dict,
+                 plan: execution_plan.ExecutionPlan | None = None, plan_error: str | None = None) -> None:
         self.args = args
+        #: The execution plan resolved before this run existed (v0.8.2 Phase 1A-1); validated again before anything runs.
+        self.plan = plan
+        #: Why no plan could be resolved (the policy or the guarded specification was unusable); preflight names it first.
+        self.plan_error = plan_error
         self.argv = argv
         self.record = record
         self.established = established
@@ -784,6 +800,8 @@ class GateRun:
         self.scratch_root: Path | None = None
         self.invocation_error: str | None = None
         self.scope = {"platform": sys.platform, "profile": args.mode, "full_acceptance": False}
+        #: Each pytest stage's effect ledger (files/tests/routine_effects.py), read back when the stage ends.
+        self.effect_ledgers: list[tuple[str, Path]] = []
         self.acceptance: acceptance_report.Judgement | None = None
         self.coverage_result: coverage_model.CoverageResult | None = None
         #: Qualification scenarios this run executed, and their verdicts.
@@ -823,13 +841,23 @@ class GateRun:
                         f"{result.seconds:.1f}s, remaining {result.remaining}, survivors {result.survivors}")
         return result
 
-    def stage_env(self, temp: Path, *, probe: Path | None = None, token: str = "") -> dict:
+    def stage_env(self, temp: Path, *, probe: Path | None = None, token: str = "", ledger: Path | None = None) -> dict:
         env = {key: value for key, value in os.environ.items()
-               if key.upper() not in _SCRUBBED_ENV and not key.upper().startswith(_SCRUBBED_ENV_PREFIXES)}
+               if key.upper() not in _SCRUBBED_ENV and not key.upper().startswith(_SCRUBBED_ENV_PREFIXES)
+               and not _SCRUBBED_OPT_IN.match(key.upper())}
         env.update(TEMP=str(temp), TMP=str(temp), TMPDIR=str(temp))
         if probe is not None:
             env.update(ACT_GATE_PROBE=str(probe), ACT_GATE_TOKEN=token)
+        if ledger is not None:
+            env[EFFECT_LEDGER_ENV] = str(ledger)
         return env
+
+    def ledger(self, stage: str, folder: Path | None = None) -> Path:
+        """Where a pytest stage's routine-effect refusals are recorded. Guarded stages write in their own work folder (their
+        write guard protects this run's evidence folder) and the ledger is copied into the evidence afterwards."""
+        path = (folder or self.reports()) / f"{stage}-effects.jsonl"
+        self.effect_ledgers.append((stage, path))
+        return path
 
     def scratch(self, name: str) -> Path:
         """A disposable folder of this run. Short on purpose: see SCRATCH_ROOT."""
@@ -869,7 +897,12 @@ class GateRun:
             self.check("policy", "NOT RUN", str(exc))
             return
         self.check("policy", "PASS", f"{POLICY_FILE.name}, {COVERAGE_FILE.name} usable")
+        # Preflight first, as selection always followed it: a broken guarded specification or interpreter is named by its own
+        # check, not hidden behind the plan it also prevents.
         if not self.preflight():
+            return
+        plan = self.admitted_plan()
+        if plan is None:
             return
         if self.args.preflight_only:
             self.check("execution", "NOT RUN", "--preflight-only: no test ran, so this establishes nothing")
@@ -877,27 +910,47 @@ class GateRun:
         if self.args.mode == "qualification":
             self.check_scenario()
             return
-        try:
-            selection = self.select()
-        except InvocationError as exc:
-            self.invocation_error = str(exc)
-            self.check("selection", "NOT RUN", str(exc))
-            return
-        runstore.write_json_atomic(self.directory / "selection.json", selection.record())
-        self.record.log(f"selection: {selection.kind}")
-        if self.args.mode == "full" or self.args.collect_only:
+        if plan.release_partition or self.args.collect_only:
             self.enter("collecting")
-            if not self.collect(selection):
+            if not self.collect(plan):
                 return
         if self.args.collect_only:
             self.check("execution", "NOT RUN", "--collect-only: no test ran, so this establishes nothing")
             return
         self.enter("running")
-        self.run_acceptance(selection)
-        self.run_ordinary(selection)
-        self.run_guarded(selection)
-        if self.args.mode in ("full", "changed"):
+        self.run_acceptance(plan)
+        self.run_ordinary(plan)
+        self.run_guarded(plan)
+        if plan.release_partition:
             self.run_static()
+
+    def admitted_plan(self) -> execution_plan.ExecutionPlan | None:
+        """The plan this run executes, validated again at the execution boundary, and recorded as selection.json. A plan that
+        is not COMPLETE runs nothing: a withheld requested test or a selection gap is NOT RUN with the plan as its record."""
+        plan = self.plan
+        try:
+            if plan is None:
+                raise execution_plan.PlanError(self.plan_error or "no execution plan was resolved for this run")
+            execution_plan.validate(plan, guarded_group_map())
+            if not plan.executable_now:
+                raise execution_plan.PlanError(f"{plan.mode}: {plan.activation}")
+        except (execution_plan.PlanError, GuardedSpecError) as exc:
+            self.invocation_error = str(exc)
+            self.check("selection", "NOT RUN", str(exc))
+            return None
+        runstore.write_json_atomic(self.directory / "selection.json", plan.record())
+        self.record.log(f"selection: {plan.kind}, plan {plan.status}")
+        if plan.status != "COMPLETE":
+            withheld = [f"{item.subject} ({item.reason})" for item in plan.withheld if item.requested][:5]
+            gaps = [f"{item.subject}: {item.reason}" for item in plan.gaps][:5]
+            self.check("selection", "NOT RUN", f"the execution plan is {plan.status}; nothing ran. Withheld as requested: "
+                                               f"{withheld or 'none'}; gaps: {gaps or 'none'} (selection.json)")
+            return None
+        if plan.obligations:
+            self.check("obligations", "NOT RUN", f"{len(plan.obligations)} obligation(s) outside this scope stay pending: "
+                                                 + "; ".join(f"{item.subject} ({item.kind})" for item in plan.obligations[:6]),
+                       required=False)
+        return plan
 
     def write_start(self) -> None:
         self.identity_start = tree_fingerprint()
@@ -1050,99 +1103,18 @@ class GateRun:
                        f"its own identity names this run's HEAD, its runs are recorded, and every check the policy requires of "
                        f"a PASS is there ({len(judged)} checks, {verdict.get('runs')} runs)")
 
-    def select(self) -> Selection:
-        mode = self.args.mode
-        if mode == "full":
-            self.scope["profile"] = "routine"
-            return Selection("full")
-        if mode == "focused":
-            selectors = self._focused_selectors()
-            journeys = self._focused_journeys()
-            chosen = self._split(selectors, "focused")
-            chosen.journeys = journeys
-            return chosen
-        return self._changed_selection()
-
-    def _focused_journeys(self) -> list[str]:
-        policy = self.policy.get("acceptance", {})
-        known = [*policy.get("required_scenarios", []), *policy.get("optional_scenarios", [])]
-        features = {feature["id"]: feature for feature in self.coverage.get("features", [])}
-        wanted = list(self.args.journey or [])
-        for feature_id in self.args.feature or []:
-            wanted.extend(features[feature_id].get("journeys", []))
-        unknown = sorted(set(wanted) - set(known))
-        if unknown:
-            raise InvocationError(f"unknown journey {unknown}; known: {sorted(known)}")
-        return list(dict.fromkeys(wanted))
-
-    def _focused_selectors(self) -> list[str]:
-        features = {feature["id"]: feature for feature in self.coverage.get("features", [])}
-        selectors = list(self.args.test or [])
-        for feature_id in self.args.feature or []:
-            if feature_id not in features:
-                raise InvocationError(f"unknown feature {feature_id!r}; known: {sorted(features)}")
-            selectors.extend(features[feature_id].get("selection", []))
-            # The exact tests the feature is verified by, even where its selection does not name their module.
-            selectors.extend(item["test"] for item in coverage_model.verifications_of(features[feature_id]) if item.get("kind") == "behavior")
-        return [*self.policy["focused"]["required_guards"], *selectors]
-
-    def _split(self, selectors: list[str], kind: str, **notes) -> Selection:
-        membership = {module: group["name"] for group in load_guarded_spec()["groups"] for module in group["modules"]}
-        ordinary, guarded = [], {}
-        # A node of a module that is selected whole would only be collected a second time.
-        whole = {selector for selector in selectors if "::" not in selector}
-        selectors = [selector for selector in selectors if "::" not in selector or selector.split("::", 1)[0] not in whole]
-        for selector in selection_rules.in_suite_order(selectors):
-            module = selection_rules.module_name(selector)
-            if module in membership:
-                guarded.setdefault(membership[module], []).append(selector)
-            else:
-                ordinary.append(selector)
-        return Selection(kind, ordinary=ordinary, guarded=guarded, requested=list(selectors), notes=notes)
-
-    def _changed_selection(self) -> Selection:
-        base = self.args.base
-        try:
-            merge_base = _git(REPO_ROOT, "merge-base", base, "HEAD").strip()
-            changed = {p for p in _git(REPO_ROOT, "diff", "--name-only", "--no-renames", "-z", merge_base).split("\0") if p}
-            changed |= {p for p in _git(REPO_ROOT, "ls-files", "-z", "--others", "--exclude-standard",
-                                        "--", *FINGERPRINT_UNTRACKED_SCOPES).split("\0") if p}
-        except (OSError, subprocess.CalledProcessError) as exc:
-            raise InvocationError(f"--base {base!r} cannot be resolved against HEAD: {type(exc).__name__}") from None
-        sources = {f"files/tests/{path.name}": path.read_text(encoding="utf-8", errors="replace")
-                   for path in sorted(TESTS_DIR.glob("test_*.py"))}
-        chosen = selection_rules.select_for_changes(changed, self.policy["changed"], sources)
-        # The features whose source changed bring their own tests and journeys too: the reviewed mapping is a route, not only a word match.
-        touched = [feature for feature in (self.coverage or {}).get("features", [])
-                   if any(source.get("path") in changed for source in feature.get("source", []))]
-        by_feature = sorted({*(selector for feature in touched for selector in feature.get("selection", [])),
-                             *(item["test"] for feature in touched for item in coverage_model.verifications_of(feature)
-                               if item.get("kind") == "behavior")})
-        notes = {"base": base, "merge_base": merge_base, "changed_paths": sorted(changed), "ignored_paths": chosen.ignored,
-                 "mapped": chosen.mapped, "widened_because": chosen.reasons, "features_touched": [feature["id"] for feature in touched]}
-        self.scope["profile"] = "changed"
-        if chosen.conservative_full:
-            return Selection("changed-conservative-full", requested=sorted(changed), notes=notes)
-        selected = self._split([*chosen.tests, *by_feature], "changed", **notes)
-        acceptance = self.policy.get("acceptance", {})
-        known = [*acceptance.get("required_scenarios", []), *acceptance.get("optional_scenarios", [])]
-        journeys = selection_rules.journeys_for_changes(changed, acceptance.get("journey_routes", {}), known)
-        journeys += [journey for feature in touched for journey in feature.get("journeys", []) if journey in known]
-        selected.journeys = list(dict.fromkeys(journeys))
-        return selected
-
     # ------------------------------------------------------------------ collection and partition
-    def collect(self, selection: Selection) -> bool:
+    def collect(self, plan: execution_plan.ExecutionPlan) -> bool:
         """Know the inventory before spending an hour on it, and refuse a partition that does not hold."""
         (self.directory / "collection").mkdir()
-        if selection.ordinary != []:
+        if plan.ordinary:
             scratch = self.scratch("co")
             token = f"{self.record.run_id}-collect-pytest"
             probe = self.reports() / "collect-pytest-probe.jsonl"
             log = self.directory / "logs" / "collect-pytest.log"
-            command = _collect_command(token=token, basetemp=scratch / "b", cache=scratch / "c", targets=selection.ordinary)
-            result = self.supervise("collect", command, log=log, env=self.stage_env(scratch / "t", probe=probe, token=token),
-                                    progress=(probe,))
+            command = _collect_command(token=token, basetemp=scratch / "b", cache=scratch / "c", targets=plan.ordinary)
+            result = self.supervise("collect", command, log=log, progress=(probe,), env=self.stage_env(
+                scratch / "t", probe=probe, token=token, ledger=self.ledger("collect-pytest")))
             parsed = pytest_reports.read_probe(probe, token)
             self.stages.append({"name": "collect-pytest", "log": self.relative(log), "probe": self.relative(probe), **result.record()})
             if result.returncode != 0 or not parsed.valid or parsed.collected is None or parsed.collect_errors:
@@ -1153,13 +1125,13 @@ class GateRun:
             self.collected_ordinary = parsed.collected
             self._write_inventory("pytest", parsed.collected, parsed.collect_skips)
             self.judge_cleanup("collect-pytest", result)
-        groups = self.guarded_groups(selection)
+        groups = self.guarded_groups(plan)
         for index, (group, targets) in enumerate(groups):
             collected = self.collect_group(group, targets, index)
             if collected is None:
                 return False
             self.collected_guarded[group["name"]] = collected
-        if selection.ordinary is not None or selection.guarded is not None:
+        if not plan.release_partition:
             self.check("collection", "PASS", "selected scope collected")
             return True
         return self.check_partition()
@@ -1180,7 +1152,8 @@ class GateRun:
         token = f"{self.record.run_id}-collect-{name}"
         basetemp = self.guarded_root() / f"{prefix}c{stamp}{index}"
         log = self.directory / "logs" / f"collect-guarded-{name}.log"
-        env = self.stage_env(self.scratch(f"cg{index}") / "t", probe=probe, token=token)
+        env = self.stage_env(self.scratch(f"cg{index}") / "t", probe=probe, token=token,
+                             ledger=self.ledger(f"collect-guarded-{name}", work))
         result = self.supervise("collect", _guarded_command(config, report, basetemp, targets, extra=("--collect-only",)),
                                 log=log, env=env, progress=(probe,))
         parsed = pytest_reports.read_probe(probe, token)
@@ -1221,10 +1194,10 @@ class GateRun:
         return True
 
     # ------------------------------------------------------------------ the suites
-    def run_ordinary(self, selection: Selection) -> None:
+    def run_ordinary(self, plan: execution_plan.ExecutionPlan) -> None:
         self.current_gate = "pytest"
         self.mark()
-        if selection.ordinary == []:
+        if not plan.ordinary:
             self.check("pytest", "NOT APPLICABLE", "the selection holds no ordinary test", required=False)
             return
         scratch = self.scratch("o")
@@ -1233,10 +1206,10 @@ class GateRun:
         probe = self.reports() / "pytest-probe.jsonl"
         log = self.directory / "logs" / "pytest.log"
         command = _pytest_command(junit, token=token, basetemp=scratch / "b", cache=scratch / "c",
-                                  targets=selection.ordinary)
+                                  targets=plan.ordinary)
         self.record.log(f"pytest command: {command}")
-        result = self.supervise("pytest", command, log=log, env=self.stage_env(scratch / "t", probe=probe, token=token),
-                                progress=(probe,))
+        result = self.supervise("pytest", command, log=log, progress=(probe,),
+                                env=self.stage_env(scratch / "t", probe=probe, token=token, ledger=self.ledger("pytest")))
         report = pytest_reports.read_junit(junit, token)
         parsed = pytest_reports.read_probe(probe, token)
         verdict = pytest_reports.judge_stage(result.returncode, result.ended, report, parsed, _tail(log), child_pid=result.pid)
@@ -1247,13 +1220,14 @@ class GateRun:
         self.judge_cleanup("pytest", result)
         self.check("pytest", verdict.status, verdict.detail, exit_status=result.returncode, seconds=round(result.seconds, 3))
 
-    def run_acceptance(self, selection: Selection) -> None:
-        """Real input, real media, judged from outside the process that ran them. Never skipped quietly: nothing selected says so."""
+    def run_acceptance(self, plan: execution_plan.ExecutionPlan) -> None:
+        """Real input, real media, judged from outside the process that ran them. Never skipped quietly: nothing selected says so.
+        Only a plan that names its journeys explicitly reaches here, and only the full plan names the whole registered set."""
         self.current_gate = "acceptance"
         self.mark()
         policy = self.policy.get("acceptance", {})
         required, optional = list(policy.get("required_scenarios", [])), list(policy.get("optional_scenarios", []))
-        wanted = [*required, *optional] if selection.journeys is None else list(selection.journeys)
+        wanted = list(plan.journeys)
         if not wanted:
             self.check("acceptance", "NOT APPLICABLE", "the selection holds no native or media journey", required=False)
             return
@@ -1275,11 +1249,11 @@ class GateRun:
                 report, token=token, wanted=wanted, required=required, optional=optional, evidence_root=evidence,
                 returncode=result.returncode, ended=result.ended, darwin_map=policy.get("darwin_map", {}),
                 manual_evidence=DARWIN_MANUAL_EVIDENCE, sha=self.identity_start.get("head"),
-                required_tools=list(policy.get("required_tools", [])), whole_set=selection.journeys is None)
+                required_tools=list(policy.get("required_tools", [])), whole_set=plan.release_partition)
         else:
             self.acceptance = acceptance_report.judge(
                 report, token=token, wanted=wanted, required=required, optional=optional, evidence_root=evidence, returncode=result.returncode,
-                ended=result.ended, required_tools=list(policy.get("required_tools", [])), whole_set=selection.journeys is None)
+                ended=result.ended, required_tools=list(policy.get("required_tools", [])), whole_set=plan.release_partition)
         self.stages.append({"name": "acceptance", "log": self.relative(log), "report": self.relative(report) if report.is_file() else None,
                             "scenarios": self.acceptance.scenarios, **result.record()})
         (self.directory / "acceptance-report.md").write_text("\n".join(acceptance_report.report_lines(self.acceptance)) + "\n",
@@ -1350,20 +1324,15 @@ class GateRun:
         shutil.copyfile(source, target)
         return target
 
-    def guarded_groups(self, selection: Selection) -> list[tuple[dict, list[str]]]:
-        groups = []
-        for group in load_guarded_spec()["groups"]:
-            if selection.guarded is None:
-                groups.append((group, list(group["modules"])))
-            elif group["name"] in selection.guarded:
-                targets = [item.split("/", 2)[-1] for item in selection.guarded[group["name"]]]
-                groups.append((group, targets))
-        return groups
+    def guarded_groups(self, plan: execution_plan.ExecutionPlan) -> list[tuple[dict, list[str]]]:
+        """The plan's guarded groups, each with the explicit targets it names (the full plan names every module of every group)."""
+        wanted = dict(plan.guarded)
+        return [(group, list(wanted[group["name"]])) for group in load_guarded_spec()["groups"] if group["name"] in wanted]
 
-    def run_guarded(self, selection: Selection) -> None:
+    def run_guarded(self, plan: execution_plan.ExecutionPlan) -> None:
         self.current_gate = "guarded"
         self.mark()
-        groups = self.guarded_groups(selection)
+        groups = self.guarded_groups(plan)
         if not groups:
             self.check("guarded", "NOT APPLICABLE", "the selection holds no guarded test", required=False)
             return
@@ -1391,7 +1360,7 @@ class GateRun:
         log = self.directory / "logs" / f"guarded-{name}.log"
         command = _guarded_command(config, report, basetemp, targets,
                                    extra=(f"--junitxml={junit}", "-o", f"junit_suite_name={token}"))
-        env = self.stage_env(self.scratch(f"g{index}") / "t", probe=probe, token=token)
+        env = self.stage_env(self.scratch(f"g{index}") / "t", probe=probe, token=token, ledger=self.ledger(f"guarded-{name}", work))
         result = self.supervise("guarded", command, log=log, env=env, progress=(probe,))
         guard = _read_guard_report(report)
         parsed = pytest_reports.read_probe(probe, token)
@@ -1439,6 +1408,8 @@ class GateRun:
         if self.lifecycle_reached_tests():
             self.check("cleanup", "FAIL" if cleanup else "PASS",
                        f"owned processes left behind: {cleanup}" if cleanup else "no owned process remained after any stage")
+        if self.effect_ledgers:
+            self.check_routine_effects()
         if ran_tests:
             self.check_error_mode()
             self.check_skips()
@@ -1490,6 +1461,26 @@ class GateRun:
         self.record.log(f"complete: RESULT {status}")
         self.record.close()
         return self.record.finalize(results)
+
+    def check_routine_effects(self) -> None:
+        """Every pytest stage's refused heavyweight effects (files/tests/routine_effects.py). A refusal fails the run even when
+        the test that caused it caught the exception, and whichever process (a test, a child, an atexit callback) caused it."""
+        refused = []
+        for stage, path in self.effect_ledgers:
+            if not path.is_file():
+                continue
+            stored = path if path.parent == self.reports() else self.keep_report(path, path.name)
+            for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+                try:
+                    row = json.loads(line)
+                except ValueError:
+                    row = {"effect": "unknown", "detail": f"unreadable ledger line {line[:80]!r}"}
+                if not row.get("expected"):
+                    refused.append(f"{stage}: {row.get('effect')}: {str(row.get('detail'))[:160]}")
+            self.record.log(f"effect ledger {stage}: {self.relative(stored) if stored else path}")
+        self.check("routine-effects", "FAIL" if refused else "PASS",
+                   "; ".join(refused[:6]) if refused else "no heavyweight effect was refused in any pytest stage",
+                   refused=len(refused))
 
     def lifecycle_reached_tests(self) -> bool:
         return any(c["name"] in ("acceptance", "pytest", "guarded") for c in self.checks)
@@ -1880,7 +1871,7 @@ def _report_lines(results: dict, directory: Path) -> list[str]:
     lines += ["-" * 60, f"  RESULT: {results['status']}"]
     if results["mode"] == "full":
         waiting = [f"{kind} {len(items)} feature(s)" for kind, items in sorted(release.items())]
-        lines.append("  scope: routine gate only; NOT full acceptance or release readiness"
+        lines.append("  scope: the full release partition of this checkout; NOT full acceptance or release readiness"
                      + (f"; NOT RUN: {', '.join(pending)}" if pending else "")
                      + (f"; release-pending: {', '.join(waiting)}" if waiting else ""))
     elif results["status"] == "PASS":
@@ -1889,14 +1880,15 @@ def _report_lines(results: dict, directory: Path) -> list[str]:
     return lines
 
 
-def _execute_run(args, argv: list[str], established: dict) -> int:
+def _execute_run(args, argv: list[str], established: dict, plan: execution_plan.ExecutionPlan | None = None,
+                 plan_error: str | None = None) -> int:
     try:
         directory = runstore.reserve_run_dir(OUTPUTS_ROOT, REPO_ROOT, args.mode)
     except runstore.RunRefused as exc:
         print(f"verify.py: refusing to create a run: {exc}", file=sys.stderr)
         return runstore.EXIT_INVALID
     record = runstore.RunRecord(directory)
-    run = GateRun(args, argv, record, established)
+    run = GateRun(args, argv, record, established, plan, plan_error)
     try:
         run.mark()
         record.log(f"verify.py run {record.run_id}; argv {argv}; error mode {established}")
@@ -2130,14 +2122,19 @@ class _GateParser(argparse.ArgumentParser):
 
 
 _HELP_EPILOG = """\
-modes: focused needs --test or --feature; changed takes --base (default origin/master); qualification needs --scenario.
---preflight-only and --collect-only leave evidence and never establish acceptance.
+modes: quick (no selector); focused needs --test or --feature; changed takes an optional --base REV (default: HEAD against
+the working tree); regression needs --component; qualification needs exactly one --scenario or one or more --journey; full
+takes no selector. --plan resolves and prints the execution plan of any of them and runs nothing.
 
-interim policy (GATE.md, until Phase 1A): only focused --test is routine. full, qualification, changed, focused --feature
-and --journey can start native GUI journeys or the whole suite; they need the owner's authorization.
+execution (GATE.md, v0.8.2 Phase 1A-1): focused --test executes and is routine. full and qualification --scenario execute only
+with the owner's authorization for that run. quick, changed, regression, focused --feature and qualification --journey print
+their plan only (exit 3) until Phase 1A-3. focused never runs a journey: --journey is a qualification selector.
+
+--preflight-only and --collect-only leave evidence and never establish acceptance; they go only with an executable plan.
 
 exit codes: 0 PASS for the requested scope; 1 FAIL; 2 BLOCKED, a prerequisite is unavailable; 3 NOT RUN or incomplete,
-including no tests executed; 64 invalid invocation or configuration; 130 interrupted. Exit 0 does not imply release readiness.
+including no tests executed or a plan printed; 64 invalid invocation or configuration; 130 interrupted. Exit 0 does not imply
+release readiness.
 
 --audit-scratch lists every child of the scratch root with its owning run, size and whether it is in use, and changes nothing.
 
@@ -2154,15 +2151,20 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--test", action="append", metavar="ID",
                         help="focused: a test module or node id under files/tests (repeatable)")
     parser.add_argument("--feature", action="append", metavar="ID",
-                        help="focused: a stable feature id from coverage.json, such as ACT.TTS.CANCEL (repeatable)")
+                        help="focused: a stable feature id from coverage.json, such as ACT.TTS.CANCEL (repeatable; plan only)")
+    parser.add_argument("--component", action="append", metavar="ID",
+                        help="regression: a reviewed component of verification.json, such as tts (repeatable; plan only)")
     parser.add_argument("--journey", action="append", metavar="ID",
-                        help="focused: a native and real-media journey registered in verification.json (repeatable); needs the desktop")
-    parser.add_argument("--base", action=_OnceOnly, metavar="REF", help="changed: compare with the merge base of this ref (default origin/master)")
+                        help="qualification: a native and real-media journey registered in verification.json (repeatable; plan "
+                             "only until Phase 1A-3); never a focused selector")
+    parser.add_argument("--base", action=_OnceOnly, metavar="REF",
+                        help="changed: also include the committed candidate side since the merge base of REF and HEAD")
     parser.add_argument("--platform", action=_OnceOnly, choices=("windows", "macos"), help="refuse to run (BLOCKED) on any other platform")
     parser.add_argument("--scenario", action=_OnceOnly, choices=(*SCENARIO_NAMES, *DARWIN_SCENARIO_NAMES),
                         help="qualification: the named scenario")
     parser.add_argument("--network", action=_OnceOnly, metavar="POLICY", help="qualification: a network policy the scenario declares; there is "
                                                             "no way to turn isolation off")
+    parser.add_argument("--plan", action="store_true", help="resolve and print the execution plan; run and write nothing")
     parser.add_argument("--preflight-only", action="store_true", help="prove the prerequisites; run no test")
     parser.add_argument("--collect-only", action="store_true", help="also collect and check the partition; run no test")
     parser.add_argument("--label", action=_OnceOnly, metavar="NAME", help="a short name recorded with the run")
@@ -2174,6 +2176,8 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
                         help="with --evidence: also read the runs below this outputs folder (another worktree of this repository)")
     args = parser.parse_args(argv)
     if args.evidence:
+        if args.component or args.feature or args.base or args.plan:
+            parser.error("--evidence takes --test, --journey, --scenario and --evidence-root only")
         if args.mode or args.status or args.audit_scratch:
             parser.error("--evidence stands alone (with --test, --journey, --scenario, --evidence-root)")
         if args.test:
@@ -2191,23 +2195,36 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     if bool(args.mode) == bool(args.status):
         parser.error("give exactly one of --mode and --status")
     if args.status:
+        if args.plan:
+            parser.error("--plan goes with --mode")
         return args
     if args.require_current:
         parser.error("--require-current goes with --status")
-    if args.mode != "focused" and (args.test or args.feature or args.journey):
-        parser.error("--test, --feature and --journey go with --mode focused")
-    if args.mode == "focused" and not (args.test or args.feature or args.journey):
-        parser.error("--mode focused needs --test, --feature or --journey; an empty selection is not a test run")
+    if args.mode == "focused" and args.journey:
+        parser.error(execution_plan.journey_migration())
+    if args.mode != "focused" and (args.test or args.feature):
+        parser.error("--test and --feature go with --mode focused")
+    if args.mode == "focused" and not (args.test or args.feature):
+        parser.error("--mode focused needs --test or --feature; an empty selection is not a test run")
+    if args.mode != "regression" and args.component:
+        parser.error("--component goes with --mode regression")
+    if args.mode == "regression" and not args.component:
+        parser.error("--mode regression needs at least one --component; there is no unnamed or 'all' regression")
     if args.mode != "changed" and args.base:
         parser.error("--base goes with --mode changed")
-    if args.mode == "changed" and not args.base:
-        args.base = "origin/master"
-    if args.mode != "qualification" and (args.scenario or args.network):
-        parser.error("--scenario and --network go with --mode qualification")
-    if args.mode == "qualification" and not args.scenario:
-        parser.error("--mode qualification needs --scenario")
+    if args.mode != "qualification" and (args.scenario or args.network or args.journey):
+        parser.error("--scenario, --journey and --network go with --mode qualification")
+    if args.mode == "qualification" and bool(args.scenario) == bool(args.journey):
+        parser.error("--mode qualification needs exactly one --scenario or one or more --journey, not both")
+    if args.network and not args.scenario:
+        parser.error("--network goes with a qualification --scenario")
+    if any(not str(value).strip() for value in [*(args.test or []), *(args.feature or []), *(args.component or []),
+                                                 *(args.journey or [])]):
+        parser.error("a selector may not be empty")
     if args.preflight_only and args.collect_only:
         parser.error("--preflight-only and --collect-only are alternatives")
+    if args.plan and (args.preflight_only or args.collect_only):
+        parser.error("--plan runs nothing; it does not go with --preflight-only or --collect-only")
     if args.mode == "qualification" and args.collect_only:
         parser.error("a qualification scenario has no test collection to stop at")
     if args.network and args.network not in _SCENARIO_NETWORK.get(args.scenario, ()):
@@ -2240,7 +2257,110 @@ def main(argv: list[str] | None = None) -> int:
         return _status_command(args)
     if args.evidence:
         return _evidence_command(args)
-    return _execute_run(args, list(sys.argv if argv is None else argv), established)
+    plan_error = None
+    try:
+        plan = resolve_plan(args)
+    except (execution_plan.PlanError, git_changes.ChangeError, effect_rules.DeclarationError) as exc:
+        print(f"verify.py: invalid request: {exc}", file=sys.stderr)
+        return runstore.EXIT_INVALID
+    except (PolicyError, GuardedSpecError, ValueError) as exc:
+        if args.plan or not _activated(args):
+            print(f"verify.py: the policy cannot resolve a plan: {exc}", file=sys.stderr)
+            return runstore.EXIT_INVALID
+        plan, plan_error = None, f"the policy cannot resolve a plan: {exc}"  # the run's own checks name the cause
+    if args.plan or (plan is not None and not plan.executable_now):
+        if (args.preflight_only or args.collect_only) and not args.plan:
+            print(f"verify.py: invalid request: --preflight-only and --collect-only go only with an executable plan; "
+                  f"{plan.activation}", file=sys.stderr)
+            return runstore.EXIT_INVALID
+        return _print_plan(plan, explicit=args.plan)
+    # v0.8.2 Phase 1A-1: inside routine verification (a pytest process of this checkout, or any child of one) the gate never
+    # executes a run against this checkout; reading, planning and --help stay available. A synthetic copy of the gate in a
+    # temporary tree, or the gate loaded against a fake repository, is the test's own (helpers/routine_context.py).
+    routine_context.refuse_under_routine("verify.py", "native-desktop", argv=[], origin=str(REPO_ROOT))
+    return _execute_run(args, list(sys.argv if argv is None else argv), established, plan, plan_error)
+
+
+# --------------------------------------------------------------------------- #
+# The execution plan (v0.8.2 Phase 1A-1)
+# --------------------------------------------------------------------------- #
+def _activated(args) -> bool:
+    """Whether this request's mode may execute in this checkpoint (GATE.md): focused --test, full, qualification --scenario."""
+    return (args.mode == "focused" and not args.feature) or args.mode == "full" or \
+        (args.mode == "qualification" and bool(args.scenario))
+
+
+def guarded_group_map() -> dict[str, list[str]]:
+    spec = load_guarded_spec()
+    return {} if spec is None else {group["name"]: list(group["modules"]) for group in spec["groups"]}
+
+
+def _policy_digest() -> str:
+    digest = hashlib.sha256()
+    for path in (POLICY_FILE, COVERAGE_FILE, TESTS_DIR / GUARDED_SPEC_NAME):
+        try:
+            digest.update(path.name.encode() + b"\0" + path.read_bytes() + b"\n")
+        except OSError:
+            digest.update(path.name.encode() + b"\0<missing>\n")
+    return digest.hexdigest()
+
+
+def _candidate() -> dict:
+    """A cheap identity of the candidate for a plan: HEAD and a digest of the porcelain status (the run itself records the full
+    tree fingerprint; a changed plan records git_changes' selection identity)."""
+    try:
+        head = _git(REPO_ROOT, "rev-parse", "--verify", "HEAD").strip()
+        status = _git(REPO_ROOT, "status", "--porcelain=v1", "-z", "--untracked-files=all")
+    except (OSError, subprocess.CalledProcessError) as exc:
+        return {"available": False, "error": f"{type(exc).__name__}"}
+    return {"available": True, "head": head, "status_digest": hashlib.sha256(status.encode("utf-8", "surrogateescape")).hexdigest(),
+            "dirty": bool(status.strip("\0"))}
+
+
+def plan_request(args) -> execution_plan.Request:
+    return execution_plan.Request(mode=args.mode, tests=tuple(args.test or ()), features=tuple(args.feature or ()),
+                                  components=tuple(args.component or ()), scenario=args.scenario,
+                                  journeys=tuple(args.journey or ()), base=args.base)
+
+
+def plan_context(request: execution_plan.Request) -> execution_plan.Context:
+    """Everything a plan is resolved from. Reads policy, coverage, the guarded specification, Git and test source text; never
+    imports a test module, probes a capability, starts a child or writes anything."""
+    policy, coverage = load_policy(), load_coverage()
+    groups = guarded_group_map()
+    native = {"win32": "windows", "darwin": "macos"}.get(sys.platform, sys.platform)
+    closures = evidence_ledger.Closures(REPO_ROOT)
+    classifier = effect_rules.Classifier(REPO_ROOT, policy, closures)
+    scenarios = {**policy.get("scenarios", {}), **policy.get("darwin_scenarios", {})}
+    platforms = {**{name: "windows" for name in policy.get("scenarios", {})},
+                 **{name: "macos" for name in policy.get("darwin_scenarios", {})}}
+    digest = _policy_digest()
+    context = execution_plan.Context(policy=policy, coverage=coverage, groups=groups, native_platform=native,
+                                     effects_for=classifier, scenarios=scenarios, scenario_platform=platforms,
+                                     candidate=_candidate(), policy_digest=digest)
+    if request.mode == "changed":
+        changes = git_changes.collect(REPO_ROOT, base=request.base, local_only=policy.get("changed", {}).get("local_only", []))
+        context.candidate = git_changes.candidate_identity(REPO_ROOT, changes, digest)
+        index = selection_rules.ReverseIndex(REPO_ROOT, closures)
+        context.routing = selection_rules.route_changes(changes, policy, coverage, index, native_platform=native,
+                                                        known_journeys=context.known_journeys())
+    return context
+
+
+def resolve_plan(args) -> execution_plan.ExecutionPlan:
+    request = plan_request(args)
+    return execution_plan.resolve(request, plan_context(request))
+
+
+def _print_plan(plan: execution_plan.ExecutionPlan, *, explicit: bool) -> int:
+    """The plan as JSON, then one human line. Nothing ran: exit 3, or 2 when the plan targets another native platform."""
+    record = plan.record()
+    print(json.dumps(record, indent=1, ensure_ascii=False))
+    reason = "--plan: nothing ran" if explicit else f"{plan.mode}: {plan.activation}"
+    print(f"PLAN: {plan.status} ({len(plan.pytest_selectors())} pytest selector(s), {len(plan.static_checks)} static "
+          f"check(s), {len(plan.journeys)} journey(s), {len(plan.withheld)} withheld, {len(plan.obligations)} obligation(s), "
+          f"{len(plan.gaps)} gap(s)); {reason}. A plan is never a PASS.")
+    return runstore.EXIT_BLOCKED if plan.status == "BLOCKED" else runstore.EXIT_NOT_RUN
 
 
 if __name__ == "__main__":

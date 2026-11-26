@@ -53,7 +53,8 @@ class Tree:
         self.outputs = self.gate / "outputs"
         self.tests.mkdir(parents=True)
         shutil.copytree(GATE_DIR, self.gate, ignore=shutil.ignore_patterns("outputs", "__pycache__"))
-        for name in ("gate_session_probe.py", "guarded_pytest.py", "write_tripwire.py"):
+        # routine_pytest.py and routine_effects.py: the gate's ordinary stages start pytest through them (v0.8.2 Phase 1A-1).
+        for name in ("gate_session_probe.py", "guarded_pytest.py", "write_tripwire.py", "routine_effects.py", "routine_pytest.py"):
             shutil.copyfile(TESTS_SOURCE / name, self.tests / name)
         self.write("files/tests/conftest.py", "import gate_session_probe\n\n\ndef pytest_configure(config):\n"
                                               "    gate_session_probe.register(config)\n")
@@ -82,7 +83,7 @@ class Tree:
         policy["focused"]["required_guards"] = []
         policy["changed"]["always"] = []
         # This small tree carries a one-feature seed inventory, so it does not require the reviewed one. The real policy does
-        # (test_verification_coverage pins that), and test_an_unreviewed_inventory_stops_full_and_changed_runs turns it on here.
+        # (test_verification_coverage pins that), and test_an_unreviewed_inventory_stops_a_full_run turns it on here.
         policy["coverage"] = {"require_reviewed_inventory": False}
         policy["process"] = {"drain_seconds": 3, "kill_wait_seconds": 10}
         policy["stages"] = {"preflight": {"timeout_seconds": 60}, "collect": {"timeout_seconds": 90, "stall_seconds": 60},
@@ -145,6 +146,12 @@ class Tree:
     def focused(self, *selectors: str, **kwargs) -> "Outcome":
         return self.run("--mode", "focused", *[f"--test={selector}" for selector in selectors], **kwargs)
 
+    def plan(self, *argv: str) -> "Outcome":
+        """``--plan``: the resolved execution plan on stdout, nothing run and no run directory (v0.8.2 Phase 1A-1)."""
+        outcome = self.run(*argv, "--plan")
+        assert outcome.directory is None, "a plan must not create a run directory"
+        return outcome
+
 
 class Outcome:
     def __init__(self, done: subprocess.CompletedProcess, directory: Path | None) -> None:
@@ -164,6 +171,13 @@ class Outcome:
         found = [item for item in self.results["checks"] if item["name"] == name]
         assert found, f"no check {name}: {[c['name'] for c in self.results['checks']]}\n{self.stdout}"
         return found[0]
+
+    @property
+    def plan(self) -> dict:
+        """The plan JSON a plan-only invocation printed (everything before its closing ``PLAN:`` line)."""
+        text = self.stdout
+        assert "PLAN:" in text, repr(self)
+        return json.loads(text[text.index("{"):text.rindex("}") + 1])
 
     def __repr__(self) -> str:
         return f"exit {self.code}\n{self.stdout}\n{self.stderr}"
@@ -240,8 +254,10 @@ def test_later_phase_requirements_are_reported_as_not_run_and_never_as_satisfied
     assert outcome.check("coverage-inventory")["status"] == "NOT APPLICABLE", "this tree's policy does not require the reviewed inventory"
 
 
-def test_an_unreviewed_inventory_stops_full_and_changed_runs(tree):
-    """The real policy's requirement, turned on in this tree: its one-feature seed is schema 1 and unreviewed, so neither run may pass."""
+def test_an_unreviewed_inventory_stops_a_full_run(tree):
+    """The real policy's requirement, turned on in this tree: its one-feature seed is schema 1 and unreviewed, so a full run may not
+    pass. A changed request only resolves its plan in Phase 1A-1 (nothing runs, so nothing passes); a focused run reports the
+    inventory without being stopped by it."""
     policy = tree.policy()
     policy["coverage"] = {"require_reviewed_inventory": True}
     tree.write_policy(policy)
@@ -253,7 +269,7 @@ def test_an_unreviewed_inventory_stops_full_and_changed_runs(tree):
     assert full.check("pytest")["status"] == "PASS", "the suite passed; only the inventory check stops it"
     tree.write("files/tests/test_ordinary.py", PASSING + "\n# touched\n")
     changed = tree.run("--mode", "changed", "--base", "HEAD")
-    assert changed.code == 1 and changed.check("coverage-inventory")["status"] == "FAIL", changed
+    assert changed.code == 3 and changed.directory is None and "PLAN:" in changed.stdout, changed
     focused = tree.focused("files/tests/test_ordinary.py")
     assert focused.code == 0 and focused.check("coverage-inventory")["required"] is False, "a focused run reports it without being stopped"
 
@@ -336,19 +352,71 @@ def test_an_unknown_selector_runs_nothing_and_is_not_a_pass(tree, selector):
     assert outcome.results["counts"]["executed"] == 0
 
 
-def test_an_unknown_feature_is_an_invalid_invocation_with_a_record(tree):
+def test_an_unknown_feature_is_an_invalid_invocation_before_anything_runs(tree):
+    """v0.8.2 Phase 1A-1: a request resolves into its plan before a run exists, so an unknown id leaves no run behind."""
     outcome = tree.run("--mode", "focused", "--feature", "ACT.NO.SUCH")
-    assert outcome.code == 64, outcome
-    assert "unknown feature" in outcome.check("selection")["detail"]
-    status = tree.status(str(outcome.directory))
-    assert "status: NOT RUN" in status.stdout
+    assert outcome.code == 64 and outcome.directory is None, outcome
+    assert "unknown feature" in outcome.stderr
 
 
 def test_a_known_feature_selects_its_tests_and_nothing_else(tree):
+    """focused --feature resolves its plan (the feature's tests, nothing else) and prints it: it executes from Phase 1A-3."""
     outcome = tree.run("--mode", "focused", "--feature", "ACT.TEST.ONE")
-    assert outcome.code == 0, outcome
-    assert outcome.results["counts"]["executed"] == 2
-    assert outcome.results["scope"]["full_acceptance"] is False and "selection only" in outcome.stdout
+    assert outcome.code == 3 and outcome.directory is None, outcome
+    plan = outcome.plan
+    assert plan["ordinary"] == ["files/tests/test_ordinary.py"] and plan["guarded"] == {} and plan["journeys"] == []
+    assert plan["status"] == "COMPLETE" and plan["executable_now"] is False and "Phase 1A-3" in plan["activation"]
+    assert plan["release_partition"] is False and "never a PASS" in outcome.stdout
+
+
+def test_a_focused_journey_is_refused_with_the_way_forward(tree):
+    """A focused run never starts a native journey: the old ``--mode focused --journey`` says where journeys went."""
+    outcome = tree.run("--mode", "focused", "--journey", "mp3.journey")
+    assert outcome.code == 64 and outcome.directory is None, outcome
+    assert "--mode qualification --journey" in outcome.stderr and "never starts a native journey" in outcome.stderr
+
+
+@pytest.mark.parametrize("argv, needle", [
+    (("--mode", "regression"), "needs at least one --component"),
+    (("--mode", "regression", "--component", "no-such-component"), "unknown component"),
+    (("--mode", "quick", "--test", "files/tests/test_ordinary.py"), "--test and --feature go with --mode focused"),
+    (("--mode", "full", "--component", "gate"), "--component goes with --mode regression"),
+    (("--mode", "full", "--base", "HEAD"), "--base goes with --mode changed"),
+    (("--mode", "qualification"), "exactly one --scenario or one or more --journey"),
+    (("--mode", "qualification", "--scenario", "edge-low-memory", "--journey", "mp3.journey"), "not both"),
+    (("--mode", "focused", "--test", ""), "may not be empty"),
+    (("--mode", "focused", "--test", "files/tests/test_ordinary.py", "--plan", "--collect-only"), "--plan runs nothing"),
+], ids=["regression-without-component", "unknown-component", "quick-with-test", "full-narrowed", "full-with-base",
+        "qualification-empty", "qualification-both", "empty-selector", "plan-and-collect"])
+def test_an_invalid_mode_and_selector_combination_is_refused_before_anything_runs(tree, argv, needle):
+    outcome = tree.run(*argv)
+    assert outcome.code == 64 and outcome.directory is None, outcome
+    assert needle in outcome.stderr, outcome
+
+
+def test_quick_and_regression_resolve_their_plans_and_run_nothing(tree):
+    quick = tree.run("--mode", "quick")
+    assert quick.code == 3 and quick.directory is None, quick
+    assert quick.plan["static_checks"] and quick.plan["ordinary"] == [] and quick.plan["executable_now"] is False
+    regression = tree.plan("--mode", "regression", "--component", "gate")
+    assert regression.code == 3 and regression.plan["requested"] == ["component:gate"], regression
+    assert regression.plan["release_partition"] is False and "files/tests" not in regression.plan["ordinary"]
+
+
+def test_a_plan_of_an_executable_focused_request_runs_nothing(tree):
+    outcome = tree.plan("--mode", "focused", "--test", "files/tests/test_ordinary.py")
+    assert outcome.code == 3, outcome
+    plan = outcome.plan
+    assert plan["ordinary"] == ["files/tests/test_ordinary.py"] and plan["executable_now"] is True
+    assert plan["candidate"]["head"] and plan["policy_digest"] and "--plan: nothing ran" in outcome.stdout
+
+
+def test_only_the_full_plan_names_the_release_partition(tree):
+    full = tree.plan("--mode", "full").plan
+    assert full["ordinary"] == ["files/tests"] and full["release_partition"] is True
+    assert full["guarded"] == {"only": ["test_guarded.py"]}
+    focused = tree.plan("--mode", "focused", "--test", "files/tests/test_ordinary.py").plan
+    assert focused["release_partition"] is False and "files/tests" not in focused["ordinary"]
 
 
 @pytest.mark.parametrize("flag", ["--preflight-only", "--collect-only"])
@@ -1342,52 +1410,50 @@ def test_a_child_that_cannot_prove_the_mode_blocks_the_run(tree):
 # The changed-area selection
 # --------------------------------------------------------------------------- #
 def test_changed_mode_maps_a_changed_test_and_never_claims_full_acceptance(tree):
+    """v0.8.2 Phase 1A-1: changed resolves its plan (exit 3, no run) until Phase 1A-3 activates its execution."""
     git(tree.root, "branch", "base")
     tree.write("files/tests/test_ordinary.py", PASSING + "\n\ndef test_three():\n    pass\n")
     tree.commit()
     outcome = tree.run("--mode", "changed", "--base", "base")
-    assert outcome.code == 0, outcome
-    selection = json.loads((outcome.directory / "selection.json").read_text(encoding="utf-8"))
-    assert selection["kind"] == "changed" and selection["ordinary"] == ["files/tests/test_ordinary.py"]
-    assert selection["guarded"] == {}
-    assert outcome.results["scope"]["full_acceptance"] is False
-    assert outcome.results["counts"]["executed"] == 3
+    assert outcome.code == 3 and outcome.directory is None, outcome
+    plan = outcome.plan
+    assert plan["kind"] == "changed" and plan["ordinary"] == ["files/tests/test_ordinary.py"] and plan["guarded"] == {}
+    assert plan["release_partition"] is False and plan["status"] == "COMPLETE" and plan["executable_now"] is False
+    assert [item["path"] for item in plan["change"]["changes"]] == ["files/tests/test_ordinary.py"]
 
 
-def test_changed_mode_widens_to_everything_for_an_unmapped_path(tree):
+def test_changed_mode_reports_an_unmapped_path_as_a_gap_and_never_widens(tree):
+    """The old gate widened an unmapped change to the whole suite. Now nothing widens: the path is a selection gap, and a
+    plan with a gap is INCOMPLETE -- it can never stand as a complete changed PASS."""
     git(tree.root, "branch", "base")
     tree.write("some/new/place.txt", "x\n")
     tree.commit()
     outcome = tree.run("--mode", "changed", "--base", "base")
-    selection = json.loads((outcome.directory / "selection.json").read_text(encoding="utf-8"))
-    assert selection["kind"] == "changed-conservative-full"
-    assert any("no selection rule" in reason for reason in selection["widened_because"])
-    assert outcome.results["counts"]["executed"] == 4 and outcome.results["scope"]["full_acceptance"] is False
+    assert outcome.code == 3 and outcome.directory is None, outcome
+    plan = outcome.plan
+    assert plan["status"] == "INCOMPLETE" and "files/tests" not in plan["ordinary"] and plan["release_partition"] is False
+    assert [gap["subject"] for gap in plan["gaps"]] == ["some/new/place.txt"], plan["gaps"]
+
+
+def test_changed_mode_with_no_relevant_change_is_not_run(tree):
+    outcome = tree.plan("--mode", "changed")
+    assert outcome.code == 3 and outcome.plan["status"] == "NOT RUN", outcome
+    assert outcome.plan["ordinary"] == [] and outcome.plan["guarded"] == {} and outcome.plan["gaps"] == []
+
+
+def test_changed_mode_sees_staged_unstaged_and_untracked_work_against_head(tree):
+    tree.write("files/tests/test_new.py", PASSING)
+    tree.write("files/tests/test_ordinary.py", PASSING + "\n# touched\n")
+    plan = tree.plan("--mode", "changed").plan
+    paths = {item["path"]: item["sources"] for item in plan["change"]["changes"]}
+    assert paths == {"files/tests/test_new.py": ["untracked"], "files/tests/test_ordinary.py": ["unstaged"]}, paths
+    assert plan["ordinary"] == ["files/tests/test_new.py", "files/tests/test_ordinary.py"]
 
 
 def test_changed_mode_with_an_unknown_base_is_an_invalid_invocation(tree):
     outcome = tree.run("--mode", "changed", "--base", "no-such-ref")
-    assert outcome.code == 64, outcome
-    assert "cannot be resolved" in outcome.check("selection")["detail"]
-
-
-def test_the_changed_selection_rules(tmp_path):
-    load_gate("act_verify_contract_selection")
-    from helpers import selection
-
-    policy = {"always": ["files/tests/test_guard.py"], "no_selection": ["md-instructions/", "README.md"],
-              "routes": {".gitignore": ["files/tests/test_ignore.py"]}, "full_on": ["scripts/shared/", "files/tests/conftest.py"]}
-    sources = {"files/tests/test_guard.py": "", "files/tests/test_a.py": "from tts import engine\n", "files/tests/test_b.py": "import other\n"}
-    chosen = selection.select_for_changes(["md-instructions/Handoff.md", "README.md"], policy, sources)
-    assert chosen.tests == ["files/tests/test_guard.py"] and not chosen.conservative_full and len(chosen.ignored) == 2
-    chosen = selection.select_for_changes(["scripts/tts/engine.py"], policy, sources)
-    assert chosen.tests == ["files/tests/test_a.py", "files/tests/test_guard.py"] and not chosen.conservative_full
-    chosen = selection.select_for_changes([".gitignore"], policy, sources)
-    assert "files/tests/test_ignore.py" in chosen.tests
-    for path, needle in (("scripts/shared/paths.py", "shared"), ("files/tests/conftest.py", "shared"),
-                         ("scripts/tts/nobody_names_me.py", "no test names"), ("elsewhere/file.bin", "no selection rule")):
-        chosen = selection.select_for_changes([path], policy, sources)
-        assert chosen.conservative_full and any(needle in reason for reason in chosen.reasons), path
+    assert outcome.code == 64 and outcome.directory is None, outcome
+    assert "does not name a commit" in outcome.stderr
 
 
 def test_a_selector_is_normalized_in_its_path_and_left_alone_in_its_node():
@@ -1583,11 +1649,23 @@ def _with_runner(tree, script=None, *, required=("mp3.journey",), tools=("mp3-to
     policy["stages"]["acceptance"] = {"timeout_seconds": 60, "stall_seconds": 6}
     policy.update(policy_overrides)
     tree.write_policy(policy)
+    # The acceptance stage runs through the full plan (see _journey), whose coverage gate wants every required tool mapped.
+    # A behaviour-only feature per tool keeps the inventory sound whatever the scripted journey does; a test that needs a
+    # journey-mapped feature writes its own with _with_feature.
+    tree.write("files/dev-work/verification-gate/coverage.json", json.dumps({"schema_version": 1, "inventory_reviewed": False, "features": [
+        {"id": f"ACT.BASE.{index}", "tool": tool, "release_required": True, "source": [],
+         "verification": {"all_of": [{"kind": "behavior", "test": "files/tests/test_ordinary.py::test_one"}]}}
+        for index, tool in enumerate(tools)]}))
     tree.commit("acceptance")
 
 
 def _journey(tree, *ids, **kwargs):
-    return tree.run("--mode", "focused", *[f"--journey={item}" for item in ids], **kwargs)
+    """The acceptance stage with the scripted runner. Since v0.8.2 Phase 1A-1 a focused run never starts a journey and a
+    qualification --journey request resolves its plan only, so the stage executes through the full plan of this synthetic
+    tree, whose registered journeys are exactly ``ids``."""
+    registered = tree.policy()["acceptance"]["required_scenarios"]
+    assert list(ids) == registered, (ids, registered)
+    return tree.full(**kwargs)
 
 
 def _with_feature(tree, verification, **extra) -> None:
@@ -1603,7 +1681,7 @@ def test_the_no_change_control_a_complete_journey_passes_the_stage(tree):
     assert outcome.check("acceptance")["status"] == "PASS"
     assert (outcome.directory / "acceptance-report.md").is_file() and (outcome.directory / "visual-candidates.md").is_file()
     assert (outcome.directory / "acceptance" / "mp3.journey" / "screenshots" / "done.png").is_file()
-    assert "focused selection only" in outcome.stdout
+    assert "NOT full acceptance" in outcome.stdout
 
 
 _MAPPED = [{"kind": "native", "scenario": "mp3.journey"}, {"kind": "media", "scenario": "mp3.journey"}]
@@ -1621,8 +1699,17 @@ def test_a_full_run_requires_every_registered_journey_and_it_runs_first(tree):
 
 def test_an_unknown_journey_is_an_invalid_invocation(tree):
     _with_runner(tree)
-    outcome = _journey(tree, "nothing.here")
-    assert outcome.code == 64 and "unknown journey" in outcome.results["invocation_error"]
+    outcome = tree.run("--mode", "qualification", "--journey", "nothing.here")
+    assert outcome.code == 64 and outcome.directory is None and "unknown journey" in outcome.stderr, outcome
+
+
+def test_a_qualification_journey_request_resolves_its_plan_and_starts_nothing(tree):
+    _with_runner(tree)
+    outcome = tree.run("--mode", "qualification", "--journey", "mp3.journey")
+    assert outcome.code == 3 and outcome.directory is None, outcome
+    plan = outcome.plan
+    assert plan["journeys"] == ["mp3.journey"] and plan["executable_now"] is False and plan["ordinary"] == []
+    assert not (tree.gate / "outputs").exists() or not list((tree.gate / "outputs").iterdir())
 
 
 def test_a_journey_with_no_tests_or_selection_is_refused_before_anything_runs(tree):

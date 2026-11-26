@@ -33,10 +33,13 @@ from pathlib import Path
 
 import pytest
 
+import routine_effects
 from shared import child_ownership, ffmpeg_utils
 
 NATIVE_P1B = "native macOS only (P1B): Aqua Tk 9 shell, POSIX containment and macOS filesystem checks"
 pytestmark = pytest.mark.skipif(sys.platform != "darwin", reason=NATIVE_P1B)
+#: v0.8.2 Phase 1A-1: every test here runs the REAL launcher window through macos_gui_driver.py (helpers/effects.py).
+ACT_EFFECTS = {"*": ("native-desktop", "real-app-launch")}
 
 HERE = Path(__file__).resolve().parent
 DRIVER = HERE / "macos_gui_driver.py"
@@ -91,6 +94,7 @@ class App:
                   "output": str(output), "scenario": scenario, **options}
         path = tmp_path / "driver.json"
         path.write_text(json.dumps(config), encoding="utf-8")
+        routine_effects.require("real-app-launch", "the real launcher window through macos_gui_driver.py")
         self.stderr = open(tmp_path / "driver.stderr", "wb")
         # Its own session, so no signal meant for it can reach the test run, and the negative control's orphan is
         # never in pytest's own group.
