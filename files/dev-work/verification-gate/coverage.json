@@ -26702,7 +26702,9 @@
             "require",
             "classify_launch",
             "refuse_under_routine",
-            "expected_refusals"
+            "expected_refusals",
+            "bootstrap",
+            "finish"
           ]
         },
         {
@@ -26725,7 +26727,10 @@
           "path": "files/dev-work/verification-gate/helpers/routine_context.py",
           "symbols": [
             "refuse_under_routine",
-            "within_marked_root"
+            "check_operation",
+            "synthetic_fixture",
+            "synthetic_stand_in",
+            "read_ledger"
           ]
         },
         {
@@ -26763,7 +26768,23 @@
           },
           {
             "kind": "behavior",
-            "test": "files/tests/test_routine_effects.py::test_a_real_gate_root_started_through_an_intermediary_refuses_in_the_child"
+            "test": "files/tests/test_routine_effects.py::test_a_root_started_through_an_intermediary_refuses_in_the_child_and_accounts_for_it"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_routine_effects.py::test_a_reviewed_synthetic_fixture_lets_only_its_orchestrator_and_declared_stand_ins_run"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_routine_effects.py::test_an_unexpected_path_or_argument_variation_cannot_inherit_the_synthetic_exception"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_routine_effects.py::test_a_replacement_environment_must_keep_the_envelope"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_routine_effects.py::test_an_unverified_ledger_is_never_clean"
           },
           {
             "kind": "behavior",

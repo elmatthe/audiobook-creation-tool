@@ -67,6 +67,21 @@ sys.path.insert(0, str(HERE))
 import staging as staging_census  # noqa: E402
 import winjob  # noqa: E402
 
+def _routine_context():
+    """helpers/routine_context.py, loaded by path so this program's own imports stay as they are (v0.8.2 Phase 1A-1 R1)."""
+    import importlib.util
+    import sys as _sys
+
+    if "act_gate_routine_context" in _sys.modules:
+        return _sys.modules["act_gate_routine_context"]
+    spec = importlib.util.spec_from_file_location("act_gate_routine_context",
+                                                  Path(__file__).resolve().parents[1] / "helpers" / "routine_context.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    _sys.modules["act_gate_routine_context"] = module
+    return module
+
+
 #: The exact reading of what the application has staged (``staging.py``), under the name this module has always had for it.
 StagingCensus = staging_census.StagingCensus
 
@@ -300,6 +315,7 @@ def instrument_continuous(m4b_continuous, decisions, decoders, current, args, ki
 
 def main(argv=None) -> int:
     args = parse_args(argv)
+    _routine_context().check_operation("scaling", "scaling/bench_run.py main()")  # v0.8.2 Phase 1A-1 R1: the callable, not only __main__
     root = args.root.resolve()
     out = args.out.resolve()
     if not root.is_dir():

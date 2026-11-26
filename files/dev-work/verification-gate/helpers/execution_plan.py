@@ -32,7 +32,10 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import Callable
+
+from helpers import repo_files
 
 MODES = ("quick", "focused", "changed", "regression", "qualification", "full")
 ROUTINE_MODES = frozenset({"quick", "focused", "changed", "regression"})
@@ -49,6 +52,34 @@ NOT_ACTIVATED = ("resolves its plan only: execution of this scope is activated i
 
 class PlanError(ValueError):
     """An invalid request or an invalid plan: exit 64, nothing runs."""
+
+
+#: The fields :meth:`ExecutionPlan.record` writes from the plan itself. Supplemental ``facts`` may never use one of these
+#: names (Phase 1A-1 R1, M3): a fact is context, never a second value for an authoritative field.
+RECORD_KEYS = frozenset({"format", "kind", "mode", "status", "requested", "ordinary", "guarded", "journeys", "scenario",
+                         "static_checks", "guards", "scope", "effects", "release_partition", "native_platform",
+                         "target_platforms", "executable_now", "activation", "obligations", "withheld", "gaps", "reasons",
+                         "candidate", "policy_digest"})
+
+
+def freeze(value):
+    """A read-only deep copy: mappings become ``MappingProxyType``, lists, tuples and sets become tuples."""
+    if isinstance(value, (dict, MappingProxyType)):
+        return MappingProxyType({key: freeze(item) for key, item in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(freeze(item) for item in value)
+    if isinstance(value, (set, frozenset)):
+        return tuple(sorted(freeze(item) for item in value))
+    return value
+
+
+def thaw(value):
+    """The JSON-shaped copy of a :func:`freeze` value."""
+    if isinstance(value, (dict, MappingProxyType)):
+        return {key: thaw(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [thaw(item) for item in value]
+    return value
 
 
 @dataclass(frozen=True)
@@ -124,6 +155,23 @@ class ExecutionPlan:
     activation: str = ""
     facts: dict = field(default_factory=dict, compare=False)
 
+    _TUPLES = ("requested", "target_platforms", "static_checks", "guards", "scope", "ordinary", "journeys", "effects",
+               "obligations", "withheld", "gaps")
+
+    def __post_init__(self) -> None:
+        """Identity and safety fields are immutable copies (Phase 1A-1 R1, M3): a caller's list or dict changed later never
+        changes the plan, and a supplemental fact can never stand in for an authoritative field."""
+        for name in self._TUPLES:
+            object.__setattr__(self, name, tuple(getattr(self, name)))
+        object.__setattr__(self, "reasons", tuple(tuple(item) for item in self.reasons))
+        object.__setattr__(self, "guarded", tuple((group, tuple(targets)) for group, targets in self.guarded))
+        object.__setattr__(self, "candidate", freeze(dict(self.candidate or {})))
+        facts = dict(self.facts or {})
+        forged = sorted(set(facts) & RECORD_KEYS)
+        if forged:
+            raise PlanError(f"supplemental facts may not replace the authoritative plan field(s) {forged}")
+        object.__setattr__(self, "facts", freeze(facts))
+
     # ------------------------------------------------------------------ derived
     def pytest_selectors(self) -> tuple[str, ...]:
         return (*self.ordinary, *(target for _group, targets in self.guarded for target in targets))
@@ -149,7 +197,7 @@ class ExecutionPlan:
     def record(self) -> dict:
         """The plan as ``selection.json`` and ``--plan`` show it. ``kind``/``ordinary``/``guarded``/``journeys``/``requested``
         keep their earlier meaning for readers of older runs; ``ordinary`` is a list, never null."""
-        return {
+        return {**thaw(self.facts),  # first: an authoritative field below always wins (and __post_init__ refuses a clash)
             "format": "execution-plan/1", "kind": self.kind, "mode": self.mode, "status": self.status,
             "requested": list(self.requested), "ordinary": list(self.ordinary),
             "guarded": {group: list(targets) for group, targets in self.guarded}, "journeys": list(self.journeys),
@@ -162,7 +210,7 @@ class ExecutionPlan:
             "withheld": [item.record() for item in self.withheld],
             "gaps": [item.record() for item in self.gaps],
             "reasons": [{"selector": selector, "why": why} for selector, why in self.reasons],
-            "candidate": dict(self.candidate), "policy_digest": self.policy_digest, **dict(self.facts),
+            "candidate": thaw(self.candidate), "policy_digest": self.policy_digest,
         }
 
 
@@ -189,10 +237,17 @@ class Context:
     candidate: dict = field(default_factory=dict)
     policy_digest: str = ""
     facts: dict = field(default_factory=dict)
+    #: The checkout's no-follow inventory (helpers/repo_files.py): canonical selector spelling and existence. When not given,
+    #: the classifier's own inventory is used; without either, selectors are only normalized textually.
+    inventory: object | None = None
 
     @property
     def membership(self) -> dict[str, str]:
         return {module: group for group, modules in self.groups.items() for module in modules}
+
+    @property
+    def files(self):
+        return self.inventory if self.inventory is not None else getattr(self.effects_for, "inventory", None)
 
     def known_journeys(self) -> list[str]:
         acceptance = self.policy.get("acceptance", {})
@@ -233,11 +288,66 @@ def journey_migration() -> str:
 
 def resolve(request: Request, ctx: Context) -> ExecutionPlan:
     check_request(request)
+    request = canonical_request(request, ctx)
     builder = {"quick": _quick, "focused": _focused, "changed": _changed, "regression": _regression,
                "qualification": _qualification, "full": full_plan}[request.mode]
     plan = builder(request, ctx)
     validate(plan, ctx.groups)
     return plan
+
+
+# --------------------------------------------------------------------------- #
+#  Canonical test identity (Phase 1A-1 R1, H4)
+# --------------------------------------------------------------------------- #
+#: Outcomes of the inventory that refuse a selector outright: an alias that cannot be given one contained identity.
+_REFUSED_KINDS = (repo_files.LINK, repo_files.INSIDE_LINK, repo_files.AMBIGUOUS, repo_files.OUTSIDE)
+
+
+def canonical_selector(selector: str, files) -> tuple[str, str]:
+    """``(selector in its canonical repository spelling, inventory kind)``. The file part is normalized (``\\``, ``./``,
+    empty components) and, with an inventory, spelled as it is on disk, so a case variant on a case-insensitive filesystem
+    is the module it names; the node part is kept as written. A missing module keeps its normalized spelling (it becomes a
+    selection gap); a link, an ambiguous case alias or an uncontained path is a :class:`PlanError`."""
+    path, separator, node = str(selector).partition("::")
+    normalized = repo_files.normalize(path)
+    if normalized is None:
+        raise PlanError(f"{selector!r} is not a contained test identity")
+    if files is None:
+        return normalized + separator + node, ""
+    spelled, kind, detail = files.canonical(normalized)
+    if kind in _REFUSED_KINDS or spelled is None:
+        raise PlanError(f"{selector!r} has no single contained identity ({kind}{': ' + detail if detail else ''}): "
+                        "a linked, ambiguous or uncontained alias is refused")
+    return spelled + separator + node, kind
+
+
+def _alias_problem(selector: str, membership: dict[str, str]) -> str | None:
+    """A selector naming a guarded module in any other spelling than its canonical ``files/tests/<module>``."""
+    module_path = selector.split("::", 1)[0]
+    base = module_path.rsplit("/", 1)[-1]
+    folded = {module.casefold(): module for module in membership}
+    member = folded.get(base.casefold())
+    if member is None:
+        return None
+    if module_path != f"files/tests/{member}":
+        return f"{selector} is not the canonical identity files/tests/{member} of a guarded module"
+    return None
+
+
+def canonical_request(request: Request, ctx: Context) -> Request:
+    """The request with every ``--test`` in its canonical spelling. Without an inventory, a spelling that differs from a
+    guarded member only by case is refused rather than routed to ordinary pytest."""
+    files = ctx.files
+    tests = []
+    for selector in request.tests:
+        canonical, _kind = canonical_selector(selector, files)
+        problem = _alias_problem(canonical, ctx.membership)
+        if problem:
+            raise PlanError(problem)
+        tests.append(canonical)
+    from dataclasses import replace
+
+    return replace(request, tests=tuple(tests))
 
 
 def _base(request: Request, ctx: Context, **fields) -> dict:
@@ -416,10 +526,22 @@ def _pytest_plan(request: Request, ctx: Context, selectors: list[str], *, explic
                  withheld_is_gap: bool = False) -> ExecutionPlan:
     """Classify, withhold, split. ``owners`` maps a feature to its selectors, so a feature whose every test was withheld
     becomes a gap rather than a guard-only pass."""
-    wanted = list(dict.fromkeys(selectors))
+    wanted, refused = [], []
+    for selector in dict.fromkeys(selectors):
+        try:
+            canonical, _kind = canonical_selector(selector, ctx.files)
+            problem = _alias_problem(canonical, ctx.membership)
+            if problem:
+                raise PlanError(problem)
+        except PlanError as exc:
+            refused.append(Entry(selector, str(exc), "unsafe", requested=selector in explicit))
+            continue
+        wanted.append(canonical)
+    wanted = list(dict.fromkeys(wanted))
+    guards = [canonical_selector(guard, ctx.files)[0] for guard in guards]
     result = ctx.effects_for(wanted, set(explicit))
-    withheld = list(result.withheld)
-    gaps = [*gaps, *result.gaps]
+    withheld = _merge_withheld(result.withheld)
+    gaps = [*gaps, *refused, *result.gaps]
     if withheld_is_gap:
         gaps += [Entry(item.subject, f"a changed test cannot run in routine verification: {item.reason}", "withheld",
                        item.effects) for item in withheld]
@@ -435,6 +557,21 @@ def _pytest_plan(request: Request, ctx: Context, selectors: list[str], *, explic
                                                                                                result.obligations)),
                                  withheld=tuple(withheld), gaps=tuple(gaps), reasons=tuple(reasons),
                                  executable_now=executable_now, activation=activation))
+
+
+def _merge_withheld(items) -> list[Entry]:
+    """One withheld entry per subject; requested if any request named it (a module request and a node request can both
+    withhold the same declared node)."""
+    merged: dict[str, Entry] = {}
+    for item in items:
+        if item.subject in merged:
+            if item.requested and not merged[item.subject].requested:
+                from dataclasses import replace
+
+                merged[item.subject] = replace(merged[item.subject], requested=True)
+            continue
+        merged[item.subject] = item
+    return list(merged.values())
 
 
 def _unique(*groups) -> list[Entry]:
@@ -466,6 +603,9 @@ def split(selectors: list[str], membership: dict[str, str]) -> tuple[list[str], 
     guarded: dict[str, list[str]] = {}
     for selector in in_suite_order(kept):
         module = module_of(selector)
+        problem = _alias_problem(selector, membership)
+        if problem:
+            raise PlanError(problem)  # never routed by an alias: canonical_selector resolves one first
         if module in membership:
             guarded.setdefault(membership[module], []).append(selector.split("/", 2)[-1])
         else:
@@ -481,8 +621,33 @@ HEAVY_EFFECTS = frozenset({"native-desktop", "real-app-launch", "real-engine", "
                            "release-build"})
 
 
+_GUARDED_TARGET = re.compile(r"^test_[A-Za-z0-9_.\-]+\.py(::[^\x00-\x1f;&|<>`$\"']+)?$")
+
+
+def activated(plan: ExecutionPlan) -> bool:
+    """Whether this checkpoint executes the plan's mode at all (GATE.md): focused ``--test``, full, qualification
+    ``--scenario``. Every other mode and selector family resolves its plan only (Phase 1A-3 activates them)."""
+    if plan.mode == "full":
+        return True
+    if plan.mode == "qualification":
+        return bool(plan.scenario) and not plan.journeys
+    if plan.mode == "focused":
+        return not any(str(item).startswith("feature:") for item in plan.requested)
+    return False
+
+
+def _covers(whole: str, selector: str) -> bool:
+    """Whether running ``whole`` runs ``selector``: the same identity, or a node (or class) below it."""
+    return selector == whole or selector.startswith(whole + "::") or (
+        "[" not in whole and "::" in whole and selector.startswith(whole + "["))
+
+
 def validate(plan: ExecutionPlan, groups: dict[str, list[str]]) -> None:
-    """Refuse a plan that is not one :func:`resolve` could have made. Raises PlanError."""
+    """Refuse a plan that is not one :func:`resolve` could have made, from the plan's own structure. Raises PlanError.
+
+    This is the structural half. :func:`admit` adds the authoritative half at the execution boundary: the plan must be
+    exactly the one :func:`resolve` makes from the authoritative request under the current policy, guards and classification.
+    """
     problems: list[str] = []
     if plan.mode not in MODES:
         problems.append(f"unknown mode {plan.mode!r}")
@@ -490,33 +655,122 @@ def validate(plan: ExecutionPlan, groups: dict[str, list[str]]) -> None:
         problems.append("only the full plan names the release partition, and it always does")
     if plan.release_partition and plan.ordinary != (ORDINARY_PARTITION,):
         problems.append("the release partition is the whole ordinary suite and nothing narrower")
+    membership = {module: group for group, modules in groups.items() for module in modules}
     for selector in plan.ordinary:
-        if selector != ORDINARY_PARTITION and not _SELECTOR.match(selector):
+        if selector == ORDINARY_PARTITION:
+            continue
+        if not _SELECTOR.match(selector):
             problems.append(f"{selector!r} is not a test identity")
+            continue
+        problem = _alias_problem(selector, membership)
+        if problem or module_of(selector) in membership:
+            problems.append(problem or f"{selector} is a guarded module in the ordinary pytest list: guarded modules run only "
+                                       "under their guarded group")
     known_groups = set(groups)
     for group, targets in plan.guarded:
         if group not in known_groups:
             problems.append(f"unknown guarded group {group!r}")
         if not targets:
             problems.append(f"guarded group {group!r} with no target")
-        membership = set(groups.get(group, []))
         for target in targets:
-            if module_of(target) not in membership:
+            # A guarded target is exactly ``<member>[::node]`` relative to files/tests: never a basename found elsewhere.
+            if not _GUARDED_TARGET.match(target) or module_of(target) not in set(groups.get(group, [])):
                 problems.append(f"{target} is not a module of guarded group {group}")
-    if len(set(plan.pytest_selectors())) != len(plan.pytest_selectors()):
+    selectors = plan.pytest_selectors()
+    if len(set(selectors)) != len(selectors):
         problems.append("a selector is listed twice")
+    executable = [*plan.ordinary, *(_guarded_name(target) for _group, targets in plan.guarded for target in targets)]
+    for selector in executable:
+        for other in executable:
+            if other != selector and "::" not in other and _covers(other, selector):
+                problems.append(f"overlapping execution identities: {selector} is already run by {other}")
+    if plan.executable_now and not activated(plan):
+        problems.append(f"a {plan.mode} plan of this request is not activated in this checkpoint (plan only): it can never be "
+                        "executable")
+    if not plan.release_partition:
+        problems += _scope_problems(plan, executable)
     if plan.mode in ROUTINE_MODES:
         if plan.journeys or plan.scenario:
             problems.append(f"a {plan.mode} plan carries a journey or scenario: routine modes never start native work")
         heavy = sorted(set(plan.effects) & HEAVY_EFFECTS)
         if heavy:
             problems.append(f"a {plan.mode} plan declares heavyweight effects {heavy}")
-        executed = set(plan.pytest_selectors()) | {_guarded_name(t) for _g, ts in plan.guarded for t in ts}
-        missing = [guard for guard in plan.guards if plan.pytest_selectors() and guard not in executed]
+        missing = [guard for guard in plan.guards if selectors and not any(_covers(item, guard) or item == guard
+                                                                            for item in executable)]
         if missing:
             problems.append(f"required guard(s) missing from the executable scope: {missing}")
     for check in plan.static_checks:
         if check not in STATIC_CHECKS:
             problems.append(f"unknown static check {check!r}")
     if problems:
-        raise PlanError("invalid execution plan: " + "; ".join(problems))
+        raise PlanError("invalid execution plan: " + "; ".join(dict.fromkeys(problems)))
+
+
+def _scope_problems(plan: ExecutionPlan, executable: list[str]) -> list[str]:
+    """Requested, reported (``scope``), executable, withheld and gap identities must reconcile (Phase 1A-1 R1, M3)."""
+    problems: list[str] = []
+    guards = set(plan.guards)
+    scope = list(plan.scope)
+    for item in scope:
+        if not any(_covers(run, item) for run in executable):
+            problems.append(f"the reported scope names {item}, which the executable scope does not run")
+    for run in executable:
+        if run in guards:
+            continue
+        if not any(_covers(run, item) or _covers(item, run) for item in scope):
+            problems.append(f"the executable scope runs {run}, which the reported scope does not name")
+    for entry in plan.withheld:
+        clash = [run for run in executable if _covers(run, entry.subject) or _covers(entry.subject, run)]
+        if clash:
+            problems.append(f"{entry.subject} is both withheld and executable ({clash[0]})")
+    represented = [*scope, *(entry.subject for entry in plan.withheld), *(entry.subject for entry in plan.gaps)]
+    reasons = [why for _selector, why in plan.reasons]
+    for requested in plan.requested:
+        kind, _, value = str(requested).partition(":")
+        if kind == "test":
+            if not any(_covers(value, item) or _covers(item, value) for item in represented):
+                problems.append(f"the requested {requested} is unrepresented: neither executable, withheld nor a gap")
+        elif kind in ("feature", "component"):
+            if not (any(why == f"{kind} {value}" or why.startswith(f"{kind} {value} ") for why in reasons)
+                    or any(entry.subject == requested for entry in plan.gaps)):
+                problems.append(f"the requested {requested} is unrepresented: no selector or gap names it")
+    return problems
+
+
+def required_guards(policy: dict, mode: str) -> list[str]:
+    """The guards the current policy requires of a routine plan of ``mode`` (never read from the plan itself)."""
+    if mode == "changed":
+        return list(policy.get("changed", {}).get("always", []))
+    if mode in ("focused", "regression"):
+        return list(policy.get("focused", {}).get("required_guards", []))
+    return []
+
+
+def admit(plan: ExecutionPlan, request: Request, ctx: Context) -> None:
+    """The execution-boundary check (Phase 1A-1 R1, M3). ``request`` is the authoritative normalized request (the command
+    line), ``ctx`` the current policy, guarded membership, classification and candidate. The plan must pass the structural
+    :func:`validate`, carry every guard the policy requires, and be exactly the plan :func:`resolve` makes from ``request``
+    now: its scope, guards, guarded membership, effects, withheld items, gaps, obligations, activation and status are all
+    compared, so a plan built or altered anywhere else (an empty effects field, a dropped guard, a moved module) is refused.
+    """
+    validate(plan, ctx.groups)
+    selectors = plan.pytest_selectors()
+    executable = [*plan.ordinary, *(_guarded_name(target) for _group, targets in plan.guarded for target in targets)]
+    if plan.mode in ROUTINE_MODES and selectors:
+        guards = [canonical_selector(guard, ctx.files)[0] for guard in required_guards(ctx.policy, plan.mode)]
+        missing = [guard for guard in guards if not any(item == guard or _covers(item, guard) for item in executable)]
+        if missing:
+            raise PlanError(f"invalid execution plan: the policy's required guard(s) {missing} are missing")
+    expected = resolve(request, ctx)
+    mine, theirs = plan.record(), expected.record()
+    differing = sorted(key for key in set(mine) | set(theirs) if mine.get(key) != theirs.get(key))
+    if differing:
+        raise PlanError("invalid execution plan: it is not the plan resolve makes from the authoritative request under the "
+                        f"current policy and classification (differs in {differing})")
+
+
+def unexecuted(plan: ExecutionPlan, executed) -> list[str]:
+    """The plan's reported scope items no executed node id accounts for, in scope order (Phase 1A-1 R1, M1). A parametrized
+    or dynamically collected node that static enumeration could not validate is held to account here, after the run."""
+    ran = set(executed)
+    return [item for item in plan.scope if not any(_covers(item, node) for node in ran)]

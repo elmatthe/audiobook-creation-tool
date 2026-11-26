@@ -732,6 +732,13 @@ def _ordinary_scope(targets) -> list[str]:
         return [str(TESTS_DIR), *_ignore_arguments()]
     if execution_plan.ORDINARY_PARTITION in targets:
         raise ValueError("the release partition cannot be combined with other selectors")
+    # Phase 1A-1 R1 (H4): independently of the plan, no guarded member reaches ordinary pytest, in any spelling (a case
+    # variant names the same file on NTFS and APFS) and with or without a node.
+    guarded = {module.casefold() for module in guarded_modules()}
+    for target in targets:
+        module = str(target).split("::", 1)[0].replace("\\", "/").rsplit("/", 1)[-1]
+        if module.casefold() in guarded:
+            raise ValueError(f"{target}: a guarded module runs only under its guarded group, never in ordinary pytest")
     return targets
 
 
@@ -801,7 +808,7 @@ class GateRun:
         self.invocation_error: str | None = None
         self.scope = {"platform": sys.platform, "profile": args.mode, "full_acceptance": False}
         #: Each pytest stage's effect ledger (files/tests/routine_effects.py), read back when the stage ends.
-        self.effect_ledgers: list[tuple[str, Path]] = []
+        self.effect_ledgers: list[tuple[str, Path, str | None]] = []
         self.acceptance: acceptance_report.Judgement | None = None
         self.coverage_result: coverage_model.CoverageResult | None = None
         #: Qualification scenarios this run executed, and their verdicts.
@@ -852,11 +859,16 @@ class GateRun:
             env[EFFECT_LEDGER_ENV] = str(ledger)
         return env
 
-    def ledger(self, stage: str, folder: Path | None = None) -> Path:
-        """Where a pytest stage's routine-effect refusals are recorded. Guarded stages write in their own work folder (their
-        write guard protects this run's evidence folder) and the ledger is copied into the evidence afterwards."""
-        path = (folder or self.reports()) / f"{stage}-effects.jsonl"
-        self.effect_ledgers.append((stage, path))
+    def ledger(self, stage: str, folder: Path | None = None, *, role: str | None = "routine-pytest") -> Path:
+        """This stage's effect ledger (helpers/routine_context.py), created and initialized here, before the stage's process
+        exists: a directory with this run's header, one record file per cooperating process. ``role`` names the session that
+        must have recorded a completed accounting in it (a pytest stage's runner); None for a stage whose child is not a
+        routine session (acceptance, qualification), where only a refusal or a malformed record can appear. Guarded stages
+        write in their own work folder (their write guard protects this run's evidence folder); every ledger is copied into the
+        evidence afterwards."""
+        path = (folder or self.reports()) / f"{stage}-effects"
+        routine_context.init_ledger(path, owner="gate", stage=stage, token=f"{self.record.run_id}-{stage}")
+        self.effect_ledgers.append((stage, path, role))
         return path
 
     def scratch(self, name: str) -> Path:
@@ -931,10 +943,14 @@ class GateRun:
         try:
             if plan is None:
                 raise execution_plan.PlanError(self.plan_error or "no execution plan was resolved for this run")
-            execution_plan.validate(plan, guarded_group_map())
+            # Phase 1A-1 R1 (M3): the plan is admitted only as exactly the one resolve makes now from the authoritative
+            # request (this command line) under the current policy, guarded membership, classification and candidate.
+            request = plan_request(self.args)
+            execution_plan.admit(plan, request, plan_context(request))
             if not plan.executable_now:
                 raise execution_plan.PlanError(f"{plan.mode}: {plan.activation}")
-        except (execution_plan.PlanError, GuardedSpecError) as exc:
+        except (execution_plan.PlanError, GuardedSpecError, PolicyError, git_changes.ChangeError,
+                effect_rules.DeclarationError, ValueError) as exc:
             self.invocation_error = str(exc)
             self.check("selection", "NOT RUN", str(exc))
             return None
@@ -950,6 +966,7 @@ class GateRun:
             self.check("obligations", "NOT RUN", f"{len(plan.obligations)} obligation(s) outside this scope stay pending: "
                                                  + "; ".join(f"{item.subject} ({item.kind})" for item in plan.obligations[:6]),
                        required=False)
+        self.admitted_scope_plan = plan  # held to account after the run (check_requested_scope)
         return plan
 
     def write_start(self) -> None:
@@ -1061,9 +1078,18 @@ class GateRun:
         # A network policy the invocation was given is handed on by name and by nothing else (v0.7.2 Phase 8): a scenario that needs
         # the network refuses, BLOCKED, without its grant, and one that needs none keeps its own children offline.
         granted = ["--network", self.args.network] if self.args.network else []
+        effects = [effect for effect in scenario.get("effects", []) if effect in routine_context.EFFECTS]
+        try:
+            # v0.8.2 Phase 1A-1 R1: the operation boundary (see run_acceptance).
+            routine_context.check_operation(effects[0] if effects else "real-app-launch", f"the qualification scenario {name}",
+                                            root=REPO_ROOT, stand_in=f"{routine_context.GATE}{runner}")
+        except PermissionError as exc:
+            self.check(f"scenario:{name}", "BLOCKED", f"{exc}: a qualification scenario never starts inside routine verification")
+            return
         try:
             result = self.supervise("qualification", [sys.executable, "-u", str(script), "--out", str(folder), *granted],
-                                    log=log, env=self.stage_env(scratch / "t"), progress=(folder / "progress.log",))
+                                    log=log, env=self.stage_env(scratch / "t", ledger=self.ledger("qualification", role=None)),
+                                    progress=(folder / "progress.log",))
         except winproc.JobUnavailable as exc:
             self.check("process-ownership", "BLOCKED", f"no owned process tree can be established: {exc}")
             return
@@ -1153,7 +1179,7 @@ class GateRun:
         basetemp = self.guarded_root() / f"{prefix}c{stamp}{index}"
         log = self.directory / "logs" / f"collect-guarded-{name}.log"
         env = self.stage_env(self.scratch(f"cg{index}") / "t", probe=probe, token=token,
-                             ledger=self.ledger(f"collect-guarded-{name}", work))
+                             ledger=self.ledger(f"collect-guarded-{name}", work, role="guarded-pytest"))
         result = self.supervise("collect", _guarded_command(config, report, basetemp, targets, extra=("--collect-only",)),
                                 log=log, env=env, progress=(probe,))
         parsed = pytest_reports.read_probe(probe, token)
@@ -1240,7 +1266,15 @@ class GateRun:
                 "--evidence", str(evidence), "--scratch", str(scratch / "w")]
         for scenario_id in wanted:
             argv += ["--only", scenario_id]
-        env = self.stage_env(scratch / "t")
+        try:
+            # v0.8.2 Phase 1A-1 R1: the operation boundary. Inside routine verification the runner never starts, wherever
+            # this gate lies, unless this is a reviewed synthetic fixture tree and the runner is its declared stand-in.
+            routine_context.check_operation("native-desktop", "the acceptance runner (native journeys)", root=REPO_ROOT,
+                                            stand_in=ACCEPTANCE_RUNNER.relative_to(REPO_ROOT).as_posix())
+        except PermissionError as exc:
+            self.check("acceptance", "BLOCKED", f"{exc}: native journeys never start inside routine verification")
+            return
+        env = self.stage_env(scratch / "t", ledger=self.ledger("acceptance", role=None))
         result = self.supervise("acceptance", argv, log=log, env=env, progress=(report,))
         self.judge_cleanup("acceptance", result)
         if sys.platform == "darwin":
@@ -1360,7 +1394,8 @@ class GateRun:
         log = self.directory / "logs" / f"guarded-{name}.log"
         command = _guarded_command(config, report, basetemp, targets,
                                    extra=(f"--junitxml={junit}", "-o", f"junit_suite_name={token}"))
-        env = self.stage_env(self.scratch(f"g{index}") / "t", probe=probe, token=token, ledger=self.ledger(f"guarded-{name}", work))
+        env = self.stage_env(self.scratch(f"g{index}") / "t", probe=probe, token=token,
+                             ledger=self.ledger(f"guarded-{name}", work, role="guarded-pytest"))
         result = self.supervise("guarded", command, log=log, env=env, progress=(probe,))
         guard = _read_guard_report(report)
         parsed = pytest_reports.read_probe(probe, token)
@@ -1410,6 +1445,7 @@ class GateRun:
                        f"owned processes left behind: {cleanup}" if cleanup else "no owned process remained after any stage")
         if self.effect_ledgers:
             self.check_routine_effects()
+        self.check_requested_scope()
         if ran_tests:
             self.check_error_mode()
             self.check_skips()
@@ -1463,24 +1499,44 @@ class GateRun:
         return self.record.finalize(results)
 
     def check_routine_effects(self) -> None:
-        """Every pytest stage's refused heavyweight effects (files/tests/routine_effects.py). A refusal fails the run even when
-        the test that caused it caught the exception, and whichever process (a test, a child, an atexit callback) caused it."""
-        refused = []
-        for stage, path in self.effect_ledgers:
-            if not path.is_file():
-                continue
-            stored = path if path.parent == self.reports() else self.keep_report(path, path.name)
-            for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
-                try:
-                    row = json.loads(line)
-                except ValueError:
-                    row = {"effect": "unknown", "detail": f"unreadable ledger line {line[:80]!r}"}
-                if not row.get("expected"):
-                    refused.append(f"{stage}: {row.get('effect')}: {str(row.get('detail'))[:160]}")
-            self.record.log(f"effect ledger {stage}: {self.relative(stored) if stored else path}")
-        self.check("routine-effects", "FAIL" if refused else "PASS",
-                   "; ".join(refused[:6]) if refused else "no heavyweight effect was refused in any pytest stage",
-                   refused=len(refused))
+        """Every stage's effect ledger (helpers/routine_context.py read_ledger). PASS only for initialized, complete,
+        well-formed ledgers in which each pytest stage's own session recorded a completed accounting and nothing unexpected
+        was refused. A refusal fails the run even when the test that caused it caught the exception, whichever process (a
+        test, a child, an atexit callback) caused it; a missing, empty, unreadable, incomplete or malformed ledger is never
+        clean."""
+        refused, problems = [], []
+        for stage, path, role in self.effect_ledgers:
+            verdict = routine_context.read_ledger(path, token=f"{self.record.run_id}-{stage}", require_role=role)
+            refused += [f"{stage}: {row.get('effect')}: {str(row.get('detail'))[:160]}" for row in verdict["unexpected"]]
+            problems += [f"{stage}: {item}" for item in verdict["problems"]]
+            stored = None
+            if path.is_dir():
+                stored = path if path.parent == self.reports() else self.reports() / path.name
+                if stored != path:
+                    shutil.copytree(path, stored)
+            self.record.log(f"effect ledger {stage}: {self.relative(stored) if stored else path} ({verdict['status']}, "
+                            f"{verdict['processes']} process record(s), {verdict['complete']} complete)")
+        status = "FAIL" if refused or problems else "PASS"
+        detail = "; ".join((refused + problems)[:6]) if status == "FAIL" else \
+            f"{len(self.effect_ledgers)} stage ledger(s) complete and clean: no heavyweight effect was refused"
+        self.check("routine-effects", status, detail, refused=len(refused), accounting_problems=len(problems))
+
+    def check_requested_scope(self) -> None:
+        """Phase 1A-1 R1 (M1): every item of the admitted plan's reported scope executed. A requested node that static
+        enumeration could not validate (a parametrized id, a generated test, a class with a base class) or that the session
+        did not run is not covered by a stage's exit status. Judged only when every test stage itself passed: a stage that
+        failed or did not run already makes the run non-PASS, with its own reason."""
+        plan = getattr(self, "admitted_scope_plan", None)
+        stages = [check for check in self.checks if check["name"] in ("pytest", "guarded")]
+        if plan is None or not plan.scope or not stages or any(check["status"] not in ("PASS", "NOT APPLICABLE")
+                                                                  for check in stages):
+            return
+        executed = {node if node.startswith("files/") else f"files/tests/{node}"
+                    for probe in self.probes.values() for node in probe.executed()}
+        missing = execution_plan.unexecuted(plan, executed)
+        self.check("requested-scope", "FAIL" if missing else "PASS",
+                   f"{len(missing)} item(s) of the requested scope never executed: {missing[:6]}" if missing else
+                   f"every one of the {len(plan.scope)} requested scope item(s) executed")
 
     def lifecycle_reached_tests(self) -> bool:
         return any(c["name"] in ("acceptance", "pytest", "guarded") for c in self.checks)
@@ -2274,10 +2330,12 @@ def main(argv: list[str] | None = None) -> int:
                   f"{plan.activation}", file=sys.stderr)
             return runstore.EXIT_INVALID
         return _print_plan(plan, explicit=args.plan)
-    # v0.8.2 Phase 1A-1: inside routine verification (a pytest process of this checkout, or any child of one) the gate never
-    # executes a run against this checkout; reading, planning and --help stay available. A synthetic copy of the gate in a
-    # temporary tree, or the gate loaded against a fake repository, is the test's own (helpers/routine_context.py).
-    routine_context.refuse_under_routine("verify.py", "native-desktop", argv=[], origin=str(REPO_ROOT))
+    # v0.8.2 Phase 1A-1 (R1): inside routine verification (a pytest process, or any child of one) the gate never executes a
+    # run, wherever it lies -- this checkout, another checkout, a copy; reading, planning and --help stay available. The one
+    # exception is a reviewed synthetic fixture tree, whose journey and scenario launches still refuse unless they start a
+    # declared stand-in (helpers/routine_context.py; check_operation in run_acceptance and check_scenario).
+    routine_context.refuse_under_routine("verify.py", "native-desktop", argv=[], root=REPO_ROOT,
+                                         origin=str(REPO_ROOT / routine_context.ORCHESTRATOR))
     return _execute_run(args, list(sys.argv if argv is None else argv), established, plan, plan_error)
 
 
@@ -2305,16 +2363,16 @@ def _policy_digest() -> str:
     return digest.hexdigest()
 
 
-def _candidate() -> dict:
-    """A cheap identity of the candidate for a plan: HEAD and a digest of the porcelain status (the run itself records the full
-    tree fingerprint; a changed plan records git_changes' selection identity)."""
+def _candidate(policy: dict, digest: str) -> dict:
+    """The candidate identity of a plan (Phase 1A-1 R1, C4): the selection identity ``helpers/git_changes.py`` computes for
+    a changed plan, for every plan -- HEAD, the index entries, the working bytes of every changed and untracked path (local-only
+    paths excluded, never read) and the policy digest -- so two candidates with the same porcelain status but different bytes
+    differ. Diagnostic, not an authorization identity (its ``limitation`` says what Phase 1A-2 must bind)."""
     try:
-        head = _git(REPO_ROOT, "rev-parse", "--verify", "HEAD").strip()
-        status = _git(REPO_ROOT, "status", "--porcelain=v1", "-z", "--untracked-files=all")
+        return git_changes.selection_identity(REPO_ROOT, policy_digest=digest,
+                                              local_only=policy.get("changed", {}).get("local_only", []))
     except (OSError, subprocess.CalledProcessError) as exc:
-        return {"available": False, "error": f"{type(exc).__name__}"}
-    return {"available": True, "head": head, "status_digest": hashlib.sha256(status.encode("utf-8", "surrogateescape")).hexdigest(),
-            "dirty": bool(status.strip("\0"))}
+        return {"available": False, "error": f"{type(exc).__name__}", "limitation": git_changes.IDENTITY_LIMITATION}
 
 
 def plan_request(args) -> execution_plan.Request:
@@ -2335,12 +2393,15 @@ def plan_context(request: execution_plan.Request) -> execution_plan.Context:
     platforms = {**{name: "windows" for name in policy.get("scenarios", {})},
                  **{name: "macos" for name in policy.get("darwin_scenarios", {})}}
     digest = _policy_digest()
+    # One no-follow inventory per snapshot, shared by selector identity, the closures and the classifier (R1, H4 and C1).
     context = execution_plan.Context(policy=policy, coverage=coverage, groups=groups, native_platform=native,
                                      effects_for=classifier, scenarios=scenarios, scenario_platform=platforms,
-                                     candidate=_candidate(), policy_digest=digest)
+                                     candidate=_candidate(policy, digest) if request.mode != "changed" else {},
+                                     policy_digest=digest, inventory=closures.inventory)
     if request.mode == "changed":
         changes = git_changes.collect(REPO_ROOT, base=request.base, local_only=policy.get("changed", {}).get("local_only", []))
-        context.candidate = git_changes.candidate_identity(REPO_ROOT, changes, digest)
+        context.candidate = {**git_changes.candidate_identity(REPO_ROOT, changes, digest, closures.inventory),
+                             "limitation": git_changes.IDENTITY_LIMITATION}
         index = selection_rules.ReverseIndex(REPO_ROOT, closures)
         context.routing = selection_rules.route_changes(changes, policy, coverage, index, native_platform=native,
                                                         known_journeys=context.known_journeys())

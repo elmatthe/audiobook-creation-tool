@@ -98,6 +98,21 @@ sys.path.insert(0, str(HERE))
 import common  # noqa: E402
 import recipe  # noqa: E402
 
+def _routine_context():
+    """helpers/routine_context.py, loaded by path so this program's own imports stay as they are (v0.8.2 Phase 1A-1 R1)."""
+    import importlib.util
+    import sys as _sys
+
+    if "act_gate_routine_context" in _sys.modules:
+        return _sys.modules["act_gate_routine_context"]
+    spec = importlib.util.spec_from_file_location("act_gate_routine_context",
+                                                  Path(__file__).resolve().parents[1] / "helpers" / "routine_context.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    _sys.modules["act_gate_routine_context"] = module
+    return module
+
+
 MIB = 1 << 20
 NEEDED = ["route10", "scale10", "scale100", "scale500", "scale1000", "long6_48", "long12_24", "noelst", "mono22k",
           "s48k", "r96k", "small2_600000", "small3_200000", "small5_120000", "small10_3000", "small10_4500",
@@ -625,6 +640,7 @@ def main(argv=None) -> int:
                         help="with --smoke only: a scripts folder to measure instead of the repository's, for a planted-"
                              "defect control; a qualification always measures the repository's own")
     args = parser.parse_args(argv)
+    _routine_context().check_operation("scaling", "scaling/qualify.py main()")  # v0.8.2 Phase 1A-1 R1: the callable, not only __main__
     if (args.code is not None or args.rehearse != "all") and not args.smoke:
         print("refused: --code and --rehearse belong to --smoke; a qualification measures the repository's own code, "
               "every case", file=sys.stderr)

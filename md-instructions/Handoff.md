@@ -7,21 +7,28 @@ why: `Decisions.md` index; what shipped: `Changelog.md` index.
 ## Execution Snapshot
 
 - **Date:** 2026-11-25
-- **Last agent:** Claude Code (Opus 5.5), v0.8.2 Phase 1A-1
+- **Last agent:** Claude Code (Opus 5.5), v0.8.2 Phase 1A-1 R1 remediation
 - **Machine:** HOME-PC (Windows 11)
 - **Branch:** `0.8.2` (long-running, from published v0.8.1), developed in the permanent short-path clone `C:\ACT-Dev` (owner decision D-1, 2026-11-25) with its own real root `.venv/`; the old nested worktree `files/dev-work/wt082` and the owner's primary checkout (`0.8.1`, uncommitted owner work) are preserved as found and were not modified
-- **Status:** Phase 1A-1 (explicit execution plans, Git changed selection, routine capability classification and the routine verification envelope; plan Revision 5) committed and pushed to origin/0.8.2, awaiting planning-chat review. Gate and test infrastructure only: no application, launcher, dependency or packaging change (VERSION stays 0.8.1)
-- **Active plan:** `files/plans/Developer-Experience-Upgrade.md` (Revision 5)
-- **Current phase:** v0.8.2 Developer Experience Upgrade, Phase 1A-1 complete; Phase 1A-2 (heavyweight admission) NOT started
-- **Recommended next execution tier:** planning-chat review of Phase 1A-1, then Phase 1A-2 (A5-W lock, A6-R single-attempt authorization, admission at every heavyweight entrypoint) in `C:\ACT-Dev`
-- **Last verification:** Phase 1A-1, agent-reported, not independent: three focused gate runs in `C:\ACT-Dev` on the final candidate tree, all PASS with `routine-effects` PASS: the Pre-1A baseline command (gate-contract + evidence) 442 passed, 0 failed, 0 skipped, pytest 339 s, 371 s total (run `2026-11-25_194632_focused_4cc8`); the gate self-tests and new modules 529 passed, 3 policy-named skips (`2026-11-25_195248_focused_27c4`); the declared and harness-consumer modules 1,067 passed, 19 policy-named skips (`2026-11-25_194511_focused_9557`). No full run: the last full gate, on 87dd2bf (2026-11-22), is FAIL/BLOCKED and does not describe this candidate
+- **Status:** Phase 1A-1 FAILED independent review (eleven confirmed findings H1-H4, M1-M3, C1-C4); the R1 remediation checkpoint is committed and pushed to origin/0.8.2 and awaits independent Codex R1 re-verification. Gate and test infrastructure only: no application, launcher, dependency or packaging change (VERSION stays 0.8.1)
+- **Active plan:** `files/plans/Developer-Experience-Upgrade.md` (Revision 5, amendment R1)
+- **Current phase:** v0.8.2 Developer Experience Upgrade, Phase 1A-1 R1 remediated (agent-verified, not independent); Phase 1A-2 (heavyweight admission) on HOLD, NOT started
+- **Recommended next execution tier:** independent Codex R1 re-verification of Phase 1A-1; Phase 1A-2 only after it passes and on its own prompt
+- **Last verification:** Phase 1A-1 R1, agent-reported, not independent: focused gate runs on the frozen R1 tree, each with `routine-effects` and `requested-scope` PASS -- the R1 infrastructure and collateral modules `2026-11-25_231539_focused_b69f` (896 passed, 0 skipped, 18 modules), the gate contract (explicit routine nodes) and evidence modules `2026-11-25_230754_focused_595d` (449 passed, 0 skipped: 170 routine contract functions and the evidence module), and the mandatory guarded run of v3-planning and v3-supervisor `2026-11-25_231843_focused_d8c3`; defect reproduction 20/20 RED on 8d7226d and GREEN on R1. No full run: the last full gate, on 87dd2bf (2026-11-22), is FAIL/BLOCKED and does not describe this candidate
 - **Manual gate:** owner listening to four regenerated Shadow Slave MP3s; owner decisions D-1 to D-4, D-6, D-8; plus the owner-acceptance items below
 - **Relevant evidence:** the old worktree `files/dev-work/wt082` still holds the protected local evidence (see Development Checkout and Evidence Locations); the new gate runs are in `C:\ACT-Dev\files\dev-work\verification-gate\outputs\`; `files/release-history/ACT-v0.8.1-Windows-MacOS-Release-Acceptance.md`
-- **Next exact action:** planning-chat review of Phase 1A-1; then Phase 1A-2 only on its own prompt. The interim heavyweight restrictions (GATE.md) stay in force. Do not merge, tag or release
+- **Next exact action:** stop for independent Codex R1 re-verification. Do not begin Phase 1A-2. The interim heavyweight restrictions (GATE.md) stay in force. Do not merge, tag or release
 
 ## In Progress
 
-Nothing is mid-implementation. Phase 1A-1 (this checkpoint) implemented the explicit execution plan (`helpers/execution_plan.py`), the six-mode
+Nothing is mid-implementation. **Phase 1A-1 R1 (this checkpoint)** remediated the independent review's FAIL of 8d7226d without restarting 1A-1
+(plan amendment R1; Decisions 2026-11-25 R1; GATE.md "Routine envelope"): H1 location is never evidence of a synthetic run (maintained roots refuse
+themselves wherever they lie; one reviewed synthetic gate fixture, `act-synthetic-fixture.json`); H2 the launch contract judges the program actually
+started, its form, working directory and environment (reviewed bounded shapes: stage 0, the setup launchers' stand-in sandboxes, `sh -n`); H3 one
+early envelope (`routine_effects.bootstrap`) for `routine_pytest.py` and `guarded_pytest.py` before pytest loads, plus operation checks at the gate's
+heavyweight callables; H4 canonical selector identity before guarded routing; M1 the requested module or node is the scope (`requested-scope`);
+M2 per-process effect ledgers that fail closed; M3 `execution_plan.admit` re-resolves; C1-C4 one no-follow inventory, local-only identity by the
+filesystem's case rule, staged deletion with recreation, dependency uncertainty as a gap and a diagnostic candidate identity. Earlier: Phase 1A-1 implemented the explicit execution plan (`helpers/execution_plan.py`), the six-mode
 contracts with `--plan`, Git changed-file selection (`helpers/git_changes.py`) routed through the reverse import closure (`helpers/selection.py`), static
 capability classification (`helpers/effects.py`, `ACT_EFFECTS`, `effects.reviewed_bounded`, the ENTRY table of 60 entrypoints) and the runtime routine
 envelope (`files/tests/routine_effects.py`, `routine_pytest.py`, `conftest.py`, `helpers/routine_context.py`); recorded plan Revision 5 (A5-W, A5-M, A6-R,
@@ -53,6 +60,14 @@ review. Items marked (?) could not be proven closed from the record and are kept
   retired `scripts/verify.py` (its bytes are hashed into the locks; leave until a lock regeneration).
 
 **Verification and gate**
+- Phase 1A-1 R1 (agent-reported, NOT independent): awaiting Codex R1 re-verification. Residual limits (GATE.md): a cooperating-verification control, not an
+  OS sandbox; native code, Quartz input, arbitrary shell code and a shell fed on standard input are outside the audit hooks; a child that refuses, cannot
+  write its record and whose exit its caller ignores is caught only when the ledger is unusable; renamed or stand-in recognition is by exact bytes;
+  raw `python -m pytest` is not evidence (supported: `routine_pytest.py` and the gate); a whole module with declared heavyweight nodes is INCOMPLETE
+  (request its routine nodes); native macOS verification of the R1 envelope and of the case-sensitive routing is PENDING (a portable simulation passes).
+  Obligations carried to 1A-2/1A-3: admission at every heavyweight entrypoint (the R1 refusals become admissions only with an A6-R grant under the A5
+  lock), the plan-only modes, the final evidence schema (1B). The whole ordinary suite was swept diagnostically by direct runs (not evidence; every
+  envelope collateral fixed); `test_root_lifetime`'s two declared nodes refuse there by design.
 - Interim rule (GATE.md, in force until 1A-2/1A-3): no `--mode full` or `--mode qualification --scenario`, no journey, real engine, install, download, benchmark or
   release build without the owner's authorization for that run. quick, changed, regression, focused `--feature` and qualification `--journey` print their plans only (exit 3).
 - Phase 1A-1 compatibility seams (removal criteria in GATE.md): an owner-authorized Windows full run cannot PASS until 1A-2, because its ordinary stage now runs inside the
@@ -170,9 +185,26 @@ review. Items marked (?) could not be proven closed from the record and are kept
   `files/dev-work/v0.8.2-cp1-evidence` to `cp6-evidence` and `v0.8.2-qual-evidence`; earlier gate runs `files/dev-work/verification-gate/outputs/`; the Phase 0A review bundle `files/run-temp/p0a-review/`; the Phase 0B ledgers
   and reconciliation `files/run-temp/p0b/`. Prefix them with `<primary checkout>\files\dev-work\wt082\`. Gate runs in `C:\ACT-Dev` write to its own `files/dev-work/verification-gate/outputs/`.
 - Abandoned gate scratch under `%TEMP%\act-gate` from earlier full runs (runs 2cf1, 52ac, 910a, d0db; `--audit-scratch` reports about 31.6 GiB, hard links may be double-counted) is untouched: owner decision D-2 / Phase 2.
-- Phase 1A-1 left two folders of its own that it was not permitted to delete: `%TEMP%\act-gate\fd57` (1.06 GiB, the retained scratch of its failed iteration run `2026-11-25_192340_focused_5fd4`; `--audit-scratch` reports it abandoned and owned by that run) and `C:\t\p1a1` (about 0.46 GB of direct-run basetemps). Both are disposable; the owner may remove them. Free space on C: was about 6 GiB at the end of Phase 1A-1: check it before any expensive run.
+- Phase 1A-1 R1: the owner removed the three scratch folders left outside containment (`C:\t\p1a1` and `%TEMP%\act-gate\fd57`, `f2c1`); R1 created no
+  external scratch (direct runs used short basetemps under `files/run-temp/`, removed). Free space on C: was about 7 GiB during R1: below the comfort
+  margin for a full run; check it before any expensive run.
+- Historical (Phase 1A-1, superseded by the owner's cleanup above): Phase 1A-1 left two folders of its own that it was not permitted to delete: `%TEMP%\act-gate\fd57` (1.06 GiB, the retained scratch of its failed iteration run `2026-11-25_192340_focused_5fd4`; `--audit-scratch` reports it abandoned and owned by that run) and `C:\t\p1a1` (about 0.46 GB of direct-run basetemps). Both are disposable; the owner may remove them. Free space on C: was about 6 GiB at the end of Phase 1A-1: check it before any expensive run.
 
 ## Verification and Evidence
+
+- **Phase 1A-1 R1 (this checkpoint, agent-reported, not independent).** Original verdict: Phase 1A-1 FAIL at independent review (eleven findings). Regression
+  controls fail on 8d7226d and pass on R1: `files/run-temp/r1_repro.py`-style reproduction (local, not committed) 20/20 RED-to-GREEN across H1, H2, H3 and M2;
+  the fork-side controls (`test_r1_*` in `test_execution_plan.py` and the gate contract) red first (44 direct, 6 Git through the gate), then green; the envelope
+  collateral (launcher sandboxes, packaging syntax check) red in a diagnostic sweep, then green. Focused gate runs on the frozen R1 tree: `2026-11-25_231539_focused_b69f`
+  (896 passed, 0 skipped, 18 modules); `2026-11-25_230754_focused_595d` (449 passed, 0 skipped: 170 routine contract functions and the evidence module); guarded `2026-11-25_231843_focused_d8c3` (v3-planning and v3-supervisor through `guarded_pytest.py`: membership, process-spec identity,
+  lifetime report with `routine_accounting` bootstrap `guarded-pytest`, ledger PASS, no refusals, no surviving child). Each PASS with `routine-effects`,
+  `requested-scope` and `tree` PASS, all on one tree (`f2af75a3…`). Superseded iteration: `2026-11-25_225748_focused_f267` FAIL (two test-design defects
+  in the new gate-contract controls, then fixed: a wrapper process can never satisfy the gate's direct-child session identity, so the M2 ledger damage now
+  happens at `check_routine_effects`; the sealed-BLOCKED qualification test now adopts the real runner's expected `scaling` refusal). Mutation check: the
+  8d7226d rule "skip a missing stage ledger" restored in `verify.py` was CAUGHT by the M2 `delete-ledger` case and the file restored byte for byte.
+  NOT RUN by design: full, changed execution, qualification, focused `--feature`, journeys, real engines, installs,
+  downloads, benchmarks, release builds. Historical evidence limits: the Phase 1A-1 runs below were produced by the defective envelope and prove nothing
+  about the R1 contracts.
 
 - **Phase 1A-1 (this checkpoint, agent-reported, not independent).** In `C:\ACT-Dev`, on the final candidate tree (gate tree digest `72ec515f…`; the commit adds only this
   Handoff update on top of it), three focused gate runs, each PASS with `routine-effects` PASS (no heavyweight effect refused in any stage), `tree` unchanged and
@@ -209,7 +241,8 @@ review. Items marked (?) could not be proven closed from the record and are kept
 
 ## Recent Checkpoints (newest first; cite by `git log`, not by tip)
 
-- Phase 1A-1 — explicit execution plans, Git changed selection, routine capability classification and envelope, plan Revision 5 (this commit).
+- Phase 1A-1 R1 — the independent review FAIL remediated (H1-H4, M1-M3, C1-C4), plan amendment R1 (this commit).
+- 8d7226d Phase 1A-1 — explicit execution plans, Git changed selection, routine capability classification and envelope, plan Revision 5 (FAILED independent review).
 - 28d8c7b Pre-Phase 1A — permanent checkout `C:\ACT-Dev`, local-only workspace files, base environment, outstanding Phase 0A baseline PASS, owner decisions recorded.
 - a86538b Phase 0B — Handoff/Briefing compaction, Decisions and Changelog indexes, v0.8.1 release status corrected.
 - 8546200 Phase 0A: five-document contract, plan moved to `files/plans/`, local-only workspace, interim verification rule. 3546a4f plan readiness review.

@@ -20,6 +20,7 @@ not listed is history, recoverable here and through Git.
 - 2026-07-06 — One commit per drop for the entire v0.5.0 sequence (historical; v0.5.0 only).
 
 **Verification gate**
+- 2026-11-25 — v0.8.2 Phase 1A-1 R1: location is never evidence of a synthetic run (reviewed synthetic fixture only), the launch contract judges the real program, environment and form, one early envelope for both runners, canonical selectors, the requested module or node is the scope, admission re-resolves, routine accounting fails closed.
 - 2026-11-25 — v0.8.2 Phase 1A-1: plan Revision 5 (A5-W, A5-M, A6-R, ENTRY; Phase 1A as 1A-1, 1A-2, 1A-3); every request is an explicit execution plan, changed selection never widens, routine verification refuses heavyweight effects.
 - 2026-11-06 — Phase 2 closeout: verification is targeted first, one planned full gate per phase on a committed candidate.
 - 2026-11-06 — The canonical gate moves to `files/dev-work/verification-gate`; scratch stays short (the `%TEMP%\act-gate` exception).
@@ -70,6 +71,21 @@ place (append-only): `2026-10-01 — Strip only recognised embedded MP3 join met
 
 **Archival split.** Not performed. A recommendation (index plus per-era archive files, never reordering) is in the Phase 0B report for the
 planning chat to approve; until then this file stays whole.
+
+## 2026-11-25 — v0.8.2 Phase 1A-1 R1: the independent review FAIL is remediated; location is never evidence of a synthetic run, the requested module or node is the scope, plans are admitted only as re-resolved, and routine accounting fails closed
+
+**Decision.** Phase 1A-1 failed independent review (eleven confirmed findings). Revision 5's architecture stands; these contracts are corrected and now govern routine verification (GATE.md is the reference):
+(1) **H1.** A maintained heavyweight entrypoint refuses inside routine verification wherever it lies -- this checkout, another checkout, a disposable or renamed copy (recognized by path suffix and by its bytes). The only exception is a reviewed synthetic gate fixture: a disposable tree inside the routine session's own basetemp, declared in `act-synthetic-fixture.json` (its own path and the SHA-256 of each stand-in), whose orchestrator is byte-identical to this checkout's; its acceptance and qualification launches start only declared stand-ins that are not a real runner's bytes. No `--mock` flag, ambient grant or blanket pytest privilege.
+(2) **H2.** A routine launch is judged by the program actually started (`executable=`), its arguments, working directory and environment: data-only flags only in their reviewed position; Python by script, `-m` module and inline path literals; nested pytest only through `routine_pytest.py`; shells by what they run; a Python or shell child whose environment drops the marker, the marked checkout or the ledger, or re-adds an opt-in, is refused unless the guarded runner's reviewed process profile vouches for it; installers, network tools, desktop hand-offs, machine-configuration programs and unreviewed native programs are refused.
+(3) **H3.** `routine_pytest.py` and `guarded_pytest.py` share one early setup (`routine_effects.bootstrap`) before pytest is imported; the guarded runner's stronger hooks run first and its lifetime report carries the routine accounting. Operation checks: non-loopback sockets, a model library reading real weights, native-input resolution outside the gate's adapter, `os.startfile`, and the gate's own heavyweight callables (`check_operation`). Raw `python -m pytest` is not a supported verification invocation.
+(4) **H4, M1, M3, C1-C4.** Selectors are canonical repository identities before classification and guarded routing (case aliases resolved or refused, links refused, membership by `files/tests/<module>`); the requested module or node is the scope (withheld or missing requested items keep the plan INCOMPLETE; `requested-scope` reconciles executed node ids); admission re-resolves the plan from the authoritative request and compares (`execution_plan.admit`), plan fields are immutable; one contained no-follow inventory serves every reader; local-only privacy follows the filesystem's case rule and the index; a staged deletion with recreation keeps both facts; dependency uncertainty is a gap; every plan's candidate binds working bytes and is diagnostic only.
+(5) **M2.** Each stage's effect ledger is a directory the gate initializes before the stage exists; every cooperating process writes its own record (start, refusals, end); a write failure is an accounting failure; a missing, empty, unreadable, incomplete or malformed ledger, or a stage without a completed session of its runner, is never clean. Expected refusals are scoped to their thread and named effects and grant nothing.
+
+**Why.** The review reproduced each defect: a copied or foreign root ran where the original refused; `executable=`, replacement environments, module and shell forms bypassed classification; the guarded runner took the envelope only after pytest had loaded; a Windows case variant routed a guarded module into ordinary pytest; whole-module requests lost heavyweight nodes while reporting COMPLETE; a missing or empty ledger read as clean; the boundary trusted plan-supplied fields.
+
+**Not authorized by this entry.** The A5 lock, A6 grants, live delegation, authorized full execution, activation of the plan-only modes and the final evidence schema stay with 1A-2, 1A-3 and 1B. Native macOS verification of the R1 envelope is pending.
+
+Signed: the owner (the R1 assignment and its approved mixed-module semantics, via the planning chat); implemented and recorded by Claude Code (Opus 5.5).
 
 ## 2026-11-25 — v0.8.2 Phase 1A-1: plan Revision 5 (A5-W, A5-M, A6-R, ENTRY; Phase 1A in three checkpoints); every gate request is an explicit execution plan; changed selection is read from Git and never widens; routine verification refuses heavyweight effects
 

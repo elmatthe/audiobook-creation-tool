@@ -18,6 +18,21 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+def _routine_context():
+    """helpers/routine_context.py, loaded by path so this program's own imports stay as they are (v0.8.2 Phase 1A-1 R1)."""
+    import importlib.util
+    import sys as _sys
+
+    if "act_gate_routine_context" in _sys.modules:
+        return _sys.modules["act_gate_routine_context"]
+    spec = importlib.util.spec_from_file_location("act_gate_routine_context",
+                                                  Path(__file__).resolve().parents[2] / "helpers" / "routine_context.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    _sys.modules["act_gate_routine_context"] = module
+    return module
+
+
 user32 = ctypes.WinDLL("user32", use_last_error=True)
 kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
 wtsapi32 = ctypes.WinDLL("wtsapi32", use_last_error=True)
@@ -142,6 +157,7 @@ def set_dpi_aware() -> None:
 
 # -- input ----------------------------------------------------------------------------------- #
 def _send(*inputs: INPUT) -> None:
+    _routine_context().check_operation("native-desktop", "SendInput")  # v0.8.2 Phase 1A-1 R1
     array = (INPUT * len(inputs))(*inputs)
     sent = user32.SendInput(len(inputs), array, ctypes.sizeof(INPUT))
     if sent != len(inputs):

@@ -5,6 +5,14 @@ CONFIG version 1 pins reviewed subprocess callsites by file SHA-256 and function
 name. It is evidence for a particular run, never a production capability. Child
 and native isolation relies on the explicit profiles below and their disposable
 paths, not on inheritance of this Python audit hook. Raw refusals are never lost.
+
+v0.8.2 Phase 1A-1 R1: before pytest is imported, this runner also takes the
+common routine envelope (files/tests/routine_effects.py ``bootstrap``) after its
+own stronger hooks: the routine launch, network, model-weight and native-input
+checks and this session's effect-ledger accounting. Its own process-site,
+write-tripwire, network/model and lifetime-report contracts are unchanged; a
+child it approves by a reviewed profile is vouched for to the routine layer, and
+the routine accounting is part of the lifetime report and of its exit status.
 """
 
 import atexit
@@ -23,6 +31,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT / "files/tests"), str(ROOT / "scripts")]
 import write_tripwire as tripwire
+import routine_effects
 
 
 def production_roots(current=()):
@@ -378,11 +387,20 @@ def main(*, plugins=()):
                   "unintended_production_refusals": accidental, "allowed_processes": policy.allowed,
                   "unexpected_processes": policy.refused, "network_model_refusals": blocked}
         report["expected_negative_import_refusals"] = expected_blocked
+        routine_status = routine_effects.finish(int(code))
+        ledger = os.environ.get(routine_effects.LEDGER_ENV)
+        report["routine_accounting"] = {
+            "ledger": ledger, "bootstrap": routine_effects._bootstrapped,
+            "refusals": routine_effects.refusals(), "unexpected": routine_effects.unexpected(),
+            "accounting_failures": routine_effects.accounting_failures(),
+            "ledger_verdict": {key: value for key, value in routine_effects.read_ledger(ledger, require_role="guarded-pytest").items()
+                               if key in ("status", "problems", "processes", "complete", "roles")} if ledger else None}
+        routine_unclean = routine_status != int(code) or bool(report["routine_accounting"]["unexpected"]) or             bool(report["routine_accounting"]["accounting_failures"])
         if counter.config:
             terminal = counter.config.pluginmanager.get_plugin("terminalreporter")
             report["counts"] = {key: len(value) for key, value in terminal.stats.items() if key in
                                 ("passed", "failed", "error", "skipped", "xfailed", "xpassed", "deselected")}
-        status = 1 if accidental or policy.refused or blocked else int(code)
+        status = 1 if accidental or policy.refused or blocked or routine_unclean else int(code)
         report["outer_exit"] = status
         try:
             report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
@@ -391,7 +409,9 @@ def main(*, plugins=()):
             sys.stderr.flush()
             os._exit(1)
         print("LIFETIME GUARD:", len(accidental), "unintended writes;", len(policy.refused), "unexpected processes;",
-              len(blocked), "network/model refusals; exit", status)
+              len(blocked), "network/model refusals;", len(report["routine_accounting"]["unexpected"]),
+              "routine refusals;", len(report["routine_accounting"]["accounting_failures"]), "accounting failures; exit",
+              status)
         sys.stdout.flush()
         sys.stderr.flush()
         os._exit(status)  # atexit exceptions cannot change the process exit status
@@ -421,6 +441,13 @@ def main(*, plugins=()):
             raise PermissionError("real model import refused in pytest parent")
 
     sys.addaudithook(network_model_guard)
+    # The common routine envelope, after the stronger hooks above (they see every event first) and before pytest exists.
+    if not os.environ.get(routine_effects.LEDGER_ENV):
+        routine_effects.new_ledger(report_path.with_name(report_path.stem + "-effects"), owner="guarded-pytest")
+        os.environ[routine_effects.LEDGER_ENV] = str(report_path.with_name(report_path.stem + "-effects"))
+    routine_effects.own_disposable(process_temp)
+    routine_effects.set_profile_authority(lambda command, cwd: policy.approve(command, cwd))
+    routine_effects.bootstrap("guarded-pytest", arguments)
     import pytest
     code = pytest.main(arguments, plugins=[counter, *plugins])
     return int(code)

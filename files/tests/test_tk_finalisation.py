@@ -558,7 +558,7 @@ def test_a_real_ui_module_leaves_nothing_armed(tmp_path):
     plugin.write_text(_CENSUS_PLUGIN, encoding="utf-8")
 
     result = subprocess.run(
-        [sys.executable, "-m", "pytest", "files/tests/test_ui_theme.py",
+        [sys.executable, str(REPO_ROOT / "files" / "tests" / "routine_pytest.py"), "files/tests/test_ui_theme.py",
          "-q", "--no-header", "--tb=no", "-p", "no:randomly",
          "-p", "census_plugin"],
         capture_output=True, text=True, timeout=BOUND * 20, cwd=REPO_ROOT,

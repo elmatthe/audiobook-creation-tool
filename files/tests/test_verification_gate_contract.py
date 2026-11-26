@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import ctypes
 import functools
+import hashlib
 import json
 import os
 import shutil
@@ -26,9 +27,15 @@ from pathlib import Path
 
 import pytest
 
+import routine_effects
 from gate_locator import GATE_DIR, REPO_ROOT, load_gate
 
 pytestmark = pytest.mark.skipif(shutil.which("git") is None, reason="the gate needs git")
+#: v0.8.2 Phase 1A-1 R1: these two start byte copies of the REAL qualification runners (in a tree without the application).
+#: A real runner, copied or not, never starts inside routine verification; they are qualification obligations, and the
+#: routine controls below prove the refusal instead.
+ACT_EFFECTS = {"test_a_phase_8_scenario_is_blocked_without_its_network_grant_or_the_application": ("real-app-launch",),
+               "test_the_m4b_scaling_scenario_runs_its_runner_and_is_blocked_without_the_application": ("scaling",)}
 
 TESTS_SOURCE = REPO_ROOT / "files" / "tests"
 PASSING = "def test_one():\n    pass\n\n\ndef test_two():\n    pass\n"
@@ -65,7 +72,11 @@ class Tree:
              "process_sites": {}, "tools": []}))
         self.write("pytest.ini", "[pytest]\ntestpaths = files/tests\nnorecursedirs = dev-work\n")
         self.write(".gitignore", "__pycache__/\n*.pyc\nfiles/dev-work/*\n!files/dev-work/verification-gate/\n"
-                                 "files/dev-work/verification-gate/outputs/\n")
+                                 "files/dev-work/verification-gate/outputs/\n" + routine_effects.context.SYNTHETIC_DECLARATION + "\n")
+        # v0.8.2 Phase 1A-1 R1: this tree is a reviewed synthetic gate fixture (helpers/routine_context.py). Its gate copy may run
+        # inside routine verification only because this declaration names the tree, the tree lies in this session's own
+        # disposable root, and its runners start only declared stand-ins (declare); a real runner copied here still refuses.
+        declare_fixture(root, {})
         # The real static gates judge this tree, so they read the real rules and the real pinned files.
         shutil.copytree(REPO_ROOT / "scripts" / "shared", root / "scripts" / "shared",
                         ignore=shutil.ignore_patterns("__pycache__"))
@@ -107,6 +118,13 @@ class Tree:
 
     def policy(self) -> dict:
         return json.loads((self.gate / "verification.json").read_text(encoding="utf-8"))
+
+    def declare(self, *relatives: str) -> None:
+        """Declare files of this tree as synthetic stand-ins for the runners they replace (their exact bytes)."""
+        declared = json.loads((self.root / routine_effects.context.SYNTHETIC_DECLARATION).read_text(encoding="utf-8"))["synthetic"]
+        for relative in relatives:
+            declared[relative] = hashlib.sha256((self.root / relative).read_bytes()).hexdigest()
+        declare_fixture(self.root, declared)
 
     def commit(self, message: str = "change") -> None:
         git(self.root, "add", "-A")
@@ -151,6 +169,13 @@ class Tree:
         outcome = self.run(*argv, "--plan")
         assert outcome.directory is None, "a plan must not create a run directory"
         return outcome
+
+
+def declare_fixture(root: Path, synthetic: dict) -> None:
+    """Write the synthetic-fixture declaration of a disposable gate tree (helpers/routine_context.py synthetic_fixture)."""
+    (root / routine_effects.context.SYNTHETIC_DECLARATION).write_text(json.dumps(
+        {"format": routine_effects.context.SYNTHETIC_FORMAT, "root": str(root.resolve()), "synthetic": synthetic,
+         "purpose": "test_verification_gate_contract.py synthetic gate tree"}), encoding="utf-8")
 
 
 class Outcome:
@@ -206,6 +231,8 @@ def tree(template_tree, tmp_path_factory) -> Tree:
     instance.tests = root / "files" / "tests"
     instance.gate = root / "files" / "dev-work" / "verification-gate"
     instance.outputs = instance.gate / "outputs"
+    declared = json.loads((root / routine_effects.context.SYNTHETIC_DECLARATION).read_text(encoding="utf-8"))["synthetic"]
+    declare_fixture(root, declared)  # the copy is its own tree: the declaration names this one, never the template
     return instance
 
 
@@ -345,11 +372,14 @@ def test_zero_tests_collected_is_not_a_pass(tree):
 
 @pytest.mark.parametrize("selector", ["files/tests/test_ordinary.py::test_does_not_exist", "files/tests/test_no_such_module.py"])
 def test_an_unknown_selector_runs_nothing_and_is_not_a_pass(tree, selector):
+    """v0.8.2 Phase 1A-1 R1 (M1): a requested selector that does not exist is a selection gap of the plan, never something left
+    for pytest to drop: nothing runs, and the plan names exactly that selector."""
     outcome = tree.focused(selector, "files/tests/test_ordinary.py::test_one")
     assert outcome.code == 3, outcome
-    gate = outcome.check("pytest")
-    assert gate["status"] == "NOT RUN" and gate["exit_status"] == 4
+    assert outcome.check("selection")["status"] == "NOT RUN"
     assert outcome.results["counts"]["executed"] == 0
+    selection = json.loads((outcome.directory / "selection.json").read_text(encoding="utf-8"))
+    assert [(gap["subject"], gap["kind"]) for gap in selection["gaps"]] == [(selector, "missing")]
 
 
 def test_an_unknown_feature_is_an_invalid_invocation_before_anything_runs(tree):
@@ -453,6 +483,7 @@ def test_a_phase_8_scenario_is_blocked_without_its_network_grant_or_the_applicat
     """v0.7.2 Phase 8 implements the three scenarios (qualification/). This small tree has the gate and its runners but not the
     application, and a run without ``--network`` has no grant: each must say BLOCKED, with the reason, quickly, in a verdict in
     the run's own folder, having sent and downloaded nothing. The grant reaches the runner only as the policy's own name."""
+    routine_effects.require("real-app-launch", f"the real {scenario} runner, copied into a synthetic tree")
     extra = ("--network", grant) if grant else ()
     outcome = tree.run("--mode", "qualification", "--scenario", scenario, *extra)
     assert outcome.code == 2, outcome
@@ -479,6 +510,7 @@ def test_the_m4b_scaling_scenario_runs_its_runner_and_is_blocked_without_the_app
     """v0.7.2 Phase 7B implements m4b-scaling. This small tree has the gate and its scaling/ runner but not the
     application's M4B code, so the runner must say BLOCKED, quickly, with a verdict in the run's own folder; the gate must
     report that verdict rather than a PASS, and must have owned and reaped the runner."""
+    routine_effects.require("scaling", "the real m4b-scaling runner, copied into a synthetic tree")
     outcome = tree.run("--mode", "qualification", "--scenario", "m4b-scaling")
     assert outcome.code == 2, outcome
     gate = outcome.check("scenario:m4b-scaling")
@@ -487,6 +519,90 @@ def test_the_m4b_scaling_scenario_runs_its_runner_and_is_blocked_without_the_app
     assert verdict["status"] == "BLOCKED" and verdict["scenario"] == "m4b-scaling"
     assert outcome.check("cleanup")["status"] == "PASS"
     assert outcome.results["qualification"]["satisfied"] == [] and "m4b-scaling" in outcome.results["qualification"]["pending"]
+
+
+@pytest.mark.parametrize("scenario, effect", [("m4b-scaling", "scaling"), ("edge-low-memory", "external-network"),
+                                              ("fresh-windows", "install")])
+def test_a_real_runner_copied_into_a_synthetic_tree_never_starts_inside_routine_verification(tree, tmp_path, scenario, effect):
+    """v0.8.2 Phase 1A-1 R1 (H1): the tree's runner is a byte copy of the real one. Inside routine verification the gate's own
+    operation boundary refuses it before it starts -- it is not a declared stand-in -- and records the refusal, which this
+    control adopts from a private ledger."""
+    ledger = routine_effects.new_ledger(tmp_path / "gl")
+    with routine_effects.expected_refusals(effect) as scope:
+        outcome = tree.run("--mode", "qualification", "--scenario", scenario, env={routine_effects.LEDGER_ENV: str(ledger)})
+    assert outcome.code == 2, outcome
+    gate = outcome.check(f"scenario:{scenario}")
+    assert gate["status"] == "BLOCKED" and "refused in routine verification" in gate["detail"], gate
+    assert not (outcome.directory / "qualification").exists(), "the real runner must not have started"
+    verdict = scope.ledgers[str(ledger)]
+    assert verdict["problems"] == [] and [row["effect"] for row in verdict["refusals"]] == [effect], verdict
+
+
+def test_the_real_acceptance_runner_in_a_synthetic_tree_never_starts_and_a_changed_stand_in_is_no_stand_in(tree, tmp_path):
+    """H1: the declared stand-in is replaced by the real runner's bytes after it was declared. The declaration no longer
+    matches, so the gate's operation boundary refuses: native journeys never start inside routine verification."""
+    _with_runner(tree)
+    shutil.copyfile(GATE_DIR / "acceptance_runner.py", tree.gate / "acceptance_runner.py")
+    tree.commit("the real runner where the stand-in was")
+    ledger = routine_effects.new_ledger(tmp_path / "gl")
+    with routine_effects.expected_refusals("native-desktop") as scope:
+        outcome = _journey(tree, "mp3.journey", env={routine_effects.LEDGER_ENV: str(ledger)})
+    acceptance = outcome.check("acceptance")
+    assert acceptance["status"] == "BLOCKED" and "refused in routine verification" in acceptance["detail"], acceptance
+    assert outcome.results["status"] != "PASS" and not (outcome.directory / "acceptance").exists()
+    assert [row["effect"] for row in scope.ledgers[str(ledger)]["refusals"]] == ["native-desktop"]
+
+
+#: Damages the ordinary stage's effect ledger after the stage really ran (directly, so the gate's own child-identity checks hold)
+#: and before the gate reads it; or starts pytest without the routine bootstrap (v0.8.2 Phase 1A-1 R1, M2).
+LEDGER_DAMAGE = """\
+    import json, shutil
+    action = {action!r}
+    if action == "bypass-bootstrap":
+        gate._routine_pytest = lambda: [sys.executable, "-m", "pytest"]
+    real_check = gate.GateRun.check_routine_effects
+
+    def damaged(self):
+        for stage, ledger, role in self.effect_ledgers:
+            if stage != "pytest":
+                continue
+            if action == "delete-ledger":
+                shutil.rmtree(ledger)
+            elif action == "malformed":
+                (ledger / "p1-0000.jsonl").write_text("not json\\n", encoding="utf-8")
+            elif action == "wrong-shape":
+                (ledger / "p1-0001.jsonl").write_text("[1, 2]\\n", encoding="utf-8")
+            elif action == "interrupted":
+                (ledger / "p1-0002.jsonl").write_text(json.dumps({{"kind": "start", "pid": 1, "ppid": 0,
+                                                                  "role": "routine-pytest"}}) + "\\n", encoding="utf-8")
+        return real_check(self)
+
+    gate.GateRun.check_routine_effects = damaged
+    """
+
+
+@pytest.mark.parametrize("action, needle", [
+    ("nothing", None),
+    ("delete-ledger", "missing"),
+    ("malformed", "not JSON"),
+    ("wrong-shape", "wrong shape"),
+    ("interrupted", "never completed"),
+    ("bypass-bootstrap", "no completed routine-pytest session"),
+])
+def test_the_gate_never_passes_a_stage_whose_effect_accounting_cannot_be_verified(tree, action, needle):
+    """M2 at the gate: every test passes, and the focused run is still FAIL when its stage ledger is missing, malformed, of
+    the wrong shape, holds a process that never completed, or holds no completed session of the stage's own runner (pytest
+    started without the routine bootstrap). The no-change control passes."""
+    launcher = _patched_gate(tree, LEDGER_DAMAGE.format(action=action))
+    outcome = tree.run("--mode", "focused", "--test=files/tests/test_ordinary.py", script=launcher)
+    effects_check = outcome.check("routine-effects")
+    log = outcome.directory / "logs" / "pytest.log"
+    assert outcome.check("pytest")["status"] == "PASS", (outcome.check("pytest")["detail"],
+                                                         log.read_text(encoding="utf-8")[-3000:] if log.is_file() else "no log")
+    if needle is None:
+        assert outcome.code == 0 and effects_check["status"] == "PASS", (outcome, effects_check)
+    else:
+        assert outcome.code == 1 and effects_check["status"] == "FAIL" and needle in effects_check["detail"], effects_check
 
 
 def test_a_scenario_runner_that_reports_pass_without_exiting_zero_is_not_a_pass(tree):
@@ -502,6 +618,7 @@ def test_a_scenario_runner_that_reports_pass_without_exiting_zero_is_not_a_pass(
                                                       "checks": [], "runs": 0}))
         sys.exit(1)
     '''), encoding="utf-8")
+    tree.declare("files/dev-work/verification-gate/scaling/qualify.py")
     tree.commit("a runner that lies")
     outcome = tree.run("--mode", "qualification", "--scenario", "m4b-scaling")
     assert outcome.code == 1, outcome
@@ -1641,6 +1758,7 @@ sys.exit(script.get("exit", 0))
 
 def _with_runner(tree, script=None, *, required=("mp3.journey",), tools=("mp3-tool",), **policy_overrides) -> None:
     tree.write("files/dev-work/verification-gate/acceptance_runner.py", _SCRIPTED_RUNNER)
+    tree.declare("files/dev-work/verification-gate/acceptance_runner.py")
     tree.write("files/dev-work/verification-gate/scripted.json", json.dumps(script or {}))
     policy = tree.policy()
     policy["acceptance"] = {"required_tools": list(tools), "required_scenarios": list(required), "optional_scenarios": [], "journey_routes": {},
@@ -1919,6 +2037,7 @@ def _qualification(tree, verdict, code: int, *, before: str = "", requires=_UNSE
     if stage is not None:
         policy["stages"]["qualification"] = stage
     tree.write_policy(policy)
+    tree.declare("files/dev-work/verification-gate/scaling/qualify.py")
     tree.commit("a small runner for the scenario")
     return tree.run("--mode", "qualification", "--scenario", "m4b-scaling")
 
@@ -1964,9 +2083,13 @@ def test_a_sealed_qualification_fail_stays_fail(tree):
     assert tree.status(str(outcome.directory), "--require-current").returncode == 1
 
 
-def test_a_sealed_qualification_blocked_stays_blocked(tree):
-    """The real runner in this small tree: the application's M4B code is not here, so it says BLOCKED."""
-    outcome = tree.run("--mode", "qualification", "--scenario", "m4b-scaling")
+def test_a_sealed_qualification_blocked_stays_blocked(tree, tmp_path):
+    """The real runner in this small tree. Since 1A-1 R1 (H1) it never starts inside routine verification -- the gate's
+    operation boundary refuses it and the scenario is BLOCKED (its refusal adopted from a private ledger) -- and the sealed
+    BLOCKED reads back as BLOCKED, never as a pass or a problem."""
+    ledger = routine_effects.new_ledger(tmp_path / "gl")
+    with routine_effects.expected_refusals("scaling"):
+        outcome = tree.run("--mode", "qualification", "--scenario", "m4b-scaling", env={routine_effects.LEDGER_ENV: str(ledger)})
     assert outcome.code == 2, outcome
     status = tree.status(str(outcome.directory))
     assert status.returncode == 2 and "status: BLOCKED" in status.stdout and "problem" not in status.stdout, status.stdout
@@ -1985,6 +2108,7 @@ def test_a_qualification_stopped_part_way_is_incomplete_and_never_a_pass(tree):
     (tree.gate / "scaling" / "qualify.py").write_text(textwrap.dedent(SCENARIO_RUNNER).format(
         write_verdict=f'(out / "verdict.json").write_text(json.dumps({_verdict("PASS")!r}))', code=0, runs=3,
         before=f"Path({str(started)!r}).write_text('x')\ntime.sleep(120)"), encoding="utf-8")
+    tree.declare("files/dev-work/verification-gate/scaling/qualify.py")
     tree.commit("a runner that is still working")
     proc = subprocess.Popen([sys.executable, str(tree.gate / "verify.py"), "--mode", "qualification", "--scenario", "m4b-scaling"],
                             cwd=tree.outside, env=tree.environment(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -3178,3 +3302,34 @@ def test_the_decoders_console_host_is_found_among_the_jobs_processes():
     told = json.loads(done.stdout.strip().splitlines()[-1])
     assert [item["image"] for item in told["found"]] == ["conhost.exe"], told
     assert told["found"][0]["peak"] > 0 and told["ids"] >= 3 and told["strangers"] == [], told
+
+
+# --------------------------------------------------------------------------- #
+# Phase 1A-1 R1: canonical identity and requested-scope integrity at the gate (helpers/execution_plan.py, M1/H4)
+# --------------------------------------------------------------------------- #
+def test_r1_a_case_variant_of_a_guarded_module_plans_into_its_group_never_into_ordinary_pytest(tree):
+    """The confirmed Windows bypass, in this small tree: a selector spelled with another case names the guarded module."""
+    if not (tree.tests / "test_Guarded.py").is_file():
+        pytest.skip("a case-sensitive filesystem: the variant is another, missing file (native macOS verification pending)")
+    outcome = tree.plan("--mode", "focused", "--test=files/tests/test_Guarded.py")
+    assert outcome.code == 3, outcome
+    plan = outcome.plan
+    assert plan["guarded"] == {"only": ["test_guarded.py"]} and plan["ordinary"] == [], plan
+    assert plan["requested"] == ["test:files/tests/test_guarded.py"], "the plan records the canonical identity"
+
+
+def test_r1_a_module_requested_with_a_nonexistent_node_runs_nothing_and_names_the_node(tree):
+    """Before R1 the node was dropped under its whole module and the run passed; now it is a requested selection gap."""
+    outcome = tree.focused("files/tests/test_ordinary.py", "files/tests/test_ordinary.py::test_nope")
+    assert outcome.code == 3 and outcome.check("selection")["status"] == "NOT RUN", outcome
+    selection = json.loads((outcome.directory / "selection.json").read_text(encoding="utf-8"))
+    assert selection["status"] == "INCOMPLETE"
+    assert [(gap["subject"], gap["kind"], gap.get("requested")) for gap in selection["gaps"]] == [
+        ("files/tests/test_ordinary.py::test_nope", "missing", True)]
+    assert outcome.results["counts"]["executed"] == 0
+
+
+def test_r1_a_passing_focused_run_reconciles_its_requested_scope(tree):
+    outcome = tree.focused("files/tests/test_ordinary.py::test_one")
+    assert outcome.code == 0, outcome
+    assert outcome.check("requested-scope")["status"] == "PASS"

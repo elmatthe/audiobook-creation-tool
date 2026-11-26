@@ -25,10 +25,11 @@ from __future__ import annotations
 
 import hashlib
 import os
-import stat
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from helpers import repo_files
 
 OUTPUTS_PREFIX = "files/dev-work/verification-gate/outputs/"
 SOURCES = ("committed", "staged", "unstaged", "untracked")
@@ -44,11 +45,16 @@ class Change:
     status: str                    # A M D R C T for Git changes, ? for untracked
     old_path: str | None = None
     sources: tuple[str, ...] = ()
+    #: Whether something is at ``path`` in the working tree now, read from the filesystem (never inferred from the Git
+    #: status): a staged deletion recreated in the working tree is ``status == "D"`` and ``present`` (R1, C3).
+    present: bool | None = None
 
     def record(self) -> dict:
         row = {"path": self.path, "status": self.status, "sources": list(self.sources)}
         if self.old_path:
             row["old_path"] = self.old_path
+        if self.present is not None:
+            row["present"] = self.present
         return row
 
 
@@ -106,9 +112,22 @@ def parse_name_status(text: str) -> list[tuple[str, str | None, str]]:
     return records
 
 
-def matches(path: str, entry: str) -> bool:
-    """An exact path, or a directory entry (ending in ``/``) at a path-component boundary. Case-sensitive."""
-    return path.startswith(entry) if entry.endswith("/") else path == entry
+def matches(path: str, entry: str, *, case_sensitive: bool = True) -> bool:
+    """An exact path, or a directory entry (ending in ``/``) at a path-component boundary. A backslash and ``/`` are the
+    same separator; with ``case_sensitive=False`` (NTFS, APFS by default) case is folded as the filesystem folds it."""
+    path, entry = path.replace("\\", "/"), entry.replace("\\", "/")
+    if not case_sensitive:
+        path, entry = path.casefold(), entry.casefold()
+    if entry.endswith("/"):
+        return path.startswith(entry) or path == entry[:-1]
+    return path == entry
+
+
+def local_only_entry(path: str, local_only, *, case_sensitive: bool) -> str | None:
+    """The owner-declared local-only entry ``path`` falls under, or None (R1, C2): exact paths and directory components,
+    with the filesystem's case rule and either separator, so an alias of a private path is still private."""
+    normalized = repo_files.normalize(path) or path
+    return next((entry for entry in local_only if matches(normalized, entry, case_sensitive=case_sensitive)), None)
 
 
 def resolve_base(root: Path, base: str, head: str) -> dict:
@@ -129,8 +148,10 @@ def resolve_base(root: Path, base: str, head: str) -> dict:
     return {"ref": base, "sha": sha, "merge_base": bases[0]}
 
 
-def collect(root: Path, *, base: str | None = None, local_only=()) -> ChangeSet:
+def collect(root: Path, *, base: str | None = None, local_only=(), case_sensitive: bool | None = None) -> ChangeSet:
     root = Path(root)
+    inventory = repo_files.Inventory(root, case_sensitive=case_sensitive)
+    folded = inventory.case_sensitive
     code, out, _ = _git(root, "rev-parse", "--verify", "--quiet", "HEAD^{commit}", ok=(0, 1, 128))
     if code != 0 or not out.strip():
         raise ChangeError("the repository has no commit to anchor a change set")
@@ -156,14 +177,22 @@ def collect(root: Path, *, base: str | None = None, local_only=()) -> ChangeSet:
         for letter, old, path in records:
             if path.startswith(OUTPUTS_PREFIX):
                 continue
-            entry = next((item for item in local_only if matches(path, item) or (old and matches(old, item))), None)
-            if entry is not None:
-                if source == "untracked":
-                    changes.excluded[entry] = changes.excluded.get(entry, 0) + 1
-                else:
-                    changes.violations.append(f"a tracked change ({source}) at the local-only path entry {entry!r}: "
-                                              "local-only files are never tracked")
+            entry = local_only_entry(path, local_only, case_sensitive=folded)
+            old_entry = local_only_entry(old, local_only, case_sensitive=folded) if old else None
+            if source == "untracked" and entry is not None:
+                changes.excluded[entry] = changes.excluded.get(entry, 0) + 1
                 continue
+            if entry is not None or old_entry is not None:
+                changes.violations.append(f"a tracked change ({source}) at the local-only path entry "
+                                          f"{entry if entry is not None else old_entry!r}: local-only files are never tracked")
+                # R1, C2: the public side of a rename into or out of a private path is still a change; the private side is
+                # never named. Out of a private path: the public path is new. Into one: the public old path is gone.
+                if entry is None:
+                    path, letter, old = path, "A", None
+                elif old and old_entry is None:
+                    path, letter, old = old, "D", None
+                else:
+                    continue
             row = merged.setdefault(path, {"status": letter, "old": old, "sources": []})
             if letter in ("R", "C") and old:
                 row["old"] = row["old"] or old
@@ -171,8 +200,25 @@ def collect(root: Path, *, base: str | None = None, local_only=()) -> ChangeSet:
             elif row["status"] == "?" and letter != "?":
                 row["status"] = letter
             row["sources"].append(source)
-    changes.changes = [Change(path, row["status"], row["old"], tuple(dict.fromkeys(row["sources"])))
+    # R1, C2: the index itself, not only today's delta: an already tracked local-only path is a violation (counted by
+    # policy entry; the path is never named).
+    tracked: dict[str, int] = {}
+    for path in _git(root, "ls-files", "-z", "--cached")[1].split("\0"):
+        entry = local_only_entry(path, local_only, case_sensitive=folded) if path else None
+        if entry is not None:
+            tracked[entry] = tracked.get(entry, 0) + 1
+    for entry, count in sorted(tracked.items()):
+        if any(repr(entry) in violation for violation in changes.violations):
+            continue  # already named by the delta above: one violation per entry
+        changes.violations.append(f"{count} tracked path(s) in the index at the local-only path entry {entry!r}: local-only "
+                                  "files are never tracked")
+    changes.changes = [Change(path, row["status"], row["old"], tuple(dict.fromkeys(row["sources"])),
+                              present=inventory.exists(path))
                        for path, row in sorted(merged.items())]
+    for change in changes.changes:
+        if change.status == "D" and change.present:
+            changes.notes.append(f"{change.path}: deleted in the index and present again in the working tree; the working "
+                                 "file is the candidate and is routed")
     # A staged change the working tree has reversed: still a change; the working bytes are what a run would see.
     worktree = {p for p in _git(root, "diff", "-z", "--name-only", "--no-ext-diff", head)[1].split("\0") if p}
     for change in changes.changes:
@@ -181,58 +227,43 @@ def collect(root: Path, *, base: str | None = None, local_only=()) -> ChangeSet:
     return changes
 
 
-def _is_link(path: Path) -> bool:
-    try:
-        info = os.lstat(path)
-    except OSError:
-        return False
-    return stat.S_ISLNK(info.st_mode) or bool(getattr(info, "st_file_attributes", 0) & 0x400)  # FILE_ATTRIBUTE_REPARSE_POINT
+#: What a plan's candidate identity is and is not (Phase 1A-1 R1, C4). Phase 1A-2 binds an authorization to the actual
+#: candidate bytes, policy and scope it admits; this identity is the selection identity it can build on.
+IDENTITY_LIMITATION = ("selection identity: the checkout, HEAD, the index entries with their modes, the working bytes (or a "
+                       "deletion, link or directory marker) of every relevant changed and untracked path, and the policy digest; "
+                       "local-only paths are excluded by policy and never read. Diagnostic: not an authorization identity "
+                       "(Phase 1A-2 binds a grant to the candidate bytes, policy and admitted scope)")
 
 
-def _linked_parent(root: Path, relative: str) -> str | None:
-    current = root
-    for part in relative.split("/")[:-1]:
-        current = current / part
-        if _is_link(current):
-            return current.relative_to(root).as_posix()
-    return None
-
-
-def _stable_digest(path: Path) -> str:
-    for _attempt in range(2):
-        before = os.lstat(path)
-        data = path.read_bytes()
-        after = os.lstat(path)
-        if (before.st_size, before.st_mtime_ns) == (after.st_size, after.st_mtime_ns) and len(data) == after.st_size:
-            return hashlib.sha256(data).hexdigest()
-    raise OSError("changed while it was read")
-
-
-def candidate_identity(root: Path, changes: ChangeSet, policy_digest: str) -> dict:
+def candidate_identity(root: Path, changes: ChangeSet, policy_digest: str, inventory=None) -> dict:
     """The selection identity of the candidate. Problems (a link, an unreadable or unstable file) go into ``changes.problems``
-    and make the selection incomplete; they never silently drop a path."""
+    and make the selection incomplete; they never silently drop a path. Every path is read through the one no-follow
+    inventory (helpers/repo_files.py, R1 C1): a link, a path below one or an irregular file is marked and never read."""
     root = Path(root)
+    inventory = inventory or repo_files.Inventory(root)
     checkout = os.path.normcase(os.path.realpath(root))
     _, common, _ = _git(root, "rev-parse", "--git-common-dir")
     _, index, _ = _git(root, "ls-files", "-s", "-z")
     working = hashlib.sha256()
     for relative in changes.paths():
-        linked = _linked_parent(root, relative)
-        path = root / relative
-        if linked is not None:
+        spelled, kind, detail = inventory.canonical(relative)
+        if kind == repo_files.INSIDE_LINK:
             marker = "<inside a link>"
-            changes.problems.append(f"{relative}: below a link or reparse point ({linked}); not followed")
-        elif _is_link(path):
+            changes.problems.append(f"{relative}: below a link or reparse point ({detail}); not followed")
+        elif kind == repo_files.LINK:
             marker = "<link>"
             changes.problems.append(f"{relative}: a link or reparse point; not followed")
-        elif not os.path.lexists(path):
+        elif kind == repo_files.MISSING:
             marker = "<deleted>"
-        elif path.is_dir():
+        elif kind == repo_files.DIRECTORY:
             marker = "<directory>"
             changes.problems.append(f"{relative}: a directory (a nested repository?); its content is not selectable")
+        elif kind != repo_files.FILE:
+            marker = f"<{kind}>"
+            changes.problems.append(f"{relative}: {kind} ({detail}); not read")
         else:
             try:
-                marker = _stable_digest(path)
+                marker = hashlib.sha256(inventory.read_bytes(relative)).hexdigest()
             except OSError as exc:
                 marker = "<unreadable>"
                 changes.problems.append(f"{relative}: unreadable or unstable ({type(exc).__name__}: {exc})")
@@ -247,3 +278,16 @@ def candidate_identity(root: Path, changes: ChangeSet, policy_digest: str) -> di
     }
     changes.identity = identity
     return identity
+
+
+def selection_identity(root: Path, *, policy_digest: str, local_only=()) -> dict:
+    """The candidate identity of any plan, changed or not (R1, C4): the change set against HEAD read the same way a changed
+    plan reads it, and its :func:`candidate_identity`. Two candidates with the same porcelain status but different working
+    bytes have different identities. Counts only: no path name, so nothing private is recorded."""
+    try:
+        changes = collect(root, local_only=local_only)
+    except ChangeError as exc:
+        return {"available": False, "error": str(exc)[:300], "limitation": IDENTITY_LIMITATION}
+    identity = candidate_identity(root, changes, policy_digest)
+    return {"available": True, **identity, "problems": len(changes.problems), "violations": len(changes.violations),
+            "limitation": IDENTITY_LIMITATION}

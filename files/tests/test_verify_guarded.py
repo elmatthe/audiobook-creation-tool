@@ -176,8 +176,13 @@ def runner_tree(tmp_path):
     root = (tmp_path / "app").resolve()
     tests = root / "files" / "tests"
     tests.mkdir(parents=True)
-    for name in ("guarded_pytest.py", "write_tripwire.py"):
+    for name in ("guarded_pytest.py", "write_tripwire.py", "routine_effects.py"):
         shutil.copyfile(Path(__file__).with_name(name), tests / name)
+    # v0.8.2 Phase 1A-1 R1: the runner takes the common routine envelope, whose contract lives in the gate's helpers.
+    helpers = root / "files" / "dev-work" / "verification-gate" / "helpers"
+    helpers.mkdir(parents=True)
+    shutil.copyfile(Path(__file__).resolve().parents[1] / "dev-work" / "verification-gate" / "helpers" / "routine_context.py",
+                    helpers / "routine_context.py")
     owned = root / "files" / "dev-work" / "p05b-stage4c"
     (owned / "verify-now").mkdir(parents=True)
     (owned / "verify-earlier").mkdir()

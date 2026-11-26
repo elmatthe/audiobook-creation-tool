@@ -32,6 +32,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from helpers import repo_files
 from helpers.execution_plan import EffectResult, Entry, HEAVY_EFFECTS
 
 TESTS = "files/tests/"
@@ -56,6 +57,10 @@ class ModuleFacts:
     enumerable: bool = True
     indicators: list[str] = field(default_factory=list)
     has_main: bool = False
+    #: ``Test`` class -> its own ``test`` methods; a class whose methods cannot be listed statically (it has a base class)
+    #: is in ``opaque`` and a node below it is validated after the run (Phase 1A-1 R1, M1).
+    members: dict[str, list[str]] = field(default_factory=dict)
+    opaque: set[str] = field(default_factory=set)
 
 
 def _literal_effects(node: ast.AST, where: str) -> dict[str, tuple[str, ...]]:
@@ -75,10 +80,16 @@ def _literal_effects(node: ast.AST, where: str) -> dict[str, tuple[str, ...]]:
     return declared
 
 
-def module_facts(root: Path, relative: str) -> ModuleFacts:
-    """Read one module's declarations, enumerable tests and live-boundary indicators. Never imports it."""
+def module_facts(root: Path, relative: str, inventory=None) -> ModuleFacts:
+    """Read one module's declarations, enumerable tests and live-boundary indicators. Never imports it, and reads it only
+    through the no-follow inventory (helpers/repo_files.py): a linked or irregular path raises ``repo_files.UnsafePath``."""
+    inventory = inventory or repo_files.Inventory(root)
+    return facts_from_text(inventory.read_text(relative), relative)
+
+
+def facts_from_text(text: str, relative: str) -> ModuleFacts:
     facts = ModuleFacts()
-    tree = ast.parse((Path(root) / relative).read_text(encoding="utf-8", errors="replace"))
+    tree = ast.parse(text)
     for node in tree.body:
         if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "ACT_EFFECTS" for t in node.targets):
             facts.declared = _literal_effects(node.value, relative)
@@ -89,6 +100,10 @@ def module_facts(root: Path, relative: str) -> ModuleFacts:
                 facts.enumerable = False
         elif isinstance(node, ast.ClassDef) and node.name.startswith("Test"):
             facts.tests.append(node.name)
+            facts.members[node.name] = [item.name for item in node.body
+                                        if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)) and item.name.startswith("test")]
+            if node.bases or node.keywords:
+                facts.opaque.add(node.name)
         elif isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id.startswith("test") for t in node.targets):
             facts.enumerable = False  # a test made by assignment cannot be enumerated statically
         elif isinstance(node, ast.If) and "__main__" in ast.dump(node.test):
@@ -119,17 +134,19 @@ def module_facts(root: Path, relative: str) -> ModuleFacts:
 class Classifier:
     """Static classification of pytest selectors for one snapshot. Module facts and closures are read once each."""
 
-    def __init__(self, root: Path, policy: dict, closures) -> None:
+    def __init__(self, root: Path, policy: dict, closures, inventory=None) -> None:
         self.root = Path(root)
         self.policy = policy
         self.closures = closures
+        #: The one no-follow inventory of this snapshot, shared with the closure index when it has one (C1).
+        self.inventory = inventory or getattr(closures, "inventory", None) or repo_files.Inventory(root)
         self._facts: dict[str, ModuleFacts] = {}
         self.reviewed = dict(policy.get("effects", {}).get("reviewed_bounded", {}))
 
     def facts(self, relative: str) -> ModuleFacts:
         if relative not in self._facts:
             try:
-                self._facts[relative] = module_facts(self.root, relative)
+                self._facts[relative] = module_facts(self.root, relative, self.inventory)
             except (OSError, SyntaxError, ValueError) as exc:
                 if isinstance(exc, DeclarationError):
                     raise
@@ -165,8 +182,14 @@ class Classifier:
         for selector in selectors:
             module, _, node = selector.partition("::")
             requested = selector in explicit
-            if not (self.root / module).is_file():
-                executable.append(selector)  # an unknown selector is pytest's to report (exit 4: NOT RUN), not ours to hide
+            kind = self.inventory.classify(module)
+            if kind == repo_files.MISSING:
+                # Phase 1A-1 R1 (M1): a missing module is a selection gap of this plan, never left for pytest to report.
+                gaps.append(Entry(selector, "no such test module", "missing", requested=requested))
+                continue
+            if kind != repo_files.FILE:
+                gaps.append(Entry(selector, f"not a readable regular test module ({kind}); it is never read or run",
+                                  "unsafe", requested=requested))
                 continue
             facts = self.facts(module)
             star, via = self.module_effects(module)
@@ -183,7 +206,12 @@ class Classifier:
                 continue
             declared = {key: effects for key, effects in facts.declared.items() if key != "*"}
             if node:
-                head = node.split("::", 1)[0].split("[", 1)[0]
+                parts = node.split("::")
+                head = parts[0].split("[", 1)[0]
+                missing = self.missing_node(facts, parts)
+                if missing:
+                    gaps.append(Entry(selector, missing, "missing", requested=requested))
+                    continue
                 if head in declared:
                     withheld.append(Entry(selector, "declares " + ", ".join(declared[head]), "effect", declared[head],
                                           requested=requested))
@@ -195,10 +223,15 @@ class Classifier:
             if not declared:
                 executable.append(selector)
                 continue
-            # A mixed module selected whole: its other tests, never the declared ones.
+            # A mixed module selected whole: its other tests, never the declared ones. Requested explicitly, the whole module
+            # is the scope, so each declared node is withheld from it and disclosed (Phase 1A-1 R1, M1 semantics A); reached
+            # through a feature, a component or a change, each is a separate qualification obligation (semantics C).
             for key, effects in declared.items():
                 obligations.append(Entry(f"test:{module}::{key}", "a heavyweight test of a mixed module: a qualification "
                                                                   "obligation", "qualification", effects))
+                if requested:
+                    withheld.append(Entry(f"{module}::{key}", "declares " + ", ".join(effects) + ": withheld from the "
+                                          "requested module", "effect", effects, requested=True))
             if not facts.enumerable:
                 gaps.append(Entry(selector, "a mixed module whose tests cannot be enumerated statically (generated or "
                                             "assigned tests): select its routine nodes explicitly", "unenumerable",
@@ -210,6 +243,20 @@ class Classifier:
                 withheld.append(Entry(selector, "every test of the module is declared heavyweight", "effect",
                                       tuple(sorted({e for es in declared.values() for e in es})), requested=requested))
         return EffectResult(tuple(dict.fromkeys(executable)), tuple(withheld), tuple(obligations), tuple(gaps))
+
+    @staticmethod
+    def missing_node(facts: ModuleFacts, parts: list[str]) -> str | None:
+        """Why a requested node does not exist, from the module's static facts; None when it exists or cannot be judged
+        statically (a generated test, a class with a base class): those are reconciled after the run against the node ids
+        that actually executed (``execution_plan.unexecuted``)."""
+        head = parts[0].split("[", 1)[0]
+        if head not in facts.tests:
+            return None if not facts.enumerable else f"no test {head!r} in the module"
+        if len(parts) > 1 and head in facts.members and head not in facts.opaque:
+            method = parts[1].split("[", 1)[0]
+            if method not in facts.members[head]:
+                return f"no test {method!r} in class {head}"
+        return None
 
 
 def unclassified_boundaries(root: Path, policy: dict, closures) -> dict[str, list[str]]:
@@ -233,13 +280,14 @@ def tracked_entrypoints(root: Path, tracked: list[str]) -> list[str]:
     """Tracked Python files with a ``__main__`` block under the gate, ``files/dev-tools`` or the test helpers (test modules
     themselves excluded): the executable verification entrypoints the reviewed classification must cover."""
     found = []
+    inventory = repo_files.Inventory(root)
     for relative in tracked:
         name = relative.rsplit("/", 1)[-1]
         if not relative.endswith(".py") or not relative.startswith(ENTRY_ROOTS) or name.startswith("test_") \
                 or "/outputs/" in relative:
             continue
         try:
-            text = (Path(root) / relative).read_text(encoding="utf-8", errors="replace")
+            text = inventory.read_text(relative)  # no-follow: a linked entrypoint is never read (C1)
         except OSError:
             continue
         if re.search(r"^if __name__ == [\"']__main__[\"']", text, re.MULTILINE):

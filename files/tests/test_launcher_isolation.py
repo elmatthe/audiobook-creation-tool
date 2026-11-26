@@ -26,12 +26,13 @@ TESTS = Path(__file__).resolve().parent
 SEEDED_LOGS = 45  # comfortably more than the default retention (30), so pruning has something to delete
 SETTINGS_BYTES = b'{"last_tool": "mp3_tool", "marker": "synthetic-settings-do-not-touch"}'
 
-# A fresh interpreter, with the precondition the audit named stated and checked before pytest starts.
+# A fresh interpreter, with the precondition the audit named stated and checked before pytest starts. The nested session
+# starts through the routine bootstrap (v0.8.2 Phase 1A-1 R1: a nested pytest outside it is refused).
 CHILD = (
-    "import sys\n"
+    "import runpy, sys\n"
     "assert 'shared.paths' not in sys.modules and 'shared.logging_setup' not in sys.modules\n"
-    "import pytest\n"
-    "sys.exit(pytest.main(sys.argv[1:]))\n"
+    f"sys.argv = [{str(TESTS / 'routine_pytest.py')!r}, *sys.argv[1:]]\n"
+    "runpy.run_path(sys.argv[0], run_name='__main__')\n"
 )
 
 

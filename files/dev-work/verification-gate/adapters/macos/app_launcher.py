@@ -63,6 +63,21 @@ WORK = Path(CONFIG["runtime_dir"]).parent
 import tkinter as tk  # noqa: E402
 from tkinter import filedialog, messagebox  # noqa: E402
 
+def _routine_context():
+    """helpers/routine_context.py, loaded by path so this program's own imports stay as they are (v0.8.2 Phase 1A-1 R1)."""
+    import importlib.util
+    import sys as _sys
+
+    if "act_gate_routine_context" in _sys.modules:
+        return _sys.modules["act_gate_routine_context"]
+    spec = importlib.util.spec_from_file_location("act_gate_routine_context",
+                                                  Path(__file__).resolve().parents[2] / "helpers" / "routine_context.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    _sys.modules["act_gate_routine_context"] = module
+    return module
+
+
 
 def _append(name: str, record: dict) -> None:
     with open(WORK / name, "a", encoding="utf-8") as sink:
@@ -481,4 +496,5 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    _routine_context().refuse_under_routine("adapters/macos/app_launcher.py", "native-desktop")  # v0.8.2 Phase 1A-1 R1: wherever it lies
     raise SystemExit(main())

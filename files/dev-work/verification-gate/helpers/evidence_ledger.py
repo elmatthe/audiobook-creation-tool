@@ -31,11 +31,14 @@ from __future__ import annotations
 
 import ast
 import json
+import posixpath
 import re
 import subprocess
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from helpers import repo_files
 
 FILES_NAME = "evidence-files.json"
 VERDICTS_NAME = "acceptance-verdicts.json"
@@ -65,6 +68,8 @@ SCENARIO_TOOLS = {"macos-native-dialogs": ["mp3-tool", "m4b-converter", "m4b-mak
 SHELL = ["scripts/launcher.py", GATE_PREFIX + "adapters/macos/app_launcher.py", GATE_PREFIX + "adapters/windows/app_launcher.py",
          GATE_PREFIX + "acceptance_runner.py", GATE_PREFIX + "adapters/macos/app_session.py"]
 _MODULE_TEXT = re.compile(r"^[A-Za-z_]\w*(\.[A-Za-z_]\w*)+$")
+#: Calls that import or run a module named by their first argument; with a computed argument the target is unknowable.
+_DYNAMIC_CALLS = frozenset({"import_module", "__import__", "run_path", "run_module", "spec_from_file_location"})
 
 
 def _git(root: Path, *args: str, stdin: str | None = None) -> str:
@@ -115,101 +120,163 @@ def changed_between(before: dict[str, str], after: dict[str, str]) -> list[str]:
 #  Static dependence
 # --------------------------------------------------------------------------- #
 class Closures:
-    """Import closures over the repository's three Python roots, memoised per entry."""
+    """Import closures over the repository's three Python roots, memoised per entry.
 
-    def __init__(self, root: Path) -> None:
+    Phase 1A-1 R1 (C1, C4): every path is resolved and read through one no-follow inventory (``helpers/repo_files.py``),
+    shared with the effect classifier: a file below a link or reparse point is never read, and is recorded in ``unsafe``
+    (its edges are unknown, like an unparsed file's). A dotted name that resolves in more than one root is an edge to every
+    candidate (``ambiguous`` keeps the names), never only the first found. A file importing a computed name
+    (``importlib.import_module(name)``, ``runpy``, ``spec_from_file_location(path)`` with a non-literal argument) is
+    recorded in ``dynamic``: what it loads cannot be read statically.
+    """
+
+    def __init__(self, root: Path, inventory=None) -> None:
         self.root = Path(root)
+        self.inventory = inventory or repo_files.Inventory(self.root)
         self._edges: dict[str, set[str]] = {}
         #: Files that could not be read or parsed: their edge set is unknown, never "no dependencies" (v0.8.2 Phase 1A-1).
         self.unparsed: set[str] = set()
+        #: Files reached through a link, reparse point or other irregular path: never read, edges unknown (R1, C1).
+        self.unsafe: set[str] = set()
+        #: Importing file -> the dotted names it imports that resolve in more than one root (R1, C4).
+        self.ambiguous: dict[str, set[str]] = {}
+        #: Files with a dynamic import of a computed name (R1, C4).
+        self.dynamic: set[str] = set()
         #: Every dotted name each parsed file imports, resolved or not, so a deleted module's consumers can still be found.
         self.names: dict[str, set[str]] = {}
 
-    def _resolve_module(self, dotted: str, base: Path | None = None) -> str | None:
-        parts = dotted.split(".")
-        candidates = [self.root / r for r in ROOTS] + ([base] if base else [])
-        for start in candidates:
-            for tail in (Path(*parts).with_suffix(".py"), Path(*parts) / "__init__.py"):
-                path = start / tail
-                if path.is_file():
-                    return path.relative_to(self.root).as_posix()
-            if len(parts) > 1:  # "from a.b import name": name may be an attribute of a.b
-                path = start / Path(*parts[:-1]).with_suffix(".py")
-                if path.is_file():
-                    return path.relative_to(self.root).as_posix()
-        return None
+    def _probe(self, relative: str) -> bool:
+        """Whether ``relative`` is a readable regular file; a linked one is recorded as unsafe and is not an edge target."""
+        kind = self.inventory.classify(relative)
+        if kind in (repo_files.LINK, repo_files.INSIDE_LINK, repo_files.UNSUPPORTED, repo_files.AMBIGUOUS):
+            self.unsafe.add(relative)
+            return False
+        return kind == repo_files.FILE
 
-    def _resolve_file(self, text: str, here: Path) -> str | None:
+    def _resolve_all(self, dotted: str, base: str | None = None) -> list[str]:
+        parts = dotted.split(".")
+        if not all(parts):
+            return []
+        starts = list(ROOTS) + ([base] if base is not None else [])
+        found: list[str] = []
+        for start in starts:
+            prefix = f"{start}/" if start else ""
+            hit = None
+            for tail in ("/".join(parts) + ".py", "/".join(parts) + "/__init__.py"):
+                if self._probe(prefix + tail):
+                    hit = prefix + tail
+                    break
+            if hit is None and len(parts) > 1:  # "from a.b import name": name may be an attribute of a.b
+                candidate = prefix + "/".join(parts[:-1]) + ".py"
+                if self._probe(candidate):
+                    hit = candidate
+            if hit is not None and hit not in found:
+                found.append(hit)
+        return found
+
+    def _resolve_module(self, dotted: str, base: str | None = None) -> str | None:
+        found = self._resolve_all(dotted, base)
+        return found[0] if found else None
+
+    def _resolve_file(self, text: str, here: str) -> str | None:
         name = text.replace("\\", "/")
         if " " in name or not name.endswith(".py"):
             return None
-        for start in (here, *[self.root / r for r in ROOTS], self.root):
-            path = (start / name)
-            if path.is_file():
-                try:
-                    return path.resolve().relative_to(self.root.resolve()).as_posix()
-                except ValueError:
-                    return None
+        for start in (here, *ROOTS, ""):
+            joined = posixpath.normpath(f"{start}/{name}" if start else name)
+            if joined.startswith("../") or joined == ".." or posixpath.isabs(joined) or ":" in joined:
+                continue
+            if self._probe(joined):
+                return joined
         return None
 
     def edges(self, relative: str) -> set[str]:
         if relative in self._edges:
             return self._edges[relative]
         self._edges[relative] = found = set()
-        path = self.root / relative
         try:
-            tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
-        except (OSError, SyntaxError, ValueError):
-            if path.is_file() or relative.endswith(".py"):
-                self.unparsed.add(relative)
+            text = self.inventory.read_text(relative)
+        except repo_files.UnsafePath as exc:
+            if exc.kind != repo_files.MISSING:
+                self.unsafe.add(relative)
             return found
-        here = path.parent
+        except OSError:
+            self.unparsed.add(relative)
+            return found
+        try:
+            tree = ast.parse(text)
+        except (SyntaxError, ValueError):
+            self.unparsed.add(relative)
+            return found
+        here = posixpath.dirname(relative)
         raw = self.names.setdefault(relative, set())
+
+        def add(dotted: str, base: str | None = here) -> None:
+            targets = self._resolve_all(dotted, base)
+            if len(targets) > 1:
+                self.ambiguous.setdefault(relative, set()).add(dotted)
+            found.update(targets)
+
         for node in ast.walk(tree):
-            names: list[str] = []
             if isinstance(node, ast.Import):
-                names = [alias.name for alias in node.names]
-                raw.update(names)
+                raw.update(alias.name for alias in node.names)
+                for alias in node.names:
+                    add(alias.name)
             elif isinstance(node, ast.ImportFrom):
                 raw.update([node.module or ""] + [f"{node.module}.{alias.name}" if node.module else alias.name
                                                   for alias in node.names])
                 if node.level:
                     base = here
                     for _ in range(node.level - 1):
-                        base = base.parent
+                        base = posixpath.dirname(base)
                     module = node.module or ""
                     for alias in node.names:
-                        target = self._resolve_module(f"{module}.{alias.name}".strip("."), base) if module else \
-                            self._resolve_module(alias.name, base)
+                        target =self._relative_target(f"{module}.{alias.name}".strip(".") if module else alias.name, base)
                         if target:
                             found.add(target)
                     if module:
-                        target = self._resolve_module(module, base)
+                        target = self._relative_target(module, base)
                         if target:
                             found.add(target)
                     continue
                 module = node.module or ""
-                names = [module] + [f"{module}.{alias.name}" for alias in node.names]
+                for name in [module] + [f"{module}.{alias.name}" for alias in node.names]:
+                    add(name)
             elif isinstance(node, ast.Constant) and isinstance(node.value, str) and len(node.value) < 200:
-                text = node.value
-                target = self._resolve_file(text, here) if text.endswith(".py") else (
-                    self._resolve_module(text) if _MODULE_TEXT.match(text) else None)
+                value = node.value
+                target = self._resolve_file(value, here) if value.endswith(".py") else None
                 if target:
                     found.add(target)
-                continue
-            for name in names:
-                target = self._resolve_module(name, here)
-                if target:
-                    found.add(target)
+                elif _MODULE_TEXT.match(value):
+                    found.update(self._resolve_all(value))
+            elif isinstance(node, ast.Call):
+                func = node.func
+                name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
+                if name in _DYNAMIC_CALLS and node.args and not (isinstance(node.args[0], ast.Constant)
+                                                                 and isinstance(node.args[0].value, str)):
+                    self.dynamic.add(relative)
         found.discard(relative)
         return found
+
+    def _relative_target(self, dotted: str, base: str) -> str | None:
+        """A relative import's target, below ``base`` only (``from . import x``)."""
+        parts = dotted.split(".")
+        if not all(parts):
+            return None
+        prefix = f"{base}/" if base else ""
+        for tail in ("/".join(parts) + ".py", "/".join(parts) + "/__init__.py"):
+            if self._probe(prefix + tail):
+                return prefix + tail
+        if len(parts) > 1 and self._probe(prefix + "/".join(parts[:-1]) + ".py"):
+            return prefix + "/".join(parts[:-1]) + ".py"
+        return None
 
     def closure(self, entries, *, exclude=()) -> set[str]:
         """Everything reachable from ``entries``. A file in ``exclude`` (and what only it reaches) is left out unless it is an
         entry: the launcher names every tool and the runner every journey module, but a journey opens one tool and is one module."""
         excluded = set(exclude) - set(entries)
         seen: set[str] = set()
-        stack = [entry for entry in entries if (self.root / entry).is_file()]
+        stack = [entry for entry in entries if self._probe(entry)]
         while stack:
             current = stack.pop()
             if current in seen or current in excluded:

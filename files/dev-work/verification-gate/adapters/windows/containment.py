@@ -33,6 +33,21 @@ import sys
 import winreg
 from pathlib import Path
 
+def _routine_context():
+    """helpers/routine_context.py, loaded by path so this program's own imports stay as they are (v0.8.2 Phase 1A-1 R1)."""
+    import importlib.util
+    import sys as _sys
+
+    if "act_gate_routine_context" in _sys.modules:
+        return _sys.modules["act_gate_routine_context"]
+    spec = importlib.util.spec_from_file_location("act_gate_routine_context",
+                                                  Path(__file__).resolve().parents[2] / "helpers" / "routine_context.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    _sys.modules["act_gate_routine_context"] = module
+    return module
+
+
 LOW_RID = 0x1000
 MEDIUM_RID = 0x2000
 LOW_SID = "S-1-16-4096"
@@ -460,6 +475,7 @@ def history_added(before: dict[str, str], after: dict[str, str]) -> dict[str, st
 
 
 if __name__ == "__main__":
+    _routine_context().refuse_under_routine("adapters/windows/containment.py", "native-desktop", data_only={"--probe"})  # v0.8.2 Phase 1A-1 R1: wherever it lies
     if len(sys.argv) == 3 and sys.argv[1] == "--probe":
         Path(sys.argv[2]).write_text(json.dumps(_probe_here(), indent=1), encoding="utf-8")
         sys.exit(0)

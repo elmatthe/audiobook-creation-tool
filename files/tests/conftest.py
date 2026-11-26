@@ -22,10 +22,11 @@ import pytest
 
 import routine_effects
 
-# v0.8.2 Phase 1A-1: every pytest process of this repository is a routine verification process. Installed here, before any
-# test module is imported, for raw targeted runs too; the gate's bootstrap (routine_pytest.py) has normally done it before
-# pytest itself was imported. It scrubs real-engine opt-ins and overrides and refuses heavyweight launches and declared
-# boundaries; nothing grants them before Phase 1A-2 admission (routine_effects.py).
+# v0.8.2 Phase 1A-1 (R1): every pytest process of this repository is a routine verification process. The supported
+# invocations (routine_pytest.py, guarded_pytest.py) installed the envelope and opened this session's accounting before
+# pytest itself was imported; a raw ``python -m pytest`` gets the restrictions here, after its plugins loaded, and is not
+# verification evidence (GATE.md). Nothing grants a heavyweight effect before Phase 1A-2 admission (routine_effects.py).
+RAW_INVOCATION = routine_effects._bootstrapped is None
 routine_effects.install()
 
 import cache_sandbox  # noqa: E402
@@ -40,46 +41,72 @@ if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
 
 
-#: This session's effect ledger, fixed once when the session starts: a test that points a child at a private ledger (the
-#: synthetic controls of test_routine_effects.py) never changes which ledger this session counts.
-_SESSION_LEDGER: list[str] = []
+def _child_problems() -> tuple[list[dict], list[str]]:
+    """Refusals other processes recorded in this session's ledger, and ledger problems other than this process's own open
+    record (this process's own refusals are counted in memory)."""
+    path = os.environ.get(routine_effects.LEDGER_ENV)
+    if not path:
+        return [], ["this session has no effect ledger"]
+    verdict = routine_effects.read_ledger(path)
+    rows = [row for row in verdict["refusals"] if row.get("pid") != os.getpid() and not row.get("expected")]
+    # A record still open mid-session is normal (this session's own, an enclosing session's, a child still running); whether
+    # every record completed is judged by the ledger's owner when everything has ended (the gate, or a direct run's bootstrap).
+    problems = [problem for problem in verdict["problems"] if "never completed" not in problem]
+    return rows, problems
 
 
-def _child_refusals() -> list[dict]:
-    """Refusals recorded by this session's children in the shared ledger (this process's own are counted in memory)."""
-    path = _SESSION_LEDGER[0] if _SESSION_LEDGER else os.environ.get(routine_effects.LEDGER_ENV)
-    return [row for row in routine_effects.read_ledger(path) if row.get("pid") != os.getpid() and not row.get("expected")]         if path else []
-
-
-def _unexpected_effects() -> list[dict]:
-    return routine_effects.unexpected() + _child_refusals()
+def _unexpected_effects() -> list[str]:
+    rows, problems = _child_problems()
+    found = [f"{row.get('effect')}: {row.get('detail')}" for row in [*routine_effects.unexpected(), *rows]]
+    return found + [f"accounting: {item}" for item in [*routine_effects.accounting_failures(), *problems]]
 
 
 def pytest_sessionfinish(session, exitstatus):
-    """A refused heavyweight effect is never a pass, even when the test that caused it caught the refusal, and even when it
-    happened during collection or outside any test."""
+    """A refused heavyweight effect, or accounting that cannot be verified, is never a pass -- even when the test that caused
+    it caught the refusal, and even when it happened during collection or outside any test."""
     if _unexpected_effects() and session.exitstatus == 0:
         session.exitstatus = pytest.ExitCode.TESTS_FAILED
 
 
-@pytest.fixture(scope="session", autouse=True)
-def _routine_effect_ledger(tmp_path_factory):
-    """A raw run has no gate ledger: give this session one, so a refusal in a child process is seen here too."""
-    if not os.environ.get(routine_effects.LEDGER_ENV):
-        os.environ[routine_effects.LEDGER_ENV] = str(tmp_path_factory.mktemp("effects") / "ledger.jsonl")
-    _SESSION_LEDGER[:] = [os.environ[routine_effects.LEDGER_ENV]]
-    yield
-
-
 @pytest.fixture(autouse=True)
-def _no_refused_heavyweight_effect(_routine_effect_ledger):
-    """Fail the test that caused a refused heavyweight effect, whether or not it caught the refusal (routine_effects.py)."""
+def _no_refused_heavyweight_effect():
+    """Fail the test that caused a refused heavyweight effect or an accounting failure, whether or not it caught the refusal
+    (routine_effects.py)."""
     before = len(_unexpected_effects())
     yield
     new = _unexpected_effects()[before:]
     if new:
-        pytest.fail("refused heavyweight effect(s) in routine verification: "
-                    + "; ".join(f"{row.get('effect')}: {row.get('detail')}" for row in new[:3]), pytrace=False)
+        pytest.fail("refused heavyweight effect(s) in routine verification: " + "; ".join(new[:3]), pytrace=False)
+
+
+def pytest_report_header(config):
+    if RAW_INVOCATION:
+        return ("routine envelope: raw pytest invocation -- restrictions apply, but accounting starts after plugin load; not "
+                "verification evidence (use files/tests/routine_pytest.py or the gate; GATE.md)")
+    return f"routine envelope: {routine_effects._bootstrapped}, ledger {os.environ.get(routine_effects.LEDGER_ENV)}"
+
+
+def _routine_session(config) -> None:
+    """Before collection: this session's owned disposable root (its basetemp) and, for a raw invocation, an effect ledger
+    beside it (a raw run is still not verification evidence; GATE.md)."""
+    factory = getattr(config, "_tmp_path_factory", None)
+    if factory is None:
+        return
+    basetemp = factory.getbasetemp()
+    routine_effects.own_disposable(basetemp)
+    if not os.environ.get(routine_effects.LEDGER_ENV):
+        ledger = basetemp.parent / f"{basetemp.name}-effects"
+        if ledger.exists():
+            import shutil
+
+            shutil.rmtree(ledger)
+        routine_effects.attach_ledger(routine_effects.new_ledger(ledger, owner="raw-pytest"))
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_sessionstart(session):
+    """Before collection, after every plugin's configure (the basetemp factory exists): the routine session's scope."""
+    _routine_session(session.config)
 
 
 def pytest_configure(config):

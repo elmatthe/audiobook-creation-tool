@@ -16,6 +16,7 @@ from __future__ import annotations
 import ast
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -28,13 +29,16 @@ from pathlib import Path
 
 import pytest
 
+import routine_effects
 from gate_locator import GATE_DIR, GATE_PATH, load_gate
 
 GATE_ORDER = ["pytest", "guarded", "deps", "docs", "docnames", "config"]
 EVIDENCE_FILES = {"logs/verify.log", "logs/pytest.log", "reports/pytest.xml", "reports/pytest-probe.jsonl", "start.json",
                   "results.json", "selection.json", "summary.md", "coverage-report.md",
                   # v0.8.x P1B closeout: every file the run saw, as a git blob, for incremental evidence (helpers/evidence_ledger.py)
-                  "evidence-files.json"}
+                  "evidence-files.json",
+                  # v0.8.2 Phase 1A-1 R1: the pytest stage's effect ledger: its header and the stage session's own record
+                  "reports/pytest-effects/ledger.json", "reports/pytest-effects/<process>.jsonl"}
 
 pytestmark = pytest.mark.skipif(shutil.which("git") is None, reason="the tree fingerprint needs git")
 
@@ -47,6 +51,21 @@ extra = sys.argv[3] if len(sys.argv) > 3 else None
 token = os.environ.get("ACT_GATE_TOKEN", "")
 probe_path = os.environ.get("ACT_GATE_PROBE")
 error_mode = hex(ctypes.WinDLL("kernel32").GetErrorMode()) if sys.platform == "win32" else None
+# v0.8.2 Phase 1A-1 R1: a stand-in for pytest keeps the routine accounting contract too: its own record in the stage's
+# effect ledger (helpers/routine_context.py format), start now and end when it exits normally. A killed stand-in leaves
+# an incomplete record, as a killed pytest would.
+_ledger = os.environ.get("ACT_EFFECT_LEDGER")
+if _ledger:
+    import atexit
+    _record = pathlib.Path(_ledger) / f"p{os.getpid()}-fake.jsonl"
+    _record.write_text(json.dumps({"kind": "start", "pid": os.getpid(), "ppid": os.getppid(), "role": "routine-pytest"})
+                       + "\n", encoding="utf-8")
+
+    def _end():
+        with open(_record, "a", encoding="utf-8") as sink:
+            sink.write(json.dumps({"kind": "end", "exit": 0, "refusals": 0, "unexpected": 0, "accounting": "ok"}) + "\n")
+
+    atexit.register(_end)
 
 
 def row(sink, **fields):
@@ -243,7 +262,16 @@ def fake_repo(tmp_path) -> Path:
     (root / "files" / "tests").mkdir(parents=True)
     (root / "tracked.txt").write_text("original\n", encoding="utf-8")
     (root / "files" / "tests" / "test_tracked.py").write_text("def test_x():\n    pass\n", encoding="utf-8")
-    (root / ".gitignore").write_text("files/dev-work/\n", encoding="utf-8")
+    (root / ".gitignore").write_text("files/dev-work/\n" + routine_effects.context.SYNTHETIC_DECLARATION + "\n",
+                                     encoding="utf-8")
+    # v0.8.2 Phase 1A-1 R1: a reviewed synthetic gate fixture (helpers/routine_context.py): the gate run against this repository
+    # inside routine verification is permitted only because this declaration names it, it lies in this session's disposable
+    # root and it carries the real orchestrator's bytes (so the gate's own operation boundaries hold). It declares no stand-in.
+    orchestrator = root / routine_effects.context.ORCHESTRATOR
+    orchestrator.parent.mkdir(parents=True)
+    shutil.copyfile(GATE_PATH, orchestrator)
+    (root / routine_effects.context.SYNTHETIC_DECLARATION).write_text(json.dumps(
+        {"format": routine_effects.context.SYNTHETIC_FORMAT, "root": str(root), "synthetic": {}}), encoding="utf-8")
     git(root, "init", "-q")
     git(root, "add", "-A")
     git(root, "commit", "-q", "-m", "fixture")
@@ -267,6 +295,13 @@ def policy_files(tmp_path) -> tuple[Path, Path]:
 
 @pytest.fixture
 def verify(monkeypatch, fake_repo, policy_files):
+    """The real gate module, in this process, against the synthetic repository. Its stages' ledgers are its own to judge;
+    any refusal recorded in them still counts against this test (routine_effects.adopting_ledgers)."""
+    with routine_effects.adopting_ledgers():
+        yield _verify_module(monkeypatch, fake_repo, policy_files)
+
+
+def _verify_module(monkeypatch, fake_repo, policy_files):
     module = load_gate("act_verify_evidence")
     monkeypatch.setattr(module, "REPO_ROOT", fake_repo)
     monkeypatch.setattr(module, "OUTPUTS_ROOT", fake_repo / "files" / "dev-work" / "verification-gate" / "outputs")
@@ -632,7 +667,7 @@ def test_an_outputs_root_that_is_a_link_or_junction_is_refused_and_its_target_un
     outside = tmp_path / "outside"
     outside.mkdir()
     (outside / "sentinel.txt").write_text("keep", encoding="utf-8")
-    verify.OUTPUTS_ROOT.parent.mkdir(parents=True)
+    verify.OUTPUTS_ROOT.parent.mkdir(parents=True, exist_ok=True)  # the synthetic fixture's gate folder (fake_repo)
     _link_directory(outside, verify.OUTPUTS_ROOT)
     assert verify.main(["--mode", "full"]) == 64
     assert "link or junction" in capsys.readouterr().err
@@ -642,11 +677,17 @@ def test_an_outputs_root_that_is_a_link_or_junction_is_refused_and_its_target_un
 def test_a_link_further_up_the_outputs_path_is_refused_too(verify, tmp_path, capsys):
     outside = tmp_path / "outside"
     outside.mkdir()
-    (verify.REPO_ROOT / "files" / "dev-work").mkdir(parents=True)
-    _link_directory(outside, verify.REPO_ROOT / "files" / "dev-work" / "verification-gate")
-    assert verify.main(["--mode", "full"]) == 64
-    assert "link or junction" in capsys.readouterr().err
-    assert not any(outside.iterdir())
+    gate = verify.REPO_ROOT / "files" / "dev-work" / "verification-gate"
+    shutil.move(str(gate / "verify.py"), str(outside / "verify.py"))  # the fixture's orchestrator now lies behind the link
+    gate.rmdir()
+    _link_directory(outside, gate)
+    # v0.8.2 Phase 1A-1 R1: the fixture's orchestrator behind a link has no contained identity, so inside routine verification
+    # the gate refuses before it reaches its own link check (test_an_outputs_root_that_is_a_link... keeps that one); outside
+    # routine verification the link check refuses (exit 64). Either way nothing is written behind the link.
+    with routine_effects.expected_refusals("native-desktop"):
+        with pytest.raises(routine_effects.EffectRefused):
+            verify.main(["--mode", "full"])
+    assert [path.name for path in outside.iterdir()] == ["verify.py"], "the run wrote nothing behind the link"
 
 
 def test_outputs_removed_between_runs_is_recreated_by_the_next_run(verify, fake_pytest, monkeypatch):
@@ -668,7 +709,8 @@ def test_a_successful_run_is_finalized_with_every_gate_the_interpreter_and_the_t
 
     code, target = run(verify)
     assert code == 0
-    assert files_of(target) == EVIDENCE_FILES  # no marker, no temporary file left behind
+    found = {re.sub(r"/p\d+-[^/]+\.jsonl$", "/<process>.jsonl", name) for name in files_of(target)}
+    assert found == EVIDENCE_FILES  # no marker, no temporary file left behind
     results = load(target, "results.json")
     outcome = runstore.read_run_status(target)
     assert outcome["status"] == "PASS" and outcome["valid"], outcome["problems"]
@@ -790,6 +832,11 @@ def test_the_real_non_pytest_gates_are_recorded_exactly_as_they_report(monkeypat
     """No stand-ins for deps/docs/docnames/config: the run records the checkout's real answers unchanged.
     The guarded gate runs suites, like pytest, so it is the one stand-in besides pytest (test_verify_guarded.py)."""
     module = load_gate("act_verify_evidence_real")
+    # v0.8.2 Phase 1A-1 R1: this run reads the real checkout, so its candidate identity must exclude the real local-only paths
+    # (files/run-temp holds this very test's scratch in a direct run): the synthetic policy carries the real list.
+    synthetic = json.loads(policy_files[0].read_text(encoding="utf-8"))
+    synthetic["changed"]["local_only"] = module.load_policy()["changed"]["local_only"]
+    policy_files[0].write_text(json.dumps(synthetic), encoding="utf-8")
     monkeypatch.setattr(module, "OUTPUTS_ROOT", tmp_path / "outputs")
     monkeypatch.setattr(module, "SCRATCH_ROOT", tmp_path / "vg")
     # The gates read this checkout; the run's own files go to tmp_path, so the link checks start there.
@@ -806,8 +853,12 @@ def test_the_real_non_pytest_gates_are_recorded_exactly_as_they_report(monkeypat
     # heavyweight stage of this run is a stand-in (fake pytest child, collection and guarded stubbed, a synthetic policy
     # with no journey), so this fresh module instance stands the guard in as well; the audit hook still refuses any real
     # heavyweight launch from this process.
-    monkeypatch.setattr(module, "routine_context", types.SimpleNamespace(refuse_under_routine=lambda *args, **kwargs: None))
-    module.main(["--mode", "full"])
+    real = module.routine_context
+    names = {name: getattr(real, name) for name in dir(real) if not name.startswith("__")}
+    names["refuse_under_routine"] = lambda *args, **kwargs: None
+    monkeypatch.setattr(module, "routine_context", types.SimpleNamespace(**names))
+    with routine_effects.adopting_ledgers():
+        module.main(["--mode", "full"])
     target = next((tmp_path / "outputs").iterdir())
     recorded = {item["name"]: item for item in load(target, "results.json")["checks"]}
     for function, name in (("check_requirements", "deps"), ("check_docs", "docs"),

@@ -40,6 +40,21 @@ sys.path.insert(0, str(HERE))
 import common  # noqa: E402
 import recipe  # noqa: E402
 
+def _routine_context():
+    """helpers/routine_context.py, loaded by path so this program's own imports stay as they are (v0.8.2 Phase 1A-1 R1)."""
+    import importlib.util
+    import sys as _sys
+
+    if "act_gate_routine_context" in _sys.modules:
+        return _sys.modules["act_gate_routine_context"]
+    spec = importlib.util.spec_from_file_location("act_gate_routine_context",
+                                                  Path(__file__).resolve().parents[1] / "helpers" / "routine_context.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    _sys.modules["act_gate_routine_context"] = module
+    return module
+
+
 BOOKS = ["small2_600000", "small3_200000", "small5_120000", "scale10", "small10_3000", "small10_4500", "route10",
          "small10_9000", "small10_13500", "small10_20000", "small7_86000", "small15_9000", "small20_9000",
          "small12_50000"]
@@ -64,6 +79,7 @@ def main() -> int:
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--reps", type=int, default=8)
     args = parser.parse_args()
+    _routine_context().check_operation("scaling", "scaling/calibrate.py main()")  # v0.8.2 Phase 1A-1 R1: the callable, not only __main__
     root = args.out.resolve()
     root.mkdir(parents=True, exist_ok=False)
     log_file = root / "progress.log"

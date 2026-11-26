@@ -18,6 +18,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from helpers import repo_files
 from helpers.execution_plan import Entry
 
 _SELECTOR = re.compile(r"^files/tests/test_[A-Za-z0-9_.\-]+\.py(::[^\x00-\x1f;&|<>`$\"']+)?$")
@@ -31,10 +32,13 @@ class SelectorError(ValueError):
 
 
 def parse_selector(raw: str) -> str:
-    """The normalized selector. A path separator is normalized in the file part only; a node id is taken as written."""
+    """The normalized selector. The file part is normalized -- a backslash and ``/`` alike, ``./`` and empty components dropped
+    (Phase 1A-1 R1, H4) -- and the node id is taken as written. Its canonical on-disk spelling is established at resolution
+    (``execution_plan.canonical_selector``), against the checkout's no-follow inventory."""
     path, separator, node = raw.partition("::")
-    candidate = path.replace("\\", "/") + separator + node
-    if candidate != candidate.strip() or not _SELECTOR.match(candidate) or ".." in path:
+    normalized = repo_files.normalize(path) if path == path.strip() else None
+    candidate = (normalized or "") + separator + node
+    if normalized is None or candidate != candidate.strip() or not _SELECTOR.match(candidate) or ".." in path:
         raise SelectorError(f"{raw!r} is not a test identity (expected files/tests/test_<name>.py or "
                             "files/tests/test_<name>.py::<node>)")
     return candidate
@@ -76,6 +80,8 @@ class ReverseIndex:
     def __init__(self, root: Path, closures) -> None:
         self.root = Path(root)
         self.closures = closures
+        #: The one no-follow inventory of the snapshot, shared with the closures and the classifier (R1, C1).
+        self.inventory = getattr(closures, "inventory", None) or repo_files.Inventory(self.root)
         self.tests = sorted(f"{TEST_PREFIX}{path.name}" for path in (self.root / TEST_PREFIX).glob("test_*.py"))
         self.reach: dict[str, set[str]] = {}
         self.closure_of: dict[str, set[str]] = {}
@@ -109,6 +115,14 @@ class ReverseIndex:
 
     def unparsed_tests(self) -> list[str]:
         return sorted(name for name in self.closures.unparsed if name.startswith(TEST_PREFIX))
+
+    def uncertain_helpers(self) -> list[str]:
+        """Files outside ``files/tests`` that some test reaches but whose own imports are unknown: unparsed, or not read
+        because they are linked or irregular (R1, C4). A changed source those tests might reach through them cannot be
+        routed completely."""
+        unknown = set(self.closures.unparsed) | set(getattr(self.closures, "unsafe", ()))
+        return sorted(name for name in unknown if not name.startswith(TEST_PREFIX)
+                      and (name in self.reach or any(name in files for files in self.closure_of.values())))
 
 
 @dataclass
@@ -164,8 +178,6 @@ def route_changes(changes, policy: dict, coverage: dict, index: ReverseIndex, *,
         routing.gap("local-only", violation, "policy-violation")
     for problem in changes.problems:
         routing.gap(problem.split(":", 1)[0], problem, "unreadable")
-    deleted = {change.old_path for change in changes.changes if change.status == "R" and change.old_path}
-    deleted |= {change.path for change in changes.changes if change.status == "D"}
     features = coverage.get("features", [])
     by_source: dict[str, list[dict]] = {}
     for feature in features:
@@ -173,10 +185,26 @@ def route_changes(changes, policy: dict, coverage: dict, index: ReverseIndex, *,
             by_source.setdefault(source.get("path", ""), []).append(feature)
     for test in index.unparsed_tests():
         routing.gap(test, "this test module could not be parsed, so what it depends on is unknown", "unparsed")
+    uncertain = index.uncertain_helpers()
+    dynamic = sorted(getattr(index.closures, "dynamic", ()))
+    if dynamic:
+        routing.routes.setdefault("dynamic-imports", []).append(f"{len(dynamic)} file(s) import a computed name; their "
+                                                                 "targets are covered only by explicit routes and mappings")
     for path in changes.paths():
         routing.relevant.append(path)
-        gone = path in deleted or not (index.root / path).exists()
+        kind = index.inventory.classify(path)
+        if kind in (repo_files.LINK, repo_files.INSIDE_LINK, repo_files.UNSUPPORTED, repo_files.AMBIGUOUS,
+                    repo_files.OUTSIDE):
+            routing.gap(path, f"a {kind} path: never followed or read, so it cannot be routed", "unsafe")
+            continue
+        # The working tree decides what runs (R1, C3): a path deleted in the index but present again is routed as present.
+        gone = not index.inventory.exists(path)
         _route_one(path, gone, rules, by_source, features, index, routing, budget, native_platform)
+        if path.endswith(".py") and path.startswith(PYTHON_ROOTS) and not path.startswith(TEST_PREFIX):
+            for helper in uncertain:
+                if helper != path:
+                    routing.gap(path, f"the import closure through {helper} is unknown (unparsed or not followed): a test "
+                                      "reaching this source through it cannot be found", "unparsed")
         for journey in journeys_for_changes([path], policy.get("acceptance", {}).get("journey_routes", {}), known_journeys):
             routing.owe(f"journey:{journey}", f"{path}: suggested native journey (qualification or full)", "native")
     return routing
@@ -223,7 +251,7 @@ def _route_one(path: str, gone: bool, rules: dict, by_source: dict, all_features
             return
         # A deleted test never satisfies its own obligation: route what it verified, or report the gap.
         surviving = sorted({test for feature in _features_naming(path, all_features) for test in _feature_tests(feature)
-                            if test.split("::", 1)[0] != path and (index.root / test.split("::", 1)[0]).is_file()})
+                            if test.split("::", 1)[0] != path and index.inventory.is_file(test.split("::", 1)[0])})
         if surviving:
             routing.select(path, surviving, "the surviving tests of the features the deleted test verified")
         else:
@@ -238,8 +266,11 @@ def _route_one(path: str, gone: bool, rules: dict, by_source: dict, all_features
         if path in index.closures.unparsed:
             routing.gap(path, "it could not be parsed, so its consumers are unknown", "unparsed")
         consumers = index.consumers_of_missing(path) if gone else index.consumers(path)
-        mapped = sorted({test for feature in features for test in _feature_tests(feature)
-                         if (index.root / test.split("::", 1)[0]).is_file()})
+        named = sorted({test for feature in features for test in _feature_tests(feature)})
+        mapped = [test for test in named if index.inventory.is_file(test.split("::", 1)[0])]
+        for test in named:
+            if test not in mapped:  # R1, C4: a mapped test identity that is gone is a gap, never silently dropped
+                routing.gap(test, f"{path}: the reviewed feature mapping names a test module that does not exist", "missing")
         if path.startswith(GATE_PREFIX):
             routing.select(path, rules.get("gate_controls", []), "the gate's own negative controls")
         if mapped:
@@ -254,7 +285,8 @@ def _route_one(path: str, gone: bool, rules: dict, by_source: dict, all_features
         if consumers:
             routing.select(path, sorted(consumers), "reverse import closure" + (" of the deleted module" if gone else ""))
             return
-        if not (mapped or routed or static):
+        if not (mapped or routed):
+            # A static check (config, documents) never stands in for the behaviour of Python source (R1, C4).
             routing.gap(path, ("a deleted module that no test imported" if gone else "no test reaches this source "
                                "(dynamic import, subprocess target or untested)"), "unmapped")
         return

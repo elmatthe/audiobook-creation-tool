@@ -772,7 +772,7 @@
       "files/tests/test_native_acceptance.py": "judges synthetic acceptance reports; lists the runner's registry with --list (data-only): in-process with stand-ins, or source text only: no real window, input, engine, install or network",
       "files/tests/test_plan3_boundaries.py": "names the Plan 3 harness in static boundary checks",
       "files/tests/test_plan6_boundaries.py": "names the Plan 6 harness in static boundary checks",
-      "files/tests/test_routine_effects.py": "the routine envelope's own negative controls: real opt-in names appear only to prove they are scrubbed, every refused launch names an engine interpreter that does not exist or a harmless data-only target, and each child gets a private ledger"
+      "files/tests/test_routine_effects.py": "the routine envelope's own negative controls (R1 included): real opt-in names appear only to prove they are scrubbed; every refused launch names an engine interpreter that does not exist, a program's --version or a root that refuses itself before doing anything; refused network targets are .invalid names or documentation addresses refused before any socket call; a refused weight read names a file that does not exist; SendInput is only resolved, never called; each refusing child gets a private ledger adopted by expected_refusals"
     }
   },
   "entrypoints": {

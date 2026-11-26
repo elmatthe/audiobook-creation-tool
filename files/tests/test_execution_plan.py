@@ -578,8 +578,10 @@ def classify(root, selectors, explicit=()):
 
 def test_an_ordinary_test_declares_nothing_and_runs(effect_tree):
     result = classify(effect_tree, ["files/tests/test_plain.py", "files/tests/test_reviewed.py", "files/tests/test_gone.py"])
-    assert result.executable == ("files/tests/test_plain.py", "files/tests/test_reviewed.py", "files/tests/test_gone.py")
-    assert result.withheld == result.gaps == ()
+    assert result.executable == ("files/tests/test_plain.py", "files/tests/test_reviewed.py")
+    assert result.withheld == ()
+    # Phase 1A-1 R1 (M1): a missing module is this plan's selection gap, no longer left for pytest to report.
+    assert [(gap.subject, gap.kind) for gap in result.gaps] == [("files/tests/test_gone.py", "missing")]
 
 
 def test_a_declared_module_or_node_is_withheld_and_owed(effect_tree):
@@ -594,7 +596,12 @@ def test_a_declared_module_or_node_is_withheld_and_owed(effect_tree):
 
 def test_a_mixed_module_selected_whole_runs_only_its_routine_tests(effect_tree):
     result = classify(effect_tree, ["files/tests/test_mixed.py"], explicit=["files/tests/test_mixed.py"])
-    assert result.executable == ("files/tests/test_mixed.py::test_quick",) and result.withheld == ()
+    assert result.executable == ("files/tests/test_mixed.py::test_quick",)
+    # Phase 1A-1 R1 (M1, semantics A): requested explicitly, the whole module is the scope, so each declared node is withheld
+    # from it and disclosed exactly; reached any other way, only the obligations below.
+    assert {(item.subject, item.requested) for item in result.withheld} == {
+        ("files/tests/test_mixed.py::test_real", True), ("files/tests/test_mixed.py::TestWindow", True)}
+    assert classify(effect_tree, ["files/tests/test_mixed.py"]).withheld == ()
     assert {item.subject for item in result.obligations} == {"test:files/tests/test_mixed.py::test_real",
                                                             "test:files/tests/test_mixed.py::TestWindow"}
     generated = classify(effect_tree, ["files/tests/test_generated.py"])
@@ -702,3 +709,395 @@ def test_the_real_policy_resolves_every_mode_without_importing_a_test():
     imported = {name for name in set(sys.modules) - before if name.startswith("test_")}
     assert imported == set(), imported
     assert os.environ.get("ACT_VERIFY_CONTEXT") == "routine", "this suite runs inside the routine envelope"
+
+
+# =========================================================================== #
+#  Phase 1A-1 R1 regression controls (H4, M1, M3, C1-C4). Each was run against the defective 8d7226d implementation first
+#  and failed there (the R1 record in the plan lists them). All synthetic: in-memory plans, temporary trees and Git
+#  repositories, and the real gate only in --plan mode (prints a plan, runs nothing).
+# =========================================================================== #
+from helpers import repo_files  # noqa: E402
+
+GUARDED_V3 = "files/tests/test_optional_setup_exchange_v3.py"
+CASE_INSENSITIVE_CHECKOUT = not repo_files.probe_case_sensitive(REPO_ROOT)
+
+
+def _link_dir(target: Path, link: Path) -> None:
+    """A directory link that needs no privilege: a junction on Windows, a symlink elsewhere."""
+    if sys.platform == "win32":
+        import _winapi
+
+        _winapi.CreateJunction(str(target), str(link))
+    else:
+        link.symlink_to(target, target_is_directory=True)
+
+
+def _real_plan(*selectors: str) -> dict:
+    """The real gate's plan for a focused request: ``--plan`` prints it and runs nothing (data-only)."""
+    argv = [sys.executable, str(GATE_DIR / "verify.py"), "--mode", "focused"]
+    for selector in selectors:
+        argv += ["--test", selector]
+    done = subprocess.run([*argv, "--plan"], cwd=REPO_ROOT, capture_output=True, text=True, timeout=300)
+    assert done.returncode in (3, 64), (done.returncode, done.stdout[-2000:], done.stderr[-2000:])
+    if done.returncode == 64:
+        return {"refused": done.stderr}
+    text = done.stdout
+    return json.loads(text[text.index("{"):text.rindex("}") + 1])
+
+
+# ------------------------------------------------------------------ H4: canonical identity and guarded routing
+@pytest.mark.skipif(not CASE_INSENSITIVE_CHECKOUT, reason="needs a case-insensitive checkout (native Windows; APFS default "
+                    "is pending native macOS verification); the portable simulation below covers case-sensitive behaviour")
+def test_r1_h4_a_windows_case_variant_of_a_guarded_module_never_reaches_ordinary_pytest():
+    variant = "files/tests/test_Optional_setup_exchange_v3.py"
+    assert (REPO_ROOT / variant).is_file(), "the variant names the same file on this filesystem"
+    plan = _real_plan(variant)
+    assert "refused" in plan or variant not in plan["ordinary"], plan
+    if "refused" not in plan:
+        assert GUARDED_V3 not in plan["ordinary"], plan
+        assert plan["guarded"].get("v3-planning") == [GUARDED_V3.rsplit("/", 1)[-1]], plan
+        assert plan["requested"] == [f"test:{GUARDED_V3}"], "the plan records the canonical identity"
+
+
+def test_r1_h4_the_canonical_selector_routes_to_its_guarded_group():
+    plan = _real_plan(GUARDED_V3)
+    assert plan["guarded"].get("v3-planning") == ["test_optional_setup_exchange_v3.py"], plan
+    assert all("test_optional_setup_exchange_v3" not in item for item in plan["ordinary"])
+
+
+def test_r1_h4_a_guarded_basename_in_another_directory_is_not_a_test_identity_nor_a_member():
+    for raw in ("files/tests/sub/test_optional_setup_exchange_v3.py", "scripts/test_optional_setup_exchange_v3.py",
+                "../elsewhere/files/tests/test_guarded.py"):
+        with pytest.raises(selection.SelectorError):
+            selection.parse_selector(raw)
+    plan = resolve("focused", tests=("files/tests/test_a.py",))
+    for target in ("sub/test_guarded.py", "../x/test_guarded.py", "files/tests/sub/test_guarded.py::t"):
+        with pytest.raises(ep.PlanError, match="guarded"):
+            ep.validate(dataclasses.replace(plan, guarded=(("heavy", (target,)),)), GROUPS)
+
+
+@pytest.mark.parametrize("ordinary", [("files/tests/test_guarded.py", GUARD), ("files/tests/test_guarded.py::t", GUARD),
+                                      ("files/tests/test_Guarded.py", GUARD)])
+def test_r1_h4_a_guarded_module_placed_in_the_ordinary_list_is_refused(ordinary):
+    plan = resolve("focused", tests=("files/tests/test_a.py",))
+    mutated = dataclasses.replace(plan, ordinary=ordinary, scope=tuple(s for s in ordinary if s != GUARD))
+    with pytest.raises(ep.PlanError, match="guarded"):
+        ep.validate(mutated, GROUPS)
+
+
+def test_r1_h4_the_gate_refuses_a_guarded_member_in_its_ordinary_pytest_command():
+    from gate_locator import load_gate
+
+    gate = load_gate("act_verify_r1_ordinary_scope")
+    assert gate._ordinary_scope(["files/tests/test_cancel_semantics.py"]) == ["files/tests/test_cancel_semantics.py"]
+    for target in (GUARDED_V3, GUARDED_V3 + "::test_x", "files/tests/test_Optional_setup_exchange_v3.py"):
+        with pytest.raises(ValueError, match="guarded"):
+            gate._ordinary_scope([target])
+
+
+@pytest.mark.parametrize("raw", [".\\files\\tests\\test_a.py", "./files/tests/test_a.py", "files//tests/./test_a.py",
+                                 "files\\tests\\test_a.py"])
+def test_r1_h4_alternate_separators_and_dot_spellings_normalize_to_one_identity(raw):
+    assert selection.parse_selector(raw) == "files/tests/test_a.py"
+    assert selection.parse_selector(raw + "::test_x[a/b]") == "files/tests/test_a.py::test_x[a/b]"
+
+
+def test_r1_h4_a_linked_test_directory_is_refused_and_never_read(tmp_path):
+    root = (tmp_path / "t").resolve()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "test_x.py").write_text("ACT_EFFECTS = {'*': ('real-engine',)}\n\ndef test_a():\n    pass\n",
+                                       encoding="utf-8")
+    (root / "files").mkdir(parents=True)
+    _link_dir(outside, root / "files" / "tests")
+    result = classify(root, ["files/tests/test_x.py"], explicit=["files/tests/test_x.py"])
+    assert result.executable == () and [gap.kind for gap in result.gaps] == ["unsafe"], result
+    inventory = repo_files.Inventory(root)
+    assert inventory.canonical("files/tests/test_x.py")[1] == repo_files.INSIDE_LINK
+    with pytest.raises(repo_files.UnsafePath):
+        inventory.read_text("files/tests/test_x.py")
+
+
+def test_r1_h4_case_semantics_are_the_filesystems_simulated_portably(tmp_path):
+    """Native macOS (APFS) verification of this is still pending; this injects the listing and the case rule."""
+    (tmp_path / "files" / "tests").mkdir(parents=True)
+    (tmp_path / "files" / "tests" / "test_a.py").write_text("def test_x():\n    pass\n", encoding="utf-8")
+    insensitive = repo_files.Inventory(tmp_path, case_sensitive=False)
+    assert insensitive.canonical("FILES/Tests/TEST_A.py")[:2] == ("files/tests/test_a.py", repo_files.FILE)
+    sensitive = repo_files.Inventory(tmp_path, case_sensitive=True)
+    assert sensitive.canonical("files/tests/TEST_A.py")[1] == repo_files.MISSING
+    listing = {"": ["files"], "files": ["tests"], "files/tests": ["test_a.py", "Test_A.py"]}
+
+    def fake(path):
+        relative = Path(path).relative_to(tmp_path).as_posix()
+        return listing["" if relative == "." else relative]
+
+    twins = repo_files.Inventory(tmp_path, case_sensitive=False, listdir=fake)
+    assert twins.canonical("files/tests/test_a.py")[1] == repo_files.AMBIGUOUS
+    ctx = context(inventory=repo_files.Inventory(tmp_path, case_sensitive=False))
+    plan = resolve("focused", ctx, tests=("files/tests/TEST_A.py",))
+    assert plan.requested == ("test:files/tests/test_a.py",) and "files/tests/test_a.py" in plan.ordinary
+    with pytest.raises(ep.PlanError, match="ambiguous"):
+        resolve("focused", context(inventory=twins), tests=("files/tests/test_a.py",))
+
+
+# ------------------------------------------------------------------ M1: requested-scope reconciliation
+def _effects_ctx(root, **extra):
+    classifier = effects.Classifier(root, {"effects": {"reviewed_bounded": {}}}, evidence_ledger.Closures(root))
+    return context(effects_for=classifier, **extra)  # resolution uses the classifier's own inventory
+
+
+def test_r1_m1a_an_explicit_mixed_module_is_the_whole_scope_and_discloses_each_withheld_node(effect_tree):
+    plan = resolve("focused", _effects_ctx(effect_tree), tests=("files/tests/test_mixed.py",))
+    assert plan.status == "INCOMPLETE", plan.record()
+    assert {(item.subject, item.requested) for item in plan.withheld} == {
+        ("files/tests/test_mixed.py::test_real", True), ("files/tests/test_mixed.py::TestWindow", True)}
+    assert "files/tests/test_mixed.py::test_quick" in plan.ordinary
+
+
+def test_r1_m1b_a_routine_node_runs_and_a_heavy_node_is_withheld(effect_tree):
+    ctx = _effects_ctx(effect_tree)
+    assert resolve("focused", ctx, tests=("files/tests/test_mixed.py::test_quick",)).status == "COMPLETE"
+    heavy = resolve("focused", ctx, tests=("files/tests/test_mixed.py::test_real",))
+    assert heavy.status == "INCOMPLETE" and [i.subject for i in heavy.withheld] == ["files/tests/test_mixed.py::test_real"]
+
+
+@pytest.mark.parametrize("node", ["files/tests/test_plain.py::test_nope", "files/tests/test_plain.py::test_nope[1]",
+                                  "files/tests/test_mixed.py::TestNobody::test_x"])
+def test_r1_m1b_a_nonexistent_node_never_disappears_under_its_whole_module(effect_tree, node):
+    module = node.split("::", 1)[0]
+    plan = resolve("focused", _effects_ctx(effect_tree), tests=(module, node))
+    assert plan.status == "INCOMPLETE", plan.record()
+    assert any(gap.subject == node and gap.requested and gap.kind == "missing" for gap in plan.gaps), plan.gaps
+
+
+def test_r1_m1b_a_parametrized_node_is_validated_by_its_head(effect_tree):
+    plan = resolve("focused", _effects_ctx(effect_tree), tests=("files/tests/test_plain.py::test_a[x-1]",))
+    assert plan.status == "COMPLETE" and "files/tests/test_plain.py::test_a[x-1]" in plan.ordinary
+
+
+def test_r1_m1_a_module_with_a_heavy_node_requested_too_is_incomplete(effect_tree):
+    plan = resolve("focused", _effects_ctx(effect_tree), tests=("files/tests/test_mixed.py",
+                                                                "files/tests/test_mixed.py::test_real"))
+    assert plan.status == "INCOMPLETE" and "files/tests/test_mixed.py::test_real" not in plan.ordinary
+
+
+def test_r1_m1_a_missing_module_is_a_requested_gap_not_pytests_problem(effect_tree):
+    plan = resolve("focused", _effects_ctx(effect_tree), tests=("files/tests/test_gone.py",))
+    assert plan.status == "INCOMPLETE" and "files/tests/test_gone.py" not in plan.ordinary
+    assert [(gap.subject, gap.kind, gap.requested) for gap in plan.gaps] == [("files/tests/test_gone.py", "missing", True)]
+
+
+def _feature_coverage(*selections):
+    return {"features": [{"id": f"ACT.F.{index}", "tool": "t", "selection": list(selection)}
+                         for index, selection in enumerate(selections)]}
+
+
+def test_r1_m1c_a_feature_on_a_mixed_module_keeps_routine_coverage_and_owes_the_heavy_nodes(effect_tree):
+    plan = resolve("focused", _effects_ctx(effect_tree, coverage=_feature_coverage(["files/tests/test_mixed.py"])),
+                   features=("ACT.F.0",))
+    assert plan.status == "COMPLETE" and plan.scope == ("files/tests/test_mixed.py::test_quick",)
+    assert {item.subject for item in plan.obligations} >= {"test:files/tests/test_mixed.py::test_real"}
+
+
+def test_r1_m1c_a_feature_with_only_withheld_behaviour_or_a_missing_test_file_is_incomplete(effect_tree):
+    coverage = _feature_coverage(["files/tests/test_heavy.py"], ["files/tests/test_plain.py", "files/tests/test_gone.py"])
+    ctx = _effects_ctx(effect_tree, coverage=coverage)
+    assert resolve("focused", ctx, features=("ACT.F.0",)).status == "INCOMPLETE"
+    missing = resolve("focused", ctx, features=("ACT.F.1",))
+    assert missing.status == "INCOMPLETE"
+    assert [(g.subject, g.kind) for g in missing.gaps] == [("files/tests/test_gone.py", "missing")]
+
+
+def test_r1_m1_requested_nodes_are_reconciled_with_what_executed():
+    plan = resolve("focused", tests=("files/tests/test_a.py", "files/tests/test_b.py::test_x[1]",
+                                     "files/tests/test_c.py::TestK"))
+    executed = {"files/tests/test_a.py::test_one", "files/tests/test_b.py::test_x[1]", "files/tests/test_c.py::TestK::test_m"}
+    assert ep.unexecuted(plan, executed) == []
+    assert ep.unexecuted(plan, executed - {"files/tests/test_b.py::test_x[1]"}) == ["files/tests/test_b.py::test_x[1]"]
+    assert ep.unexecuted(plan, {"files/tests/test_b.py::test_x[10]"}) == [
+        "files/tests/test_a.py", "files/tests/test_b.py::test_x[1]", "files/tests/test_c.py::TestK"]
+
+
+# ------------------------------------------------------------------ M3: the execution-boundary trust boundary
+def test_r1_m3_an_omitted_required_guard_is_refused_against_the_policy():
+    request = ep.Request(mode="focused", tests=("files/tests/test_a.py",))
+    plan = ep.resolve(request, context())
+    ep.admit(plan, request, context())  # the no-change control
+    mutated = dataclasses.replace(plan, guards=(), ordinary=("files/tests/test_a.py",))
+    with pytest.raises(ep.PlanError, match="guard"):
+        ep.admit(mutated, request, context())
+
+
+@pytest.mark.parametrize("change, needle", [
+    (lambda p: {"ordinary": ("files/tests/test_a.py", "files/tests/test_a.py::test_x", GUARD),
+                "scope": ("files/tests/test_a.py", "files/tests/test_a.py::test_x")}, "overlap"),
+    (lambda p: {"scope": ("files/tests/test_b.py",)}, "scope"),
+    (lambda p: {"withheld": (ep.Entry("files/tests/test_a.py", "declares real-engine", "effect", ("real-engine",)),)},
+     "withheld and executable"),
+    (lambda p: {"requested": (*p.requested, "test:files/tests/test_c.py")}, "unrepresented"),
+], ids=["whole-module-and-its-node", "disjoint-reported-scope", "withheld-and-executable", "unrepresented-request"])
+def test_r1_m3_the_boundary_refuses_contradictory_scope(change, needle):
+    plan = resolve("focused", tests=("files/tests/test_a.py",))
+    ep.validate(plan, GROUPS)
+    with pytest.raises(ep.PlanError, match=needle):
+        ep.validate(dataclasses.replace(plan, **change(plan)), GROUPS)
+
+
+@pytest.mark.parametrize("mode, selectors", [("focused", {"features": ("ACT.MP3.ONE",)}), ("quick", {}),
+                                             ("regression", {"components": ("gate",)}),
+                                             ("qualification", {"journeys": ("mp3.journey",)})])
+def test_r1_m3_a_plan_only_mode_marked_executable_is_refused(mode, selectors):
+    plan = resolve(mode, **selectors)
+    assert plan.executable_now is False
+    with pytest.raises(ep.PlanError, match="activated"):
+        ep.validate(dataclasses.replace(plan, executable_now=True), GROUPS)
+
+
+def test_r1_m3_a_heavyweight_selector_with_empty_declared_effects_is_reclassified_and_refused():
+    request = ep.Request(mode="focused", tests=("files/tests/test_engine.py",))
+    plan = ep.resolve(request, context())  # a caller whose classification declared nothing
+
+    def withhold(selectors, explicit):
+        heavy = tuple(s for s in selectors if "engine" in s)
+        return ep.EffectResult(executable=tuple(s for s in selectors if s not in heavy),
+                               withheld=tuple(ep.Entry(s, "declares real-engine", "effect", ("real-engine",), s in explicit)
+                                              for s in heavy))
+
+    with pytest.raises(ep.PlanError):
+        ep.admit(plan, request, context(effects_for=withhold))
+
+
+def test_r1_m3_the_request_the_plan_claims_must_be_the_authoritative_one():
+    plan = ep.resolve(ep.Request(mode="focused", tests=("files/tests/test_a.py",)), context())
+    with pytest.raises(ep.PlanError, match="resolve"):
+        ep.admit(plan, ep.Request(mode="focused", tests=("files/tests/test_b.py",)), context())
+
+
+@pytest.mark.parametrize("fact", ["status", "ordinary", "requested", "executable_now", "guarded"])
+def test_r1_m3_a_supplemental_fact_never_overwrites_an_authoritative_field(fact):
+    plan = resolve("focused", tests=("files/tests/test_a.py",))
+    with pytest.raises(ep.PlanError, match="authoritative"):
+        record = dataclasses.replace(plan, facts={fact: "forged"}).record()
+        assert record[fact] != "forged", "a forged fact reached the record"
+
+
+def test_r1_m3_identity_fields_cannot_be_changed_after_construction():
+    candidate = {"head": "abc", "nested": {"x": [1]}}
+    facts = {"change": {"paths": ["a"]}}
+    plan = resolve("focused", context(candidate=candidate, facts=facts), tests=("files/tests/test_a.py",))
+    candidate["head"] = "forged"
+    facts["change"]["paths"].append("forged")
+    assert plan.record()["candidate"]["head"] == "abc" and plan.record()["change"] == {"paths": ["a"]}
+    with pytest.raises(TypeError):
+        plan.candidate["head"] = "forged"
+    with pytest.raises((TypeError, AttributeError)):
+        plan.facts["change"]["paths"].append("forged")
+    json.dumps(plan.record())  # still serializable
+
+
+# ------------------------------------------------------------------ C1: one no-follow inventory
+def test_r1_c1_the_import_closure_never_reads_through_a_link(tmp_path):
+    root = (tmp_path / "c").resolve()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "mod.py").write_text("import secret_thing\n", encoding="utf-8")
+    write(root, "scripts/real.py", "X = 1\n")
+    write(root, "files/tests/test_l.py", "from linked import mod\nimport real\n\ndef test_a():\n    pass\n")
+    _link_dir(outside, root / "scripts" / "linked")
+    closures = evidence_ledger.Closures(root)
+    reach = closures.closure(["files/tests/test_l.py"])
+    assert "scripts/linked/mod.py" not in reach and "scripts/real.py" in reach, reach
+    assert "secret_thing" not in str(closures.names)
+    routing = route(root, ("scripts/linked/mod.py", "M", None))
+    assert routing.gaps and all(gap.kind in ("unreadable", "unsafe") for gap in routing.gaps), routing.gaps
+
+
+def test_r1_c1_a_directory_where_a_test_module_should_be_is_a_gap(effect_tree):
+    (effect_tree / "files" / "tests" / "test_dir.py").mkdir()
+    result = classify(effect_tree, ["files/tests/test_dir.py"], explicit=["files/tests/test_dir.py"])
+    assert result.executable == () and [gap.kind for gap in result.gaps] == ["unsafe"], result
+
+
+# ------------------------------------------------------------------ C2: local-only privacy identity
+def test_r1_c2_an_already_tracked_local_only_path_is_a_violation_without_any_delta(repo):
+    (repo / "AGENTS.md").write_text("private\n", encoding="utf-8")
+    git(repo, "add", "AGENTS.md")
+    git(repo, "commit", "-q", "-m", "a mistake")
+    changes = collect(repo)
+    assert changes.changes == [] and changes.violations, changes.record()
+    assert "private" not in json.dumps(changes.record())
+
+
+@pytest.mark.skipif(not CASE_INSENSITIVE_CHECKOUT, reason="the alias needs a case-insensitive filesystem")
+def test_r1_c2_a_case_alias_of_a_local_only_path_is_still_local_only(repo):
+    (repo / ".AI").mkdir()
+    (repo / ".AI" / "private-notes.md").write_text("secret\n", encoding="utf-8")
+    (repo / "agents.md").write_text("private\n", encoding="utf-8")
+    changes = collect(repo)
+    assert changes.changes == [] and changes.excluded == {".ai/": 1, "AGENTS.md": 1}, changes.record()
+    assert "private-notes" not in json.dumps(changes.record())
+
+
+def test_r1_c2_local_only_matching_follows_the_case_rule_and_component_boundaries():
+    assert git_changes.local_only_entry("AGENTS.MD", LOCAL_ONLY, case_sensitive=False) == "AGENTS.md"
+    assert git_changes.local_only_entry(".AI\\x.md", LOCAL_ONLY, case_sensitive=False) == ".ai/"
+    assert git_changes.local_only_entry(".aim.txt", LOCAL_ONLY, case_sensitive=False) is None
+    assert git_changes.local_only_entry("AGENTS.MD", LOCAL_ONLY, case_sensitive=True) is None
+    assert git_changes.local_only_entry("docs/AGENTS.md", LOCAL_ONLY, case_sensitive=False) is None
+
+
+def test_r1_c2_a_rename_out_of_a_local_only_path_keeps_the_public_side_and_names_no_private_path(repo):
+    (repo / ".ai").mkdir()
+    (repo / ".ai" / "secret-plan.md").write_text("x\n", encoding="utf-8")
+    git(repo, "add", "-f", ".ai/secret-plan.md")
+    git(repo, "commit", "-q", "-m", "a mistake")
+    git(repo, "mv", ".ai/secret-plan.md", "docs-plan.md")
+    changes = collect(repo)
+    assert changes.violations and "docs-plan.md" in by_path(changes), changes.record()
+    assert "secret-plan" not in json.dumps(changes.record())
+
+
+# ------------------------------------------------------------------ C3: staged deletion and recreation
+def test_r1_c3_a_staged_deletion_recreated_keeps_both_facts_and_routes_the_working_file(repo, code_tree):
+    git(repo, "rm", "-q", "src/a.py")
+    (repo / "src" / "a.py").write_text("A = 3\n", encoding="utf-8")
+    change = next(item for item in collect(repo).changes if item.path == "src/a.py")
+    assert change.status == "D" and "staged" in change.sources and change.present is True
+    assert change.record()["present"] is True
+    routing = route(code_tree, ("files/tests/test_other.py", "D", None))  # deleted in the index, present in the tree
+    assert routing.tests == ["files/tests/test_other.py"] and not [g for g in routing.gaps if g.kind == "deleted-test"]
+
+
+# ------------------------------------------------------------------ C4: dependency uncertainty and candidate identity
+def test_r1_c4_an_unparsed_helper_in_a_tests_closure_keeps_a_changed_source_incomplete(code_tree):
+    write(code_tree, "scripts/shared/broken_helper.py", "def broken(:\n")
+    write(code_tree, "files/tests/test_more.py", "from shared import broken_helper\n\ndef test_more():\n    pass\n")
+    routing = route(code_tree, ("scripts/tts/voices.py", "M", None))
+    assert "files/tests/test_engine.py" in routing.tests
+    assert any(gap.kind == "unparsed" and "broken_helper" in gap.reason for gap in routing.gaps), routing.gaps
+
+
+def test_r1_c4_an_ambiguous_import_reaches_every_candidate(code_tree):
+    write(code_tree, "files/tests/shared/util.py", "def helper():\n    return 2\n")
+    routing = route(code_tree, ("files/tests/shared/util.py", "M", None))
+    assert "files/tests/test_util.py" in routing.tests, routing.gaps
+
+
+def test_r1_c4_a_missing_mapped_test_is_a_gap_and_a_static_route_alone_never_covers_python(code_tree):
+    coverage = {"features": [{"id": "ACT.X", "tool": "t", "source": [{"path": "scripts/lonely.py"}],
+                              "selection": ["files/tests/test_other.py", "files/tests/test_missing.py"]}]}
+    routing = route(code_tree, ("scripts/lonely.py", "M", None), coverage=coverage)
+    assert any(gap.kind == "missing" and "test_missing" in gap.subject + gap.reason for gap in routing.gaps), routing.gaps
+    policy = {"changed": {**POLICY["changed"], "static": {"scripts/lonely.py": ["config"]}}}
+    static_only = route(code_tree, ("scripts/lonely.py", "M", None), policy=policy)
+    assert any(gap.kind == "unmapped" for gap in static_only.gaps), static_only.gaps
+
+
+def test_r1_c4_the_plan_candidate_binds_working_bytes_not_porcelain_status(repo):
+    (repo / "src" / "a.py").write_text("A = 2\n", encoding="utf-8")
+    first = git_changes.selection_identity(repo, policy_digest="p", local_only=LOCAL_ONLY)
+    (repo / "src" / "a.py").write_text("A = 3\n", encoding="utf-8")  # the same porcelain status " M src/a.py"
+    second = git_changes.selection_identity(repo, policy_digest="p", local_only=LOCAL_ONLY)
+    assert first["available"] and first["working_digest"] != second["working_digest"]
+    assert "not an authorization" in first["limitation"]

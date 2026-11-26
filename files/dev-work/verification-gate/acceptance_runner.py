@@ -238,6 +238,9 @@ def main(argv=None) -> int:
     darwin = _darwin_map() if sys.platform == "darwin" else {}
     report["dialog_history"] = {"preflight": contained, "needle": "act-gate", "before": len(history_before)}
     save()
+    from helpers import routine_context  # v0.8.2 Phase 1A-1 R1: the operation, not only __main__
+
+    routine_context.check_operation("native-desktop", "acceptance_runner.py: native journeys (the desktop lease)")
     try:
         with native.DesktopLease():
             for index, identifier in enumerate(wanted):
