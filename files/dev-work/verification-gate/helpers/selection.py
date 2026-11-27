@@ -113,6 +113,16 @@ class ReverseIndex:
                     break
         return found
 
+    def ambiguous_edges(self) -> list[tuple[str, str, tuple[str, ...], set[str]]]:
+        """Phase 1A-1 R2 (C4): every ambiguous import edge whose importer some test reaches (or is a test), with its
+        candidates and everything reachable through them: ``(importer, dotted name, candidates, reached through them)``."""
+        found = []
+        for (importer, dotted), candidates in sorted(getattr(self.closures, "ambiguous_candidates", {}).items()):
+            if importer not in self.reach and importer not in self.closure_of:
+                continue  # no test reaches it: which candidate it loads decides nothing a selection runs
+            found.append((importer, dotted, candidates, set(self.closures.closure(list(candidates)))))
+        return found
+
     def unparsed_tests(self) -> list[str]:
         return sorted(name for name in self.closures.unparsed if name.startswith(TEST_PREFIX))
 
@@ -186,6 +196,7 @@ def route_changes(changes, policy: dict, coverage: dict, index: ReverseIndex, *,
     for test in index.unparsed_tests():
         routing.gap(test, "this test module could not be parsed, so what it depends on is unknown", "unparsed")
     uncertain = index.uncertain_helpers()
+    ambiguous = index.ambiguous_edges()
     dynamic = sorted(getattr(index.closures, "dynamic", ()))
     if dynamic:
         routing.routes.setdefault("dynamic-imports", []).append(f"{len(dynamic)} file(s) import a computed name; their "
@@ -205,6 +216,11 @@ def route_changes(changes, policy: dict, coverage: dict, index: ReverseIndex, *,
                 if helper != path:
                     routing.gap(path, f"the import closure through {helper} is unknown (unparsed or not followed): a test "
                                       "reaching this source through it cannot be found", "unparsed")
+        for importer, dotted, candidates, through in ambiguous:
+            if path == importer or path in candidates or path in through:
+                routing.gap(path, f"{importer} imports {dotted!r}, which resolves to {len(candidates)} files ({', '.join(candidates)}): "
+                                  "which one a test loads is not known statically, so this change cannot be routed completely",
+                            "ambiguous")
         for journey in journeys_for_changes([path], policy.get("acceptance", {}).get("journey_routes", {}), known_journeys):
             routing.owe(f"journey:{journey}", f"{path}: suggested native journey (qualification or full)", "native")
     return routing

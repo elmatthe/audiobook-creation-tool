@@ -176,13 +176,16 @@ def runner_tree(tmp_path):
     root = (tmp_path / "app").resolve()
     tests = root / "files" / "tests"
     tests.mkdir(parents=True)
-    for name in ("guarded_pytest.py", "write_tripwire.py", "routine_effects.py"):
+    for name in ("guarded_pytest.py", "write_tripwire.py"):
         shutil.copyfile(Path(__file__).with_name(name), tests / name)
-    # v0.8.2 Phase 1A-1 R1: the runner takes the common routine envelope, whose contract lives in the gate's helpers.
-    helpers = root / "files" / "dev-work" / "verification-gate" / "helpers"
-    helpers.mkdir(parents=True)
-    shutil.copyfile(Path(__file__).resolve().parents[1] / "dev-work" / "verification-gate" / "helpers" / "routine_context.py",
-                    helpers / "routine_context.py")
+    # v0.8.2 Phase 1A-1 R1/R2: the runner takes the common routine envelope; a nested runner is genuine only when it and
+    # every file of that envelope (routine_effects.RUNNER_SUPPORT: the envelope, its child bootstrap, its reviewed fixture
+    # families and the gate helper holding its contract) are byte-identical copies of the marked checkout's.
+    import routine_effects
+
+    for relative in routine_effects.RUNNER_SUPPORT:
+        (root / relative).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(routine_effects.REPO_ROOT / relative, root / relative)
     owned = root / "files" / "dev-work" / "p05b-stage4c"
     (owned / "verify-now").mkdir(parents=True)
     (owned / "verify-earlier").mkdir()

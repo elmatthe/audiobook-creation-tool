@@ -41,18 +41,19 @@ if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
 
 
+_LEDGER_CACHE: dict = {}
+
+
 def _child_problems() -> tuple[list[dict], list[str]]:
-    """Refusals other processes recorded in this session's ledger, and ledger problems other than this process's own open
-    record (this process's own refusals are counted in memory)."""
+    """Refusals other processes recorded in this session's ledger, and ledger problems, read live (a record or a launch still
+    open mid-session is normal; whether every obligation was met is judged by the ledger's owner once everything has ended:
+    the gate, or a direct run's bootstrap). Participant files already parsed are not parsed again (``_LEDGER_CACHE``)."""
     path = os.environ.get(routine_effects.LEDGER_ENV)
     if not path:
         return [], ["this session has no effect ledger"]
-    verdict = routine_effects.read_ledger(path)
+    verdict = routine_effects.read_ledger(path, live=True, cache=_LEDGER_CACHE)
     rows = [row for row in verdict["refusals"] if row.get("pid") != os.getpid() and not row.get("expected")]
-    # A record still open mid-session is normal (this session's own, an enclosing session's, a child still running); whether
-    # every record completed is judged by the ledger's owner when everything has ended (the gate, or a direct run's bootstrap).
-    problems = [problem for problem in verdict["problems"] if "never completed" not in problem]
-    return rows, problems
+    return rows, list(verdict["problems"])
 
 
 def _unexpected_effects() -> list[str]:
@@ -61,19 +62,57 @@ def _unexpected_effects() -> list[str]:
     return found + [f"accounting: {item}" for item in [*routine_effects.accounting_failures(), *problems]]
 
 
+#: Phase 1A-1 R2 (M1), for a direct run as for a gate stage: every collected item, what was deselected, what the session kept.
+_INVENTORY: dict = {"initial": [], "deselected": [], "problem": None}
+
+
+def pytest_itemcollected(item):
+    _INVENTORY["initial"].append(item.nodeid)
+
+
+def pytest_deselected(items):
+    _INVENTORY["deselected"].extend(item.nodeid for item in items)
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_collection_finish(session):
+    """A test that vanished between collection and the run (dropped by a hook, never deselected) leaves a smaller session that
+    could pass; it is a failure of the session instead."""
+    initial, deselected = _INVENTORY["initial"], _INVENTORY["deselected"]
+    kept = [item.nodeid for item in session.items]
+    dropped = set(initial) - set(kept) - set(deselected)
+    added = (set(kept) | set(deselected)) - set(initial)
+    if dropped or added or len(set(initial)) != len(initial):
+        _INVENTORY["problem"] = (f"the collection does not reconcile: {len(dropped)} item(s) vanished without being "
+                                 f"deselected {sorted(dropped)[:5]}, {len(added)} appeared after collection {sorted(added)[:5]}")
+
+
 def pytest_sessionfinish(session, exitstatus):
     """A refused heavyweight effect, or accounting that cannot be verified, is never a pass -- even when the test that caused
-    it caught the refusal, and even when it happened during collection or outside any test."""
+    it caught the refusal, and even when it happened during collection or outside any test. Neither is a collection that does
+    not reconcile."""
+    if _INVENTORY["problem"]:
+        sys.stderr.write(f"conftest: {_INVENTORY['problem']}\n")
+        if session.exitstatus == 0:
+            session.exitstatus = pytest.ExitCode.TESTS_FAILED
     if _unexpected_effects() and session.exitstatus == 0:
         session.exitstatus = pytest.ExitCode.TESTS_FAILED
 
 
 @pytest.fixture(autouse=True)
-def _no_refused_heavyweight_effect():
+def _no_refused_heavyweight_effect(request):
     """Fail the test that caused a refused heavyweight effect or an accounting failure, whether or not it caught the refusal
-    (routine_effects.py)."""
+    (routine_effects.py). A test (or module) marked ``routine_stop`` reserves the launches it makes with that expected
+    termination lifecycle (D-R2-1); the marker explains nothing by itself."""
     before = len(_unexpected_effects())
-    yield
+    marker = request.node.get_closest_marker("routine_stop")
+    if marker is None:
+        yield
+    else:
+        with routine_effects.expected_termination(*marker.args, codes=marker.kwargs.get("codes", ())):
+            yield
+    routine_effects.observe_children()
+    routine_effects.check_reports()
     new = _unexpected_effects()[before:]
     if new:
         pytest.fail("refused heavyweight effect(s) in routine verification: " + "; ".join(new[:3]), pytrace=False)
@@ -117,6 +156,8 @@ def pytest_configure(config):
     it does not pay for the walk.
     """
     gate_session_probe.register(config)
+    config.addinivalue_line("markers", "routine_stop(*mechanisms, codes=()): the launches this test makes are reserved to "
+                            "expect these intentional stops (files/tests/routine_effects.py expected_termination)")
     if not config.getoption("collectonly", False):
         _SESSION_BASELINE.update(_session_snapshot())
 

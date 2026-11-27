@@ -89,6 +89,8 @@ class Probe:
     exit: int | None = None
     finish_mode: str | None = None
     collected: list[str] | None = None
+    #: Phase 1A-1 R2 (M1): every item pytest collected, before deselection or any hook that could drop one.
+    initial: list[str] | None = None
     deselected: list[str] = field(default_factory=list)
     collect_errors: list[dict] = field(default_factory=list)
     collect_skips: list[dict] = field(default_factory=list)
@@ -100,6 +102,21 @@ class Probe:
 
     def executed(self) -> set[str]:
         return set(self.outcomes)
+
+    def vanished(self) -> str | None:
+        """Why the collected inventory does not reconcile, or None: every initially collected item must be either kept or
+        deselected (and recorded as such), nothing may be kept that was never collected, and no item twice."""
+        if self.initial is None:
+            return "the session recorded no initial collection inventory"
+        initial, kept, deselected = self.initial, self.collected or [], self.deselected
+        if len(set(initial)) != len(initial):
+            return "the initial collection inventory names an item twice"
+        dropped = set(initial) - set(kept) - set(deselected)
+        added = (set(kept) | set(deselected)) - set(initial)
+        if dropped or added or set(kept) & set(deselected):
+            return (f"{len(dropped)} collected item(s) vanished without being deselected {sorted(dropped)[:5]}, "
+                    f"{len(added)} item(s) appeared after collection {sorted(added)[:5]}")
+        return None
 
 
 def read_probe(path: Path, expected_token: str | None = None, *, require_finish: bool = True) -> Probe:
@@ -126,6 +143,8 @@ def read_probe(path: Path, expected_token: str | None = None, *, require_finish:
             probe.session = row
         elif kind == "collected":
             probe.collected = list(row["ids"])
+        elif kind == "initial":
+            probe.initial = list(row["ids"])
         elif kind == "deselected":
             probe.deselected.extend(row["ids"])
         elif kind == "collect-error":
@@ -221,6 +240,9 @@ def judge_stage(returncode, ended: str, junit: dict, probe: Probe, log_tail: str
                                f"{probe.counts['errors']} error(s)")
     if probe.deselected:
         return Verdict("FAIL", f"{len(probe.deselected)} test(s) were deselected; the gate never asks for that")
+    vanished = probe.vanished()
+    if vanished:
+        return Verdict("FAIL", f"the collection does not reconcile: {vanished}")
     if probe.collected is None or set(probe.collected) != probe.executed():
         return Verdict("FAIL", "collected and executed tests differ: " + _difference(probe.collected or [], probe.executed()))
     if not probe.executed():

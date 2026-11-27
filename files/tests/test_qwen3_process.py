@@ -50,6 +50,7 @@ PARENT_THEN_CHILD = (
 
 
 @windows_only
+@pytest.mark.routine_stop("terminate-job")  # the code under test ends its worker's Job on purpose (D-R2-1)
 def test_killing_the_tree_takes_a_living_parents_child_too(tmp_path):
     marker = tmp_path / "child.pid"
     proc = qp.spawn([sys.executable, "-c", PARENT_THEN_CHILD.format(tail="time.sleep(120)\n"), str(marker)])
@@ -97,6 +98,7 @@ def test_the_pipe_reaches_eof_once_the_whole_tree_is_killed(tmp_path):
 
 
 @windows_only
+@pytest.mark.routine_stop("close-job")  # closing the kill-on-close Job ends its members on purpose (D-R2-1)
 def test_releasing_the_job_kills_any_straggler(tmp_path):
     marker = tmp_path / "child.pid"
     proc = qp.spawn([sys.executable, "-c", PARENT_THEN_CHILD.format(tail="time.sleep(120)\n"), str(marker)])
@@ -119,6 +121,7 @@ def test_a_spawned_process_runs_normally_and_is_not_left_suspended(tmp_path):
 
 
 @windows_only
+@pytest.mark.routine_stop("taskkill")  # the code under test ends its child's tree with taskkill on purpose (D-R2-1)
 def test_if_the_job_cannot_be_created_the_process_still_runs_and_the_older_kill_route_works(tmp_path, monkeypatch):
     def refuse():
         raise OSError(5, "access denied")
@@ -176,8 +179,9 @@ def test_a_command_that_must_be_contained_is_killed_unstarted_when_the_job_refus
             raise OSError(5, "the process is already in a job that forbids nesting")
 
     monkeypatch.setattr(qp, "ProcessJob", RefusesToAssign)
-    ran = tmp_path / "ran.txt"
-    code = f"open(r'{ran}', 'w').write('ran'); import time; time.sleep(60)"
+    # Its first statement writes to its own output pipe: any instruction it ran would leave "ran" there. (An inert stand-in
+    # by construction, D-R2-8 class A: the process is terminated while suspended, before any accounting could start.)
+    code = "import sys; sys.stdout.write('ran'); sys.stdout.flush(); import time; time.sleep(60)"
     spawned = []
     original_popen = qp.subprocess_utils.popen
 
@@ -188,11 +192,11 @@ def test_a_command_that_must_be_contained_is_killed_unstarted_when_the_job_refus
 
     monkeypatch.setattr(qp.subprocess_utils, "popen", tracking_popen)
     with pytest.raises(qp.ContainmentUnavailable, match="could not be placed under the app's control"):
-        qp.spawn([sys.executable, "-c", code], require_job=True)
+        qp.spawn([sys.executable, "-c", code], require_job=True, stdout=subprocess.PIPE)
     proc = spawned[0]
     assert proc.poll() is not None, "the suspended process was terminated"
-    time.sleep(1.0)
-    assert not ran.exists(), "it never executed a single instruction"
+    assert proc.stdout.read() == b"", "it never executed a single instruction"
+    proc.stdout.close()
 
 
 @windows_only

@@ -108,10 +108,12 @@ def test_the_gate_side_and_test_side_contract_is_one_module():
     for relative, entry in table.items():
         if entry.get("routine") in ("refused", "data-only"):
             assert context.launch_role(relative) is not None, f"{relative} is refused but no launch root covers it"
-    engine = [path for path, word in effects.ENGINE_EXCEPTIONS]
+    # R2: the envelope keeps no engine exception of its own; the guarded runner's exact calm-selfcheck profile is its only
+    # route, and the guarded runner's generic profiles never let a Python child skip the bootstrap.
     guarded = (TESTS / "guarded_pytest.py").read_text(encoding="utf-8")
-    assert all(path.rsplit("/", 1)[-1] in guarded for path in engine) and "selfcheck" in guarded, \
-        "the routine engine exception mirrors the guarded runner's calm selfcheck profile"
+    assert "read-only-calm-library-selfcheck" in guarded
+    assert "read-only-calm-library-selfcheck" not in effects.GENERIC_GUARDED_PROFILES
+    assert all(f'"{name}"' in guarded or f"'{name}'" in guarded for name in effects.GENERIC_GUARDED_PROFILES)
 
 
 # --------------------------------------------------------------------------- #
@@ -168,12 +170,22 @@ def test_a_heavyweight_launch_is_classified_wherever_it_lies(command, effect):
     ["git", "check-ignore", "--no-index", "-q", GATE + "verify.py"],  # a program's arguments are data, not a script
     [sys.executable, "-I", "-B", GATE + "adapters/windows/containment.py", "--probe", "out.json"],  # read-only probe
     ["ffprobe", "-i", "scripts/launcher.py"],
-    ["cmd", "/c", "mklink", "/J", "a", "b"],
-    ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "scripts/shared/bootstrap_host.ps1", "-OutFile",
-     "x", "-AssumeNo"],
 ], ids=lambda value: " ".join(map(str, value))[-48:])
 def test_a_data_only_bounded_or_reviewed_launch_is_allowed(command):
     assert effects.classify_launch(command, cwd=REPO_ROOT) is None
+
+
+@WINDOWS
+def test_a_junction_and_stage_zero_are_reviewed_only_on_disposable_paths(tmp_path):
+    """R2 (D-R2-4): the reviewed shell forms bind their paths. A junction between two disposable paths and a declined stage 0
+    writing its answer into a disposable file run; the same forms pointed at the checkout do not."""
+    a, b = tmp_path / "a", tmp_path / "b"
+    assert effects.classify_launch(["cmd", "/c", "mklink", "/J", str(a), str(b)], cwd=tmp_path) is None
+    assert effects.classify_launch(["cmd", "/c", "mklink", "/J", str(REPO_ROOT / "x"), str(b)], cwd=tmp_path) is not None
+    assert effects.classify_launch(["cmd", "/c", "mklink", "/J", "a", "b"], cwd=REPO_ROOT) is not None
+    stage = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "scripts/shared/bootstrap_host.ps1"]
+    assert effects.classify_launch([*stage, "-OutFile", str(tmp_path / "x"), "-AssumeNo"], cwd=REPO_ROOT) is None
+    assert effects.classify_launch([*stage, "-OutFile", "x", "-AssumeNo"], cwd=REPO_ROOT) is not None
 
 
 def test_the_classification_ignores_case_as_ntfs_and_apfs_do():
@@ -300,45 +312,115 @@ def test_every_refused_entrypoint_guards_itself_before_it_does_anything():
 # --------------------------------------------------------------------------- #
 #  H1: the reviewed synthetic gate fixture, and what cannot inherit it
 # --------------------------------------------------------------------------- #
+RECIPE = context.SYNTHETIC_RECIPES["scenario-runner"]
+STAND_IN = GATE + "scaling/qualify.py"
+SCENARIO = {"runs": 0, "verdict": None, "code": 0, "before": []}
+
+
 def _synthetic_tree(tmp_path: Path, *, declare=True, root_name=None) -> Path:
+    """A synthetic gate tree (format 2): the real orchestrator and the real acceptance runner copied in, and the reviewed
+    scenario-runner recipe standing where the scenario's runner stands, with valid data."""
     tree = tmp_path / "tree"
-    for relative in (context.ORCHESTRATOR, GATE + "acceptance_runner.py", GATE + "scaling/qualify.py"):
+    for relative in (context.ORCHESTRATOR, GATE + "acceptance_runner.py"):
         target = tree / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(REPO_ROOT / relative, target)
-    stand_in = tree / GATE / "scaling" / "stand_in_qualify.py"
-    stand_in.write_text("import sys\nsys.exit(0)\n", encoding="utf-8")
+    stand_in = tree / STAND_IN
+    stand_in.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(REPO_ROOT / RECIPE["source"], stand_in)
+    stand_in.with_name(RECIPE["data"]).write_text(json.dumps(SCENARIO), encoding="utf-8")
     if declare:
-        digest = __import__("hashlib").sha256(stand_in.read_bytes()).hexdigest()
-        real = __import__("hashlib").sha256((tree / GATE / "scaling" / "qualify.py").read_bytes()).hexdigest()
-        (tree / context.SYNTHETIC_DECLARATION).write_text(json.dumps({
-            "format": context.SYNTHETIC_FORMAT, "root": str((root_name or tree).resolve()),
-            "synthetic": {GATE + "scaling/stand_in_qualify.py": digest, GATE + "scaling/qualify.py": real}}), encoding="utf-8")
+        _declare(tree, {STAND_IN: "scenario-runner"}, root_name)
     return tree
 
 
-def test_a_reviewed_synthetic_fixture_lets_only_its_orchestrator_and_declared_stand_ins_run(tmp_path):
-    """H1 control 4: the reviewed synthetic fixture. Its orchestrator (byte-identical to the real gate, inside this session's
-    own disposable root, declared) may start; a declared stand-in may start in place of a runner; a real runner copied into
-    the tree never may -- not even when the declaration names it with its real bytes."""
+def _declare(tree: Path, recipes: dict, root_name=None) -> None:
+    (tree / context.SYNTHETIC_DECLARATION).write_text(json.dumps({
+        "format": context.SYNTHETIC_FORMAT, "root": str((root_name or tree).resolve()), "recipes": recipes}), encoding="utf-8")
+
+
+def test_a_reviewed_synthetic_fixture_lets_only_its_orchestrator_and_reviewed_recipes_run(tmp_path):
+    """H1 control 4 (R2 positive recipes): the orchestrator (byte-identical to the real gate, inside this session's own
+    disposable root, declared) may start; a declared recipe, byte-identical to its reviewed source with valid data, may stand
+    in for a runner; a real runner copied into the tree never may, nor may an undeclared file."""
     tree = _synthetic_tree(tmp_path)
     assert context.synthetic_fixture(tree) is not None
     assert effects.classify_launch([sys.executable, str(tree / context.ORCHESTRATOR), "--mode", "focused", "--test",
                                     "files/tests/test_ordinary.py"], cwd=tmp_path) is None
-    assert context.synthetic_stand_in(tree, GATE + "scaling/stand_in_qualify.py") is True
-    assert context.synthetic_stand_in(tree, GATE + "scaling/qualify.py") is False, "a real runner is never a stand-in"
+    assert context.synthetic_stand_in(tree, STAND_IN) is True
+    assert effects.classify_launch([sys.executable, "-u", str(tree / STAND_IN), "--out", str(tmp_path / "o")],
+                                   cwd=tmp_path) is None
     assert context.synthetic_stand_in(tree, GATE + "acceptance_runner.py") is False, "an undeclared runner is no stand-in"
     with effects.expected_refusals("scaling", "native-desktop"):
+        context.check_operation("scaling", "a declared recipe", root=tree, stand_in=STAND_IN)
         with pytest.raises(PermissionError):
-            context.check_operation("scaling", "a real runner in a synthetic tree", root=tree, stand_in=GATE + "scaling/qualify.py")
-        context.check_operation("scaling", "a declared stand-in", root=tree, stand_in=GATE + "scaling/stand_in_qualify.py")
+            context.check_operation("native-desktop", "an undeclared real runner", root=tree,
+                                    stand_in=GATE + "acceptance_runner.py")
         with pytest.raises(PermissionError):
             context.refuse_under_routine("acceptance_runner.py", "native-desktop", [],
                                          origin=str(tree / GATE / "acceptance_runner.py"), root=tree)
 
 
+@pytest.mark.parametrize("backend", ["real-current", "real-modified", "recipe-modified", "historical", "foreign-recipe"])
+def test_a_modified_historical_or_real_backend_is_never_a_synthetic_stand_in(tmp_path, backend):
+    """H1/R1-02: trust is positive. Declared at the runner's place, the real runner (current or modified), an earlier version
+    of the recipe, a modified recipe or another recipe's source is not the reviewed recipe, so it is no stand-in and the
+    operation it would start is refused."""
+    tree = _synthetic_tree(tmp_path)
+    target = tree / STAND_IN
+    if backend == "real-current":
+        shutil.copyfile(REPO_ROOT / STAND_IN, target)
+    elif backend == "real-modified":
+        target.write_bytes((REPO_ROOT / STAND_IN).read_bytes() + b"\n# modified\n")
+    elif backend == "recipe-modified":
+        target.write_bytes((REPO_ROOT / RECIPE["source"]).read_bytes().replace(b"time.sleep(args[0])", b"pass"))
+    elif backend == "historical":
+        target.write_text("import sys\nsys.exit(0)\n", encoding="utf-8")  # the R1-era free-form stand-in
+    else:
+        shutil.copyfile(REPO_ROOT / context.SYNTHETIC_RECIPES["fake-pytest"]["source"], target)
+    assert context.synthetic_stand_in(tree, STAND_IN) is False
+    verdict = effects.classify_launch([sys.executable, "-u", str(target), "--out", str(tmp_path / "o")], cwd=tmp_path)
+    assert verdict is not None and verdict[0] == "scaling", verdict
+    with effects.expected_refusals("scaling"), pytest.raises(PermissionError):
+        context.check_operation("scaling", "a non-recipe backend", root=tree, stand_in=STAND_IN)
+
+
+@pytest.mark.parametrize("data", [{"runs": 0, "verdict": None, "code": 0, "before": [["exec", "print(1)"]]},
+                                  {"runs": 0, "verdict": None, "code": 0, "before": [["write-path", "C:/outside.txt", "x"]]},
+                                  {"runs": 0, "verdict": None, "code": 0, "before": [["sleep", 301]]},
+                                  {"runs": "3", "verdict": None, "code": 0, "before": []},
+                                  {"runs": 0, "verdict": None, "code": 0, "before": [], "extra": 1}],
+                         ids=["unknown-operation", "path-outside-the-tree", "unbounded-sleep", "wrong-type", "extra-key"])
+def test_a_recipe_with_invalid_data_is_no_stand_in(tmp_path, data):
+    tree = _synthetic_tree(tmp_path)
+    (tree / STAND_IN).with_name(RECIPE["data"]).write_text(json.dumps(data), encoding="utf-8")
+    assert context.synthetic_stand_in(tree, STAND_IN) is False
+
+
+def test_a_recipe_declared_where_it_may_not_stand_voids_the_fixture(tmp_path):
+    tree = _synthetic_tree(tmp_path, declare=False)
+    _declare(tree, {GATE + "acceptance_runner.py": "scenario-runner"})
+    assert context.synthetic_fixture(tree) is None
+    _declare(tree, {STAND_IN: "an-unreviewed-recipe"})
+    assert context.synthetic_fixture(tree) is None
+    _declare(tree, {STAND_IN: "scenario-runner"})
+    (tree / "files" / "tests").mkdir(parents=True)
+    (tree / "files" / "tests" / "routine_effects.py").write_text("# an older envelope\n", encoding="utf-8")
+    assert context.synthetic_fixture(tree) is None, "a tree's envelope must be the marked checkout's own bytes"
+
+
+def test_the_free_standing_pytest_recipe_accounts_as_a_pytest_session_only_in_its_exact_bytes(tmp_path):
+    source = REPO_ROOT / context.SYNTHETIC_RECIPES["fake-pytest"]["source"]
+    exact, changed = tmp_path / "fake_pytest.py", tmp_path / "fake_pytest_changed.py"
+    shutil.copyfile(source, exact)
+    changed.write_bytes(source.read_bytes() + b"\n# changed\n")
+    assert context.recipe_role(str(exact)) == "routine-pytest"
+    assert context.recipe_role(str(changed)) is None
+    assert context.recipe_role(str(source)) is None, "the checkout's own copy is not disposable"
+
+
 @pytest.mark.parametrize("variation", ["undeclared", "declared-elsewhere", "outside-disposable", "orchestrator-modified",
-                                       "orchestrator-renamed", "untrusted-interpreter", "stand-in-modified"])
+                                       "orchestrator-renamed", "untrusted-interpreter"])
 def test_an_unexpected_path_or_argument_variation_cannot_inherit_the_synthetic_exception(tmp_path, variation):
     """H1 control 6: every variation of the reviewed shape is refused."""
     tree = _synthetic_tree(tmp_path, declare=variation != "undeclared",
@@ -362,9 +444,9 @@ def test_an_unexpected_path_or_argument_variation_cannot_inherit_the_synthetic_e
         shutil.copyfile(tree / context.ORCHESTRATOR, script)
     if variation == "untrusted-interpreter":
         interpreter = str(tmp_path / "python.exe")
-    if variation == "stand-in-modified":
-        (tree / GATE / "scaling" / "stand_in_qualify.py").write_text("import sys\nsys.exit(1)\n", encoding="utf-8")
-        assert context.synthetic_stand_in(tree, GATE + "scaling/stand_in_qualify.py") is False
+        Path(interpreter).write_bytes(b"MZ" + bytes(4096))  # exists, and is not a trusted interpreter's bytes
+        verdict = effects.classify_launch([interpreter, str(script), "--mode", "full"], cwd=tmp_path)
+        assert verdict is not None and "does not trust" in verdict[1], verdict
         return
     verdict = effects.classify_launch([interpreter, str(script), "--mode", "full"], cwd=tmp_path)
     assert verdict is not None and verdict[0] == "native-desktop", verdict
@@ -405,10 +487,14 @@ def test_a_replacement_environment_must_keep_the_envelope(tmp_path, change, need
         env[effects.ROOT_ENV] = str(tmp_path)
     elif change == "opt-in":
         env["ACT_KOKORO_P2_REAL"] = "1"
-    for command in ([sys.executable, "-c", "pass"], ["cmd", "/c", "rem"] if os.name == "nt" else ["/bin/sh", "-c", "true"]):
+    # An effect-capable program (it imports os): an inert one runs under the exact inert profile whatever its environment
+    # (D-R2-8; it can reach no effect, and the startup customization that could is refused by the profile).
+    for command in ([sys.executable, "-c", "import os"],
+                    ["cmd", "/c", "rem"] if os.name == "nt" else ["/bin/sh", "-c", "true"]):
         verdict = effects.classify_launch(command, cwd=REPO_ROOT, env=env)
         assert verdict is not None and needle in verdict[1], (command, verdict)
-    assert effects.classify_launch([sys.executable, "-c", "pass"], cwd=REPO_ROOT, env=dict(os.environ)) is None
+    assert effects.classify_launch([sys.executable, "-c", "import os"], cwd=REPO_ROOT, env=dict(os.environ)) is None
+    assert effects.decide_launch([sys.executable, "-c", "pass"], cwd=REPO_ROOT, env=env).profile == "inert-python-stand-in"
     assert effects.classify_launch(["git", "status"], cwd=REPO_ROOT, env={"PATH": os.environ.get("PATH", "")}) is None
 
 
@@ -421,75 +507,89 @@ def test_inline_module_and_nested_pytest_forms_are_judged():
     assert effects.classify_launch([sys.executable, str(BOOTSTRAP), "files/tests/test_a.py"], cwd=REPO_ROOT) is None
 
 
-def test_shell_mediated_launches_are_judged_by_what_the_shell_runs():
+def test_arbitrary_shell_text_is_refused_and_only_reviewed_shell_forms_run():
+    """R2 (D-R2-4): a shell runs only in a reviewed form; arbitrary shell text, expansions, chains, stdin programs and encoded
+    commands are refused, whatever they would run."""
     inner = f'"{sys.executable}" "{GATE}acceptance_runner.py"'
-    assert effects.classify_launch(f"cmd /c {inner}", cwd=REPO_ROOT) is not None
-    assert effects.classify_launch(["cmd", "/c", "start", "book.m4b"], cwd=REPO_ROOT)[0] == "native-desktop"
-    assert effects.classify_launch(["cmd", "/c", "call", "Setup_and_Run-audiobook-creation-tool.bat"], cwd=REPO_ROOT)[0] == "install"
-    assert effects.classify_launch(["/bin/sh", "-c", "winget install x"], cwd=REPO_ROOT)[0] == "install"
-    assert effects.classify_launch(["powershell", "-NoProfile", "-Command", "Invoke-WebRequest x"], cwd=REPO_ROOT) is not None
-    assert effects.classify_launch(["powershell", "-File", "scripts/shared/bootstrap_host.ps1", "-OutFile", "x"],
-                                   cwd=REPO_ROOT)[0] == "install", "stage 0 without -AssumeNo can install"
-    assert effects.classify_launch(["powershell", "-File", "scripts/shared/bootstrap_host.ps1", "-AssumeNo", "-Url",
-                                    "https://example.invalid"], cwd=REPO_ROOT) is not None
+    for command in (f"cmd /c {inner}", ["cmd", "/c", "start", "book.m4b"],
+                    ["cmd", "/c", "call", "Setup_and_Run-audiobook-creation-tool.bat"], ["cmd", "/c", "rem & calc"],
+                    ["cmd", "/c", "echo %PATH%"], ["cmd", "/k"], ["/bin/sh", "-c", "winget install x"],
+                    ["powershell", "-NoProfile", "-Command", "Invoke-WebRequest x"],
+                    ["powershell", "-EncodedCommand", "ZQBjAGgAbwA="],
+                    ["powershell", "-File", "scripts/shared/bootstrap_host.ps1", "-OutFile", "x"],
+                    ["powershell", "-File", "scripts/shared/bootstrap_host.ps1", "-AssumeNo", "-Url", "https://example.invalid"]):
+        verdict = effects.classify_launch(command, cwd=REPO_ROOT)
+        assert verdict is not None, command
+    if os.name == "nt":
+        assert effects.classify_launch(["cmd", "/c", "rem"], cwd=REPO_ROOT) is None
 
 
+@WINDOWS
 def test_stage_zero_runs_only_in_its_reviewed_no_install_shapes(tmp_path):
     """The real stage 0 handed a local archive would unpack into this checkout: refused. A copy in the test's own disposable
-    folder, given a local archive there, unpacks only into that copy: bounded. "-AssumeNo" never installs."""
-    archive = tmp_path / "cpython.tar.gz"
-    real = ["powershell", "-File", "scripts/shared/bootstrap_host.ps1", "-AssumeYes", "-ArchivePath", str(archive)]
-    assert effects.classify_launch(real, cwd=REPO_ROOT)[0] == "install"
+    folder, given a local archive there, unpacks only into that copy: bounded. Accepting a download is never routine."""
+    archive, out = tmp_path / "cpython.tar.gz", tmp_path / "selected.txt"
+    stage = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File"]
+    real = [*stage, "scripts/shared/bootstrap_host.ps1", "-OutFile", str(out), "-AssumeYes", "-ArchivePath", str(archive)]
+    assert effects.classify_launch(real, cwd=REPO_ROOT) is not None
     copy = tmp_path / "app" / "scripts" / "shared" / "bootstrap_host.ps1"
     copy.parent.mkdir(parents=True)
     shutil.copyfile(REPO_ROOT / "scripts" / "shared" / "bootstrap_host.ps1", copy)
-    assert effects.classify_launch(["powershell", "-File", str(copy), "-AssumeYes", "-ArchivePath", str(archive)],
+    assert effects.classify_launch([*stage, str(copy), "-OutFile", str(out), "-AssumeYes", "-ArchivePath", str(archive)],
                                    cwd=tmp_path) is None
-    assert effects.classify_launch(["powershell", "-File", str(copy), "-AssumeYes"], cwd=tmp_path)[0] == "install"
+    assert effects.classify_launch([*stage, str(copy), "-OutFile", str(out), "-AssumeYes"], cwd=tmp_path) is not None
+    copy.write_text(copy.read_text(encoding="ascii") + "\n# changed\n", encoding="ascii")
+    assert effects.classify_launch([*stage, str(copy), "-OutFile", str(out), "-AssumeNo"], cwd=tmp_path) is not None
 
 
 SETUP_BAT = "Setup_and_Run-audiobook-creation-tool.bat"
 SETUP_COMMAND = "Setup_and_Run-audiobook-creation-tool.command"
 
 
-def test_a_setup_launcher_is_syntax_checked_but_runs_only_as_a_copy_whose_backends_are_stand_ins(tmp_path):
-    """R1 (H1 with the launchers as launch roots): ``sh -n`` runs nothing; the real launcher, or a copy whose own stage 0 or
-    bootstrap is the real one, is refused; a copy in this session's disposable tree whose every backend pair has a stand-in
-    side is the reviewed bounded shape (the venv-recovery and packaging sandboxes)."""
-    assert effects.classify_launch(["bash", "-n", SETUP_COMMAND], cwd=REPO_ROOT) is None, "a syntax check"
-    assert effects.classify_launch(["bash", SETUP_COMMAND], cwd=REPO_ROOT)[0] == "install"
-    assert effects.classify_launch(["bash", "-nc", f"bash {SETUP_COMMAND}"], cwd=REPO_ROOT)[0] == "install", "-c in a group"
-    assert effects.classify_launch(["cmd", "/c", str(REPO_ROOT / SETUP_BAT)], cwd=REPO_ROOT)[0] == "install"
+STUB = ("import sys, pathlib\n"
+        "log = pathlib.Path(__file__).resolve().parents[2] / 'calls.log'\n"
+        "with log.open('a', encoding='utf-8') as fh:\n"
+        "    fh.write(' '.join(sys.argv[1:]) + '\\n')\n"
+        "sys.exit(0 if '--launch-only' in sys.argv else 0)\n")
 
-    # Windows sandbox: a real venv interpreter, a stub bootstrap, no stage 0.
+
+def test_a_setup_launcher_is_syntax_checked_but_runs_only_as_its_reviewed_sandbox_recipe(tmp_path):
+    """R2 (D-R2-4): ``bash -n`` over the launcher's exact bytes runs nothing; the real launcher is refused; a copy in this
+    session's disposable tree runs only as the reviewed sandbox recipe (the exact stub bootstrap, no stage 0, a venv that is
+    a disposable copy of this interpreter or a deliberately unrunnable file), with every fallback pinned."""
+    git = shutil.which("git")
+    bash = next((str(path) for path in ([Path(git).resolve().parent.parent / "usr" / "bin" / "bash.exe"] if git else [])
+                 if path.is_file()), shutil.which("bash") if os.name != "nt" else None)
+    if bash:  # Git for Windows' bash, or /bin/bash; System32's WSL relay is never a reviewed bash
+        assert effects.classify_launch([bash, "-n", SETUP_COMMAND], cwd=REPO_ROOT) is None, "a syntax check"
+        assert effects.classify_launch([bash, SETUP_COMMAND], cwd=REPO_ROOT) is not None
+        assert effects.classify_launch([bash, "-nc", f"bash {SETUP_COMMAND}"], cwd=REPO_ROOT) is not None, "-c in a group"
+    if os.name != "nt":
+        return
+    assert effects.classify_launch(["cmd", "/c", str(REPO_ROOT / SETUP_BAT)], cwd=REPO_ROOT) is not None
     win = tmp_path / "win"
     (win / "scripts" / "shared").mkdir(parents=True)
     shutil.copyfile(REPO_ROOT / SETUP_BAT, win / SETUP_BAT)
-    (win / "scripts" / "shared" / "bootstrap.py").write_text("import sys\nsys.exit(0)\n", encoding="utf-8")
-    assert effects.classify_launch(["cmd", "/c", str(win / SETUP_BAT)], cwd=win) is None
-    shutil.copyfile(REPO_ROOT / "scripts" / "shared" / "bootstrap.py", win / "scripts" / "shared" / "bootstrap.py")
-    assert effects.classify_launch(["cmd", "/c", str(win / SETUP_BAT)], cwd=win)[0] == "install", "the real bootstrap"
-    (win / "scripts" / "shared" / "bootstrap.py").write_text("import sys\nsys.exit(0)\n", encoding="utf-8")
+    stub = win / "scripts" / "shared" / "bootstrap.py"
+    stub.write_text(STUB, encoding="utf-8")
+    decision = effects.decide_launch(["cmd", "/c", str(win / SETUP_BAT)], cwd=win)
+    assert decision.outcome == effects.PROFILE and decision.profile == "setup-bat-sandbox", decision
+    path = dict(decision.env_patch)["PATH"].split(os.pathsep)
+    assert not any(part.lower().rstrip("\\") == os.environ.get("SystemRoot", r"C:\Windows").lower() for part in path), \
+        "the Windows folder (where py.exe lives) is never a fallback"
+    shutil.copyfile(REPO_ROOT / "scripts" / "shared" / "bootstrap.py", stub)
+    assert effects.classify_launch(["cmd", "/c", str(win / SETUP_BAT)], cwd=win) is not None, "the real bootstrap"
+    stub.write_text(STUB.replace("sys.exit", "import os; sys.exit"), encoding="utf-8")
+    assert effects.classify_launch(["cmd", "/c", str(win / SETUP_BAT)], cwd=win) is not None, "a changed stub"
+    stub.write_text(STUB, encoding="utf-8")
     shutil.copyfile(REPO_ROOT / "scripts" / "shared" / "bootstrap_host.ps1", win / "scripts" / "shared" / "bootstrap_host.ps1")
-    assert effects.classify_launch(["cmd", "/c", str(win / SETUP_BAT)], cwd=win)[0] == "install", "the real stage 0"
-
-    # macOS sandbox (the packaged archive): real bootstrap.py, but every interpreter that could run it is a text shim.
-    mac = tmp_path / "mac"
-    for relative in ("scripts/shared/bootstrap.py", "scripts/shared/close_terminal.py"):
-        (mac / relative).parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(REPO_ROOT / relative, mac / relative)
-    shutil.copyfile(REPO_ROOT / SETUP_COMMAND, mac / SETUP_COMMAND)
-    (mac / "scripts" / "shared" / "bootstrap_host_macos.sh").write_text("#!/bin/bash\nexit 0\n", encoding="utf-8")
-    for relative in (".venv/bin/python", "files/runtime-data/python/bin/python3.12"):
-        (mac / relative).parent.mkdir(parents=True, exist_ok=True)
-        (mac / relative).write_text("#!/bin/bash\nexit 0\n", encoding="utf-8")
-    assert effects.classify_launch(["bash", str(mac / SETUP_COMMAND)], cwd=mac) is None
-    (mac / ".venv/bin/python").write_bytes(b"\x7fELF a real interpreter")
-    assert effects.classify_launch(["bash", str(mac / SETUP_COMMAND)], cwd=mac)[0] == "install", "a real interpreter"
-
-    # Outside this session's disposable tree, the same stand-in layout is no exception.
-    outside = REPO_ROOT / "files" / "run-temp"
-    assert not effects._launcher_bounded(str(outside / SETUP_BAT), SETUP_BAT)
+    assert effects.classify_launch(["cmd", "/c", str(win / SETUP_BAT)], cwd=win) is not None, "the real stage 0"
+    (win / "scripts" / "shared" / "bootstrap_host.ps1").unlink()
+    (win / ".venv" / "Scripts").mkdir(parents=True)
+    (win / ".venv" / "Scripts" / "python.exe").write_bytes(b"MZ" + bytes(8192))
+    assert effects.classify_launch(["cmd", "/c", str(win / SETUP_BAT)], cwd=win) is not None, "an unknown interpreter"
+    (win / ".venv" / "Scripts" / "python.exe").write_bytes(b"not an executable")
+    assert effects.classify_launch(["cmd", "/c", str(win / SETUP_BAT)], cwd=win) is None, "a deliberately unrunnable file"
 
 
 def test_native_programs_are_reviewed_or_refused(tmp_path):
@@ -514,8 +614,8 @@ def test_a_real_launch_is_refused_before_any_process_exists():
         subprocess.Popen([str(ABSENT_ENGINE), "-c", "pass"])
     with effects.expected_refusals("install"), pytest.raises(effects.EffectRefused, match="install"):
         os.system("winget --version")
-    with effects.expected_refusals("real-app-launch"), pytest.raises(effects.EffectRefused, match="replacement environment"):
-        subprocess.run([sys.executable, "-c", "pass"], env={"PATH": os.environ.get("PATH", "")})
+    with effects.expected_refusals("real-app-launch"), pytest.raises(effects.EffectRefused, match="routine marker"):
+        subprocess.run([sys.executable, "-c", "import os"], env={"PATH": os.environ.get("PATH", "")})
 
 
 # --------------------------------------------------------------------------- #
@@ -598,7 +698,7 @@ def test_an_imported_scaling_callable_refuses_at_its_operation(monkeypatch):
 def _ledger_with(tmp_path: Path, *lines: str, header=True) -> Path:
     ledger = tmp_path / "led"
     if header:
-        effects.new_ledger(ledger)
+        effects.new_ledger(ledger, owner="routine-pytest")
     else:
         ledger.mkdir()
     if lines:
@@ -607,8 +707,10 @@ def _ledger_with(tmp_path: Path, *lines: str, header=True) -> Path:
     return ledger
 
 
-START = json.dumps({"kind": "start", "pid": 1, "ppid": 0, "role": "routine-pytest"}) + "\n"
-END = json.dumps({"kind": "end", "exit": 0, "refusals": 0, "unexpected": 0, "accounting": "ok"}) + "\n"
+START = json.dumps({"kind": "start", "pid": 1, "ppid": 0, "role": "routine-pytest", "participant": "1-abcd",
+                    "launch": None, "parent": None, "executable": "python", "created": None}) + "\n"
+MARK = json.dumps({"kind": "mark", "event": "accounting-initialized"}) + "\n"
+END = json.dumps({"kind": "end", "exit": 0, "refusals": 0, "unexpected": 0, "accounting": "ok", "how": "exit"}) + "\n"
 
 
 @pytest.mark.parametrize("case, needle", [
@@ -616,33 +718,33 @@ END = json.dumps({"kind": "end", "exit": 0, "refusals": 0, "unexpected": 0, "acc
     ("no-header", "uninitialized"),
     ("empty", "no completed routine-pytest session"),
     ("malformed-json", "not JSON"),
-    ("wrong-shape", "wrong shape"),
-    ("wrong-field-type", "wrong shape"),
+    ("wrong-shape", "where a record object belongs"),
+    ("wrong-field-type", "of the wrong type"),
     ("interrupted", "never completed"),
     ("accounting-failed", "accounting failed"),
-    ("unreadable", "unreadable"),
+    ("unreadable", "not UTF-8"),
     ("header-wrong-format", "unknown format"),
 ])
 def test_an_unverified_ledger_is_never_clean(tmp_path, case, needle):
     if case == "missing":
         path = tmp_path / "never-made"
     elif case == "no-header":
-        path = _ledger_with(tmp_path, START, END, header=False)
+        path = _ledger_with(tmp_path, START, MARK, END, header=False)
     elif case == "empty":
         path = _ledger_with(tmp_path)
     elif case == "malformed-json":
-        path = _ledger_with(tmp_path, START, "not json\n", END)
+        path = _ledger_with(tmp_path, START, MARK, "not json\n", END)
     elif case == "wrong-shape":
-        path = _ledger_with(tmp_path, START, "[1, 2]\n", END)
+        path = _ledger_with(tmp_path, START, MARK, "[1, 2]\n", END)
     elif case == "wrong-field-type":
-        path = _ledger_with(tmp_path, START, json.dumps({"kind": "refusal", "effect": "scaling", "detail": "x", "origin": "o",
+        path = _ledger_with(tmp_path, START, MARK, json.dumps({"kind": "refusal", "effect": "scaling", "detail": "x", "origin": "o",
                                                          "pid": 1, "expected": "no"}) + "\n", END)
     elif case == "interrupted":
-        path = _ledger_with(tmp_path, START)
+        path = _ledger_with(tmp_path, START, MARK)
     elif case == "accounting-failed":
-        path = _ledger_with(tmp_path, START, END.replace('"ok"', '"failed"'))
+        path = _ledger_with(tmp_path, START, MARK, END.replace('"ok"', '"failed"'))
     elif case == "unreadable":
-        path = _ledger_with(tmp_path, START.encode() + b"\xff\xfe\xfa" + END.encode())
+        path = _ledger_with(tmp_path, START.encode() + MARK.encode() + b"\xff\xfe\xfa" + END.encode())
     else:
         path = _ledger_with(tmp_path)
         (path / context.LEDGER_HEADER).write_text("[]", encoding="utf-8")
@@ -651,10 +753,11 @@ def test_an_unverified_ledger_is_never_clean(tmp_path, case, needle):
 
 
 def test_a_complete_clean_ledger_is_clean_and_an_unexpected_refusal_is_not(tmp_path):
-    clean = _ledger_with(tmp_path, START, END)
+    clean = _ledger_with(tmp_path, START, MARK, END)
     assert effects.read_ledger(clean, require_role="routine-pytest")["status"] == "PASS"
     refusal = json.dumps({"kind": "refusal", "effect": "scaling", "detail": "x", "origin": "o", "pid": 1, "expected": False})
-    (clean / "p2-abcd.jsonl").write_text(START + refusal + "\n" + END, encoding="utf-8")
+    (clean / "p1-abcd.jsonl").write_text(START + MARK + refusal + "\n" + END.replace('"unexpected": 0', '"unexpected": 1')
+                                         .replace('"refusals": 0', '"refusals": 1'), encoding="utf-8")
     verdict = effects.read_ledger(clean, require_role="routine-pytest")
     assert verdict["status"] == "FAIL" and len(verdict["unexpected"]) == 1
 
@@ -677,22 +780,35 @@ def test_a_ledger_write_failure_is_an_accounting_failure_never_absorbed(tmp_path
 
 
 def test_concurrent_writers_never_corrupt_the_ledger(tmp_path):
-    """Several processes and several threads record at once: each process owns its file, each thread takes the lock."""
-    ledger = effects.new_ledger(tmp_path / "c")
+    """Several processes and several threads record at once: each process owns its file, each thread takes the lock. Each
+    writer is a reserved launch of the ledger's owner, so the whole ledger reconciles (R2: no unreserved participant)."""
+    ledger = effects.new_ledger(tmp_path / "c", owner="test")
+    owner = context.ProcessRecord(ledger, "test")
+    owner.start()
     writer = ("import importlib.util, sys, threading\n"
               "s = importlib.util.spec_from_file_location('c', sys.argv[1]); m = importlib.util.module_from_spec(s); "
               "s.loader.exec_module(m)\n"
-              "r = m.ProcessRecord(sys.argv[2], 'writer'); r.start()\n"
+              "r = m.ProcessRecord(sys.argv[2], 'entrypoint', launch=sys.argv[3], parent=sys.argv[4]); r.start()\n"
               "def go(n):\n"
               "    for i in range(25):\n"
               "        r.refusal({'effect': 'scaling', 'detail': f'{n}-{i}', 'origin': 'o', 'pid': 1, 'expected': True})\n"
               "ts = [threading.Thread(target=go, args=(n,)) for n in range(4)]\n"
               "[t.start() for t in ts]; [t.join() for t in ts]\n"
               "r.end(exit_status=0, refusals=100, unexpected=0)\n")
-    children = [subprocess.Popen([sys.executable, "-c", writer, str(CONTEXT_HELPER), str(ledger)]) for _ in range(4)]
-    assert [child.wait(timeout=120) for child in children] == [0, 0, 0, 0]
+    launches = [context.new_launch() for _ in range(4)]
+    for launch in launches:
+        owner.reserve(launch, expect="entrypoint", identity="writer")
+    children = [subprocess.Popen([sys.executable, "-c", writer, str(CONTEXT_HELPER), str(ledger), launch, owner.participant])
+                for launch in launches]
+    for launch, child in zip(launches, children):
+        owner.spawned(launch, child.pid, executable=sys.executable, redirector=effects.is_redirector(sys.executable))
+    codes = [child.wait(timeout=120) for child in children]
+    for launch, child, code in zip(launches, children, codes):
+        owner.observed(launch, exit_status=code, how="exited", pid=child.pid)
+    owner.end(exit_status=0, refusals=0, unexpected=0)
+    assert codes == [0, 0, 0, 0]
     verdict = effects.read_ledger(ledger)
-    assert verdict["problems"] == [] and verdict["complete"] == 4 and len(verdict["refusals"]) == 400, verdict["problems"][:3]
+    assert verdict["problems"] == [] and verdict["complete"] == 5 and len(verdict["refusals"]) == 400, verdict["problems"][:3]
 
 
 def test_an_expected_refusal_is_scoped_to_its_thread_and_its_effect(tmp_path):
@@ -752,10 +868,10 @@ def _nested(tmp_path: Path, files: dict[str, str], *, with_conftest: bool, ledge
                f"--basetemp={tmp_path / 'nb'}", "--rootdir", str(suite)]
     if with_conftest:
         command += ["-p", "conftest"]  # the repository's own conftest.py as a plugin (cwd puts files/tests first on sys.path)
+    if background:  # the caller holds the scope open for as long as the session runs
+        return subprocess.Popen(command, cwd=TESTS, env=_clean_env(ledger), stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL), ledger
     with effects.expected_refusals(accounting="report") as scope:
-        if background:
-            return subprocess.Popen(command, cwd=TESTS, env=_clean_env(ledger), stdout=subprocess.DEVNULL,
-                                    stderr=subprocess.DEVNULL), ledger, scope
         done = subprocess.run(command, cwd=TESTS, env=_clean_env(ledger), capture_output=True, text=True, timeout=timeout)
     return done, scope.ledgers.get(str(ledger), effects.read_ledger(ledger))
 
@@ -878,14 +994,23 @@ def test_a_session_whose_ledger_is_missing_or_unwritable_is_never_a_pass(tmp_pat
     """M2: the stage-owned ledger was not initialized (missing) or cannot hold records (a file where the directory should be):
     every test passes, and the run still fails, because its accounting could not be established or completed."""
     files = {"test_fine.py": "def test_fine():\n    pass\n"}
-    done, _verdict = _nested(tmp_path, files, with_conftest=True, ledger_state=ledger_state)
-    assert done.returncode != 0, (done.stdout[-2000:], done.stderr[-2000:])
+    # R2: the session's accounting obligation cannot be reserved in a ledger that does not exist, so it never starts.
+    with pytest.raises(effects.EffectRefused, match="effect ledger"):
+        _nested(tmp_path, files, with_conftest=True, ledger_state=ledger_state)
 
 
 def test_an_interrupted_session_leaves_an_incomplete_ledger(tmp_path):
     """M2: a cooperating child killed before it completed its accounting is never verified clean."""
     files = {"test_waits.py": "import time\n\ndef test_waits():\n    time.sleep(120)\n"}
-    proc, ledger, scope = _nested(tmp_path, files, with_conftest=False, background=True)
+    with effects.expected_refusals(accounting="report") as scope:
+        proc, ledger = _nested(tmp_path, files, with_conftest=False, background=True)
+        _wait_and_kill(proc, ledger)
+    verdict = scope.ledgers[str(ledger)]
+    assert verdict["status"] == "FAIL" and any("ended without its own end record" in problem
+                                               for problem in verdict["problems"]), verdict
+
+
+def _wait_and_kill(proc, ledger) -> None:
     try:
         deadline = time.monotonic() + 120
         while time.monotonic() < deadline and not any(path.suffix == ".jsonl" for path in ledger.iterdir()):
@@ -894,8 +1019,6 @@ def test_an_interrupted_session_leaves_an_incomplete_ledger(tmp_path):
     finally:
         subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True) if os.name == "nt" else proc.kill()
         proc.wait(timeout=60)
-    verdict = effects.read_ledger(ledger, require_role="routine-pytest")
-    assert verdict["status"] == "FAIL" and any("never completed" in problem for problem in verdict["problems"]), verdict
 
 
 def test_the_synthetic_control_still_works_and_grants_nothing(tmp_path):
@@ -938,7 +1061,7 @@ def test_an_inherited_opt_in_is_scrubbed_before_any_test_module_is_imported(tmp_
     (suite / "test_env.py").write_text(textwrap.dedent(files["test_env.py"]), encoding="utf-8")
     ledger = effects.new_ledger(tmp_path / "l")
     env = _clean_env(ledger)
-    assert effects.classify_launch([sys.executable, "-c", "pass"], env={**env, "ACT_OMNIVOICE_P1_REAL": "1"}) is not None
+    assert effects.classify_launch([sys.executable, "-c", "import os"], env={**env, "ACT_OMNIVOICE_P1_REAL": "1"}) is not None
     with effects.expected_refusals() as scope:
         done = subprocess.run([sys.executable, "-c", WITH_OPT_IN, str(BOOTSTRAP), str(suite), "-q", "-p", "no:cacheprovider",
                                f"--basetemp={tmp_path / 'b'}", "--rootdir", str(suite)], cwd=TESTS, env=env,

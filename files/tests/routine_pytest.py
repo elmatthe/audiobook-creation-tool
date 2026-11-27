@@ -30,6 +30,10 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 
 
 def _load_effects():
+    loaded = sys.modules.get("routine_effects")
+    if loaded is not None and os.path.normcase(os.path.abspath(getattr(loaded, "__file__", "") or "")) == \
+            os.path.normcase(os.path.join(_HERE, "routine_effects.py")):
+        return loaded  # this process is already a bootstrapped routine child: one envelope per process
     spec = importlib.util.spec_from_file_location("routine_effects", os.path.join(_HERE, "routine_effects.py"))
     module = importlib.util.module_from_spec(spec)
     sys.modules["routine_effects"] = module  # conftest's ``import routine_effects`` finds this same instance
@@ -50,22 +54,31 @@ def main(argv: list[str]) -> int:
     owned = effects.ledger_owner == "routine-pytest"
 
     def account() -> None:
+        # Totally protected: whatever goes wrong here, the process ends non-zero unless the session and its accounting are
+        # both clean. An exception in an atexit callback cannot change the exit status, so the status is set with os._exit.
         code = 1 if state["exit"] is None else int(state["exit"])
-        final = effects.finish(code)
-        if owned and final == 0:
-            # This run created its ledger (a direct run): as its owner, judge it whole now that the session has ended --
-            # a cooperating child that never completed its record, or a malformed record, is not clean.
-            verdict = effects.read_ledger(os.environ[effects.LEDGER_ENV], require_role="routine-pytest")
-            if verdict["status"] != "PASS":
-                sys.stderr.write("routine_pytest: the effect ledger is not clean: " + "; ".join(
-                    verdict["problems"][:4] + [f"{row.get('effect')}: {row.get('detail')}" for row in verdict["unexpected"][:2]])
-                    [:2000] + "\n")
-                final = 1
-        late = effects.unexpected()
-        if final != code or late:
-            sys.stderr.write(f"routine_pytest: {len(late)} unexpected refusal(s), {len(effects.accounting_failures())} "
-                             "accounting failure(s); the run is not a pass\n")
-            sys.stderr.flush()
+        try:
+            final = effects.finish(code)
+            if owned and final == 0:
+                # This run created its ledger (a direct run): as its owner, judge it whole now that the session has ended --
+                # a required child that never accounted, a malformed record or an unexplained end is not clean.
+                verdict = effects.read_ledger(os.environ[effects.LEDGER_ENV], require_role="routine-pytest")
+                if verdict["status"] != "PASS":
+                    sys.stderr.write("routine_pytest: the effect ledger is not clean: " + "; ".join(
+                        verdict["problems"][:4] + [f"{row.get('effect')}: {row.get('detail')}"
+                                                   for row in verdict["unexpected"][:2]])[:2000] + "\n")
+                    final = 1
+            late = effects.unexpected()
+            if final != code or late:
+                sys.stderr.write(f"routine_pytest: {len(late)} unexpected refusal(s), {len(effects.accounting_failures())} "
+                                 "accounting failure(s); the run is not a pass\n")
+                sys.stderr.flush()
+        except BaseException as exc:  # noqa: BLE001
+            try:
+                sys.stderr.write(f"routine_pytest: the accounting could not be completed ({type(exc).__name__}: {exc})\n")
+                sys.stderr.flush()
+            finally:
+                os._exit(code or 1)
         if final != code:
             os._exit(final)
 

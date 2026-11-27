@@ -245,6 +245,7 @@ def test_the_lease_is_released_when_its_block_raises(tmp_path):
     assert free(folder) == ALL_FREE
 
 
+@pytest.mark.routine_stop("terminate-process")  # the code under test kills its child on purpose (D-R2-1)
 def test_a_holder_that_dies_releases_every_lock(tmp_path):
     """No stale-lock case: the operating system drops the locks of a killed process."""
     folder = tmp_path / "repo" / "files" / "runtime-data" / "qwen3"
@@ -283,6 +284,7 @@ def test_a_second_repair_of_the_same_copy_refuses_while_one_runs(env, monkeypatc
     assert_nothing_changed(env, keepsake, engine)
 
 
+@pytest.mark.routine_stop("terminate-process")  # the code under test kills its child on purpose (D-R2-1)
 def test_a_dead_worker_does_not_block_the_next_repair(env, monkeypatch):
     keepsake, engine = nested_parent(env, monkeypatch)
     with held_by_another_process("worker", lock_dir(env), kill=True):

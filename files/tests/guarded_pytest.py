@@ -296,6 +296,11 @@ class ProcessPolicy:
 
     def audit(self, event, args):
         if event == "subprocess.Popen":
+            # v0.8.2 Phase 1A-1 R2: a launch the routine envelope prepared (a bootstrapped Python child) is judged on the
+            # command, working directory and environment its caller asked for, not on the bootstrap form it runs as.
+            original = routine_effects.prepared_original()
+            if original is not None:
+                args = (args[0], original[0], original[1], original[2] if original[2] is not None else args[3])
             profile = self.approve(args[1], args[2])
             if profile and profile[0] == "read-only-calm-library-selfcheck":
                 env = args[3] or {}
@@ -387,20 +392,42 @@ def main(*, plugins=()):
                   "unintended_production_refusals": accidental, "allowed_processes": policy.allowed,
                   "unexpected_processes": policy.refused, "network_model_refusals": blocked}
         report["expected_negative_import_refusals"] = expected_blocked
-        routine_status = routine_effects.finish(int(code))
-        ledger = os.environ.get(routine_effects.LEDGER_ENV)
-        report["routine_accounting"] = {
-            "ledger": ledger, "bootstrap": routine_effects._bootstrapped,
-            "refusals": routine_effects.refusals(), "unexpected": routine_effects.unexpected(),
-            "accounting_failures": routine_effects.accounting_failures(),
-            "ledger_verdict": {key: value for key, value in routine_effects.read_ledger(ledger, require_role="guarded-pytest").items()
-                               if key in ("status", "problems", "processes", "complete", "roles")} if ledger else None}
-        routine_unclean = routine_status != int(code) or bool(report["routine_accounting"]["unexpected"]) or             bool(report["routine_accounting"]["accounting_failures"])
+        # The runner's own refusals decide its status before its routine end record is written, so that record carries the
+        # status this process exits with (R2: an observed exit that differs from the participant's own is a problem).
+        local = 1 if accidental or policy.refused or blocked else int(code)
+        try:
+            routine_status = routine_effects.finish(local)
+            ledger = os.environ.get(routine_effects.LEDGER_ENV)
+            # v0.8.2 Phase 1A-1 R2: the verdict is consumed, not only reported. The whole ledger is judged here when this
+            # runner owns it, or inside a gate stage (the gate's own record is still open: it ends after this process).
+            # A runner nested in another session shares that session's ledger, whose owner judges it whole when it ends
+            # (as routine_pytest does); here its own record must then be clean.
+            parent_role = None
+            if ledger and owned_ledger is None and routine_effects._record is not None:
+                live = routine_effects.read_ledger(ledger, live=True)["participants"]
+                parent = live.get(routine_effects._record.participant, {}).get("parent")
+                parent_role = live.get(parent, {}).get("role") if parent else None
+            nested = parent_role not in (None, "gate")
+            verdict = routine_effects.read_ledger(ledger, require_role="guarded-pytest", open_roles={"gate"}) \
+                if ledger and not nested else None
+            report["routine_accounting"] = {
+                "ledger": ledger, "bootstrap": routine_effects._bootstrapped,
+                "refusals": routine_effects.refusals(), "unexpected": routine_effects.unexpected(),
+                "accounting_failures": routine_effects.accounting_failures(),
+                "ledger_verdict": {key: value for key, value in verdict.items()
+                                   if key in ("status", "problems", "processes", "complete", "roles")} if verdict else
+                {"status": f"judged by its owner (a nested runner under a {parent_role})"} if nested else None}
+            routine_unclean = routine_status != local or bool(report["routine_accounting"]["unexpected"]) or \
+                bool(report["routine_accounting"]["accounting_failures"]) or \
+                (not nested and (verdict is None or verdict["status"] != "PASS"))
+        except BaseException as exc:  # noqa: BLE001 - the accounting failing is never a pass
+            report["routine_accounting"] = {"error": f"{type(exc).__name__}: {exc}"}
+            routine_unclean = True
         if counter.config:
             terminal = counter.config.pluginmanager.get_plugin("terminalreporter")
             report["counts"] = {key: len(value) for key, value in terminal.stats.items() if key in
                                 ("passed", "failed", "error", "skipped", "xfailed", "xpassed", "deselected")}
-        status = 1 if accidental or policy.refused or blocked or routine_unclean else int(code)
+        status = 1 if routine_unclean else local
         report["outer_exit"] = status
         try:
             report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
@@ -442,16 +469,36 @@ def main(*, plugins=()):
 
     sys.addaudithook(network_model_guard)
     # The common routine envelope, after the stronger hooks above (they see every event first) and before pytest exists.
+    owned_ledger = None
     if not os.environ.get(routine_effects.LEDGER_ENV):
-        routine_effects.new_ledger(report_path.with_name(report_path.stem + "-effects"), owner="guarded-pytest")
-        os.environ[routine_effects.LEDGER_ENV] = str(report_path.with_name(report_path.stem + "-effects"))
+        owned_ledger = routine_effects.new_ledger(report_path.with_name(report_path.stem + "-effects"),
+                                                  owner="guarded-pytest")
+    routine_effects.set_profile_authority(
+        lambda argv, cwd, env: (policy.approve(argv, cwd) or (None,))[0])
+    routine_effects.bootstrap("guarded-pytest", arguments, ledger=owned_ledger)
     routine_effects.own_disposable(process_temp)
-    routine_effects.set_profile_authority(lambda command, cwd: policy.approve(command, cwd))
-    routine_effects.bootstrap("guarded-pytest", arguments)
     import pytest
     code = pytest.main(arguments, plugins=[counter, *plugins])
     return int(code)
 
 
+def _account_refused_start() -> None:
+    """A runner its parent reserved (it inherits a launch) that refuses its arguments before it runs anything still
+    accounts for itself: it binds to its reservation and ends with the status it exits with (R2: a reserved child that
+    never initialized is never clean). A top-level runner has no obligation to meet."""
+    if os.environ.get(routine_effects.LAUNCH_ENV) and os.environ.get(routine_effects.LEDGER_ENV) \
+            and routine_effects._bootstrapped is None:
+        try:
+            routine_effects.bootstrap("guarded-pytest", sys.argv[3:])
+            routine_effects.finish(1)
+        except Exception:  # noqa: BLE001 - the refusal stands; an unbound child stays unaccounted, which is never clean
+            traceback.print_exc()
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        status = main()
+    except ValueError:
+        _account_refused_start()
+        raise
+    sys.exit(status)

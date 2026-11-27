@@ -130,6 +130,31 @@ def local_only_entry(path: str, local_only, *, case_sensitive: bool) -> str | No
     return next((entry for entry in local_only if matches(normalized, entry, case_sensitive=case_sensitive)), None)
 
 
+class PrivacyViolation(RuntimeError):
+    """Local-only (owner-private) paths are tracked: nothing is read or recorded until that is fixed; no name is disclosed."""
+
+
+def private_predicate(local_only, *, case_sensitive: bool):
+    """Phase 1A-1 R2 (C2): the one test of whether a repository path is owner-private, applied before anything is read --
+    selection, the tree fingerprint, the incremental-evidence file map and the candidate identity alike."""
+    entries = tuple(local_only or ())
+    return lambda path: bool(path) and local_only_entry(path, entries, case_sensitive=case_sensitive) is not None
+
+
+def tracked_private_count(root: Path, local_only, *, case_sensitive: bool | None = None) -> int:
+    """How many index entries are at local-only paths (NUL-separated Git metadata only; no file is read, no name kept)."""
+    folded = repo_files.Inventory(Path(root), case_sensitive=case_sensitive).case_sensitive
+    private = private_predicate(local_only, case_sensitive=folded)
+    return sum(1 for path in _git(Path(root), "ls-files", "-z", "--cached")[1].split("\0") if private(path))
+
+
+def require_untracked_private(root: Path, local_only, *, case_sensitive: bool | None = None) -> None:
+    count = tracked_private_count(root, local_only, case_sensitive=case_sensitive)
+    if count:
+        raise PrivacyViolation(f"{count} tracked path(s) at owner-declared local-only entries (names withheld): local-only "
+                               "files are never tracked, and nothing is read or recorded until they are untracked")
+
+
 def resolve_base(root: Path, base: str, head: str) -> dict:
     if not base or base != base.strip() or base.startswith("-"):
         raise ChangeError(f"--base {base!r} is not a revision")

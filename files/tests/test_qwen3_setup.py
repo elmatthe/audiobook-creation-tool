@@ -760,6 +760,7 @@ def test_two_installs_cannot_run_at_once(sandbox):
     again.release()
 
 
+@pytest.mark.routine_stop("terminate-job")  # the code under test ends its worker's Job on purpose (D-R2-1)
 def test_an_install_in_another_process_of_this_copy_blocks_us_and_a_crash_never_leaves_it_stale(sandbox):
     """Same installation, second process (a second launch of this copy). Separate copies are kept apart on the GPU by
     ``rt.MachineGuard`` instead; see test_qwen3_runtime's cross-installation tests."""

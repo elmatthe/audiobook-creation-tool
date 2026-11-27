@@ -185,6 +185,8 @@ class ExecutionPlan:
     def status(self) -> str:
         if self.native_platform not in self.target_platforms:
             return "BLOCKED"
+        if (self.candidate or {}).get("violations"):
+            return "BLOCKED"  # Phase 1A-1 R2 (C2): tracked local-only paths; nothing runs, and no name is disclosed
         if self.gaps or any(item.requested for item in self.withheld):
             return "INCOMPLETE"
         work = bool(self.pytest_selectors() or self.static_checks or self.journeys or self.scenario)

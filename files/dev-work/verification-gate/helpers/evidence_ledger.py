@@ -83,16 +83,27 @@ def _git(root: Path, *args: str, stdin: str | None = None) -> str:
 # --------------------------------------------------------------------------- #
 #  What files a tree holds, as git blobs (so CRLF working bytes compare as Git stores them)
 # --------------------------------------------------------------------------- #
-def blob_map(root: Path) -> dict[str, str]:
-    """Every tracked file and every untracked, non-ignored file in SCOPES, by its blob id as the working tree has it now."""
+def blob_map(root: Path, *, local_only=(), case_sensitive: bool | None = None) -> dict[str, str]:
+    """Every tracked file and every untracked, non-ignored file in SCOPES, by its blob id as the working tree has it now.
+
+    Phase 1A-1 R2 (C2): owner-private (local-only) paths are excluded before anything is hashed, and a tracked one stops the
+    map without naming it (git_changes.PrivacyViolation). A path Git's line-based input cannot carry is refused, not split."""
+    from helpers import git_changes
+
     root = Path(root)
+    git_changes.require_untracked_private(root, local_only, case_sensitive=case_sensitive)
+    folded = repo_files.Inventory(root, case_sensitive=case_sensitive).case_sensitive
+    private = git_changes.private_predicate(local_only, case_sensitive=folded)
     found: dict[str, str] = {}
     for line in _git(root, "ls-files", "-s", "-z").split("\0"):
         if line:
             meta, path = line.split("\t", 1)
             found[path] = meta.split()[1]
-    changed = [p for p in _git(root, "diff", "--name-only", "-z").split("\0") if p]
-    untracked = [p for p in _git(root, "ls-files", "-z", "--others", "--exclude-standard", "--", *SCOPES).split("\0") if p]
+    changed = [p for p in _git(root, "diff", "--name-only", "-z").split("\0") if p and not private(p)]
+    untracked = [p for p in _git(root, "ls-files", "-z", "--others", "--exclude-standard", "--", *SCOPES).split("\0")
+                 if p and not private(p)]
+    if any("\n" in p or "\r" in p for p in changed + untracked):
+        raise RuntimeError("a changed or untracked path holds a line break: it cannot be hashed by path safely")
     present = [p for p in changed + untracked if (root / p).is_file()]
     for path in changed:
         if not (root / path).exists():
@@ -140,6 +151,8 @@ class Closures:
         self.unsafe: set[str] = set()
         #: Importing file -> the dotted names it imports that resolve in more than one root (R1, C4).
         self.ambiguous: dict[str, set[str]] = {}
+        #: (importing file, dotted name) -> every file the name resolves to (R2, C4): the candidates of an ambiguous edge.
+        self.ambiguous_candidates: dict[tuple[str, str], tuple[str, ...]] = {}
         #: Files with a dynamic import of a computed name (R1, C4).
         self.dynamic: set[str] = set()
         #: Every dotted name each parsed file imports, resolved or not, so a deleted module's consumers can still be found.
@@ -215,6 +228,7 @@ class Closures:
             targets = self._resolve_all(dotted, base)
             if len(targets) > 1:
                 self.ambiguous.setdefault(relative, set()).add(dotted)
+                self.ambiguous_candidates[(relative, dotted)] = tuple(sorted(targets))
             found.update(targets)
 
         for node in ast.walk(tree):

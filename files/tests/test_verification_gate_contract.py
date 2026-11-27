@@ -61,7 +61,8 @@ class Tree:
         self.tests.mkdir(parents=True)
         shutil.copytree(GATE_DIR, self.gate, ignore=shutil.ignore_patterns("outputs", "__pycache__"))
         # routine_pytest.py and routine_effects.py: the gate's ordinary stages start pytest through them (v0.8.2 Phase 1A-1).
-        for name in ("gate_session_probe.py", "guarded_pytest.py", "write_tripwire.py", "routine_effects.py", "routine_pytest.py"):
+        for name in ("gate_session_probe.py", "guarded_pytest.py", "write_tripwire.py", "routine_effects.py", "routine_pytest.py",
+                     "routine_child.py", "routine_fixtures.py"):
             shutil.copyfile(TESTS_SOURCE / name, self.tests / name)
         self.write("files/tests/conftest.py", "import gate_session_probe\n\n\ndef pytest_configure(config):\n"
                                               "    gate_session_probe.register(config)\n")
@@ -73,9 +74,10 @@ class Tree:
         self.write("pytest.ini", "[pytest]\ntestpaths = files/tests\nnorecursedirs = dev-work\n")
         self.write(".gitignore", "__pycache__/\n*.pyc\nfiles/dev-work/*\n!files/dev-work/verification-gate/\n"
                                  "files/dev-work/verification-gate/outputs/\n" + routine_effects.context.SYNTHETIC_DECLARATION + "\n")
-        # v0.8.2 Phase 1A-1 R1: this tree is a reviewed synthetic gate fixture (helpers/routine_context.py). Its gate copy may run
-        # inside routine verification only because this declaration names the tree, the tree lies in this session's own
-        # disposable root, and its runners start only declared stand-ins (declare); a real runner copied here still refuses.
+        # v0.8.2 Phase 1A-1 R1/R2: this tree is a reviewed synthetic gate fixture (helpers/routine_context.py, format 2). Its gate
+        # copy may run inside routine verification only because this declaration names the tree, the tree lies in this
+        # session's own disposable root, its orchestrator, runners and envelope are the checkout's own bytes, and its runners
+        # start only reviewed recipes (declare); a real, modified or historical runner copied here still refuses.
         declare_fixture(root, {})
         # The real static gates judge this tree, so they read the real rules and the real pinned files.
         shutil.copytree(REPO_ROOT / "scripts" / "shared", root / "scripts" / "shared",
@@ -119,12 +121,23 @@ class Tree:
     def policy(self) -> dict:
         return json.loads((self.gate / "verification.json").read_text(encoding="utf-8"))
 
-    def declare(self, *relatives: str) -> None:
-        """Declare files of this tree as synthetic stand-ins for the runners they replace (their exact bytes)."""
-        declared = json.loads((self.root / routine_effects.context.SYNTHETIC_DECLARATION).read_text(encoding="utf-8"))["synthetic"]
-        for relative in relatives:
-            declared[relative] = hashlib.sha256((self.root / relative).read_bytes()).hexdigest()
+    def declare(self, relative: str, recipe: str) -> None:
+        """Declare a file of this tree as the reviewed synthetic recipe standing in for the runner it replaces (Phase 1A-1 R2:
+        it is a stand-in only while its bytes are exactly that recipe's source and its data file validates)."""
+        declared = json.loads((self.root / routine_effects.context.SYNTHETIC_DECLARATION).read_text(encoding="utf-8"))["recipes"]
+        declared[relative] = recipe
         declare_fixture(self.root, declared)
+
+    def stand_in(self, relative: str, recipe: str, data=None) -> Path:
+        """Put the reviewed recipe's exact source at ``relative``, its data beside it, and declare it."""
+        known = routine_effects.context.SYNTHETIC_RECIPES[recipe]
+        path = self.root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes((REPO_ROOT / known["source"]).read_bytes())
+        if known["data"]:
+            path.with_name(known["data"]).write_text(json.dumps(data if data is not None else {}), encoding="utf-8")
+        self.declare(relative, recipe)
+        return path
 
     def commit(self, message: str = "change") -> None:
         git(self.root, "add", "-A")
@@ -171,10 +184,10 @@ class Tree:
         return outcome
 
 
-def declare_fixture(root: Path, synthetic: dict) -> None:
+def declare_fixture(root: Path, recipes: dict) -> None:
     """Write the synthetic-fixture declaration of a disposable gate tree (helpers/routine_context.py synthetic_fixture)."""
     (root / routine_effects.context.SYNTHETIC_DECLARATION).write_text(json.dumps(
-        {"format": routine_effects.context.SYNTHETIC_FORMAT, "root": str(root.resolve()), "synthetic": synthetic,
+        {"format": routine_effects.context.SYNTHETIC_FORMAT, "root": str(root.resolve()), "recipes": recipes,
          "purpose": "test_verification_gate_contract.py synthetic gate tree"}), encoding="utf-8")
 
 
@@ -231,7 +244,7 @@ def tree(template_tree, tmp_path_factory) -> Tree:
     instance.tests = root / "files" / "tests"
     instance.gate = root / "files" / "dev-work" / "verification-gate"
     instance.outputs = instance.gate / "outputs"
-    declared = json.loads((root / routine_effects.context.SYNTHETIC_DECLARATION).read_text(encoding="utf-8"))["synthetic"]
+    declared = json.loads((root / routine_effects.context.SYNTHETIC_DECLARATION).read_text(encoding="utf-8"))["recipes"]
     declare_fixture(root, declared)  # the copy is its own tree: the declaration names this one, never the template
     return instance
 
@@ -573,8 +586,18 @@ LEDGER_DAMAGE = """\
             elif action == "wrong-shape":
                 (ledger / "p1-0001.jsonl").write_text("[1, 2]\\n", encoding="utf-8")
             elif action == "interrupted":
-                (ledger / "p1-0002.jsonl").write_text(json.dumps({{"kind": "start", "pid": 1, "ppid": 0,
-                                                                  "role": "routine-pytest"}}) + "\\n", encoding="utf-8")
+                # The stage's own session, as if killed after its last test: its end record is gone.
+                for record in sorted(ledger.glob("p*.jsonl")):
+                    rows = record.read_text(encoding="utf-8").splitlines(keepends=True)
+                    if rows and json.loads(rows[0]).get("role") == "routine-pytest" and \\
+                            json.loads(rows[-1]).get("kind") == "end":
+                        record.write_text("".join(rows[:-1]), encoding="utf-8")
+            elif action == "no-session":
+                # No record of the stage's own runner at all (R1's bypass-bootstrap shape, made without a raw launch).
+                for record in sorted(ledger.glob("p*.jsonl")):
+                    rows = record.read_text(encoding="utf-8").splitlines()
+                    if rows and json.loads(rows[0]).get("role") == "routine-pytest":
+                        record.unlink()
         return real_check(self)
 
     gate.GateRun.check_routine_effects = damaged
@@ -587,12 +610,13 @@ LEDGER_DAMAGE = """\
     ("malformed", "not JSON"),
     ("wrong-shape", "wrong shape"),
     ("interrupted", "never completed"),
-    ("bypass-bootstrap", "no completed routine-pytest session"),
+    ("no-session", "no completed routine-pytest session"),
 ])
 def test_the_gate_never_passes_a_stage_whose_effect_accounting_cannot_be_verified(tree, action, needle):
     """M2 at the gate: every test passes, and the focused run is still FAIL when its stage ledger is missing, malformed, of
-    the wrong shape, holds a process that never completed, or holds no completed session of the stage's own runner (pytest
-    started without the routine bootstrap). The no-change control passes."""
+    the wrong shape, holds a process that never completed, or holds no completed session of the stage's own runner. The
+    no-change control passes. (A stage pytest started without the routine bootstrap is refused at its launch since R2,
+    D-R2-6: see the test below.)"""
     launcher = _patched_gate(tree, LEDGER_DAMAGE.format(action=action))
     outcome = tree.run("--mode", "focused", "--test=files/tests/test_ordinary.py", script=launcher)
     effects_check = outcome.check("routine-effects")
@@ -605,20 +629,38 @@ def test_the_gate_never_passes_a_stage_whose_effect_accounting_cannot_be_verifie
         assert outcome.code == 1 and effects_check["status"] == "FAIL" and needle in effects_check["detail"], effects_check
 
 
+def test_a_stage_pytest_started_without_the_routine_bootstrap_is_refused_before_it_runs(tree, tmp_path):
+    """M2/H2 at the gate (R2, D-R2-6; replaces R1's ``bypass-bootstrap`` case, which let raw ``python -m pytest`` run and
+    failed the stage afterwards for its missing session). The same test module, holding a harmless execution sentinel:
+    through the supported routine bootstrap the stage runs it (the sentinel is written, the run passes); started as raw
+    ``python -m pytest`` the launch is refused before anything runs: the sentinel stays untouched, the stage and the run are
+    not a pass, and the refusal is the launch's own, recorded in the gate's ledger."""
+    sentinel = tmp_path / "executed.txt"
+    tree.write("files/tests/test_ordinary.py",
+               PASSING + f"\nimport pathlib\npathlib.Path({str(sentinel)!r}).write_text('ran', encoding='utf-8')\n")
+    supported = tree.run("--mode", "focused", "--test=files/tests/test_ordinary.py")
+    assert supported.code == 0 and supported.check("pytest")["status"] == "PASS", supported
+    assert sentinel.read_text(encoding="utf-8") == "ran", "the positive control: the bootstrap runs the module"
+    sentinel.unlink()
+    launcher = _patched_gate(tree, LEDGER_DAMAGE.format(action="bypass-bootstrap"))
+    ledger = routine_effects.new_ledger(tmp_path / "gl")
+    with routine_effects.expected_refusals("real-app-launch") as scope:
+        outcome = tree.run("--mode", "focused", "--test=files/tests/test_ordinary.py", script=launcher,
+                           env={routine_effects.LEDGER_ENV: str(ledger)})
+    stage = outcome.check("pytest")
+    assert not sentinel.exists(), "a refused launch must run nothing"
+    assert outcome.code != 0 and outcome.results["status"] != "PASS", outcome
+    assert stage["status"] in ("BLOCKED", "FAIL", "NOT RUN") and "could not be started" in stage["detail"], stage
+    refusals = scope.ledgers[str(ledger)]["refusals"]
+    assert [row["effect"] for row in refusals] == ["real-app-launch"], refusals
+    assert "outside the routine bootstrap" in refusals[0]["detail"], refusals
+
+
 def test_a_scenario_runner_that_reports_pass_without_exiting_zero_is_not_a_pass(tree):
     """The verdict file alone cannot make a PASS: the runner's own exit status must agree with it."""
-    runner = tree.gate / "scaling" / "qualify.py"
-    runner.write_text(textwrap.dedent('''
-        import json, sys
-        from pathlib import Path
-        out = Path(sys.argv[sys.argv.index("--out") + 1])
-        out.mkdir(parents=True)
-        (out / "progress.log").write_text("started\\n")
-        (out / "verdict.json").write_text(json.dumps({"scenario": "m4b-scaling", "status": "PASS", "reason": "lies",
-                                                      "checks": [], "runs": 0}))
-        sys.exit(1)
-    '''), encoding="utf-8")
-    tree.declare("files/dev-work/verification-gate/scaling/qualify.py")
+    tree.stand_in("files/dev-work/verification-gate/scaling/qualify.py", "scenario-runner",
+                  {"runs": 0, "code": 1, "before": [], "verdict": {"scenario": "m4b-scaling", "status": "PASS",
+                                                                    "reason": "lies", "checks": [], "runs": 0}})
     tree.commit("a runner that lies")
     outcome = tree.run("--mode", "qualification", "--scenario", "m4b-scaling")
     assert outcome.code == 1, outcome
@@ -1220,6 +1262,7 @@ def _wait_gone(pid: int, seconds: float = 15) -> bool:
     return not _pid_alive(pid)
 
 
+@pytest.mark.routine_stop("terminate-process")  # the stranger is killed on purpose at the end (D-R2-1)
 def test_a_grandchild_left_behind_is_a_failed_cleanup_and_an_unrelated_process_survives(tree):
     """Pytest passes and exits, its grandchild does not. The run fails for that, the tree dies, a stranger does not."""
     pid_file = tree.root / "grandchild.pid"
@@ -1301,6 +1344,7 @@ def test_output_too_large_for_a_pipe_cannot_block_the_gate(tree):
 
 
 @pytest.mark.parametrize("stage", ["pytest"])
+@pytest.mark.routine_stop("terminate-process")  # the gate is killed outright on purpose; its own kill-on-close Job ends its tree
 def test_killing_the_gate_kills_its_tree_and_leaves_an_incomplete_run(tree, stage):
     """Nobody is left to clean up, and the kill-on-close job does it anyway. Also proves the marker survives a real kill."""
     pid_file = tree.root / "grandchild.pid"
@@ -1721,45 +1765,12 @@ def test_only_history_and_the_absence_tests_may_name_the_retired_gate_path():
 # The native and real-media stage, proved from outside with a scripted runner (v0.7.2 Phase 3)
 # --------------------------------------------------------------------------- #
 #: Stands where acceptance_runner.py stands, as a real child under the gate's real job: it writes what it is told to and exits as it is told to.
-_SCRIPTED_RUNNER = """
-import argparse, json, os, sys, time
-from pathlib import Path
-parser = argparse.ArgumentParser()
-for name in ("report", "token", "evidence", "scratch"):
-    parser.add_argument("--" + name)
-parser.add_argument("--only", action="append", default=[])
-args = parser.parse_args()
-script = json.loads((Path(__file__).parent / "scripted.json").read_text(encoding="utf-8"))
-if script.get("hang"):
-    time.sleep(120)
-if script.get("no_report"):
-    sys.exit(script.get("exit", 0))
-evidence = Path(args.evidence)
-entries = []
-for identifier in args.only:
-    folder = evidence / identifier
-    (folder / "screenshots").mkdir(parents=True)
-    (folder / "app-actions.jsonl").write_text("{}", encoding="utf-8")
-    (folder / "screenshots" / "done.png").write_bytes(bytes.fromhex("89504e470d0a1a0a") + bytes(32))
-    entry = {"id": identifier, "tool": "mp3-tool", "layers": ["native", "media"], "tier": "journey", "status": "PASS", "reason": "", "seconds": 1.0,
-             "checks": [{"name": "output", "ok": True, "detail": ""}], "outputs": [{"name": "a.mp3", "bytes": 1, "sha256": "ab"}],
-             "fixtures": [{"id": "t", "kind": "mp3-track", "validation": [{"name": "decodes", "ok": True}]}],
-             "screenshots": [{"name": "done.png", "path": identifier + "/screenshots/done.png"}], "native_inputs": 3, "sessions": ["app"], "notes": {}}
-    entry.update(script.get("entry", {}))
-    entries.append(entry)
-report = {"schema_version": 1, "token": script.get("token", args.token), "registered": script.get("registered", args.only), "scenarios": entries,
-          "finished": True, "unknown": [], "runtime_before": {"a": 1}, "runtime_after": script.get("after", {"a": 1}),
-          "dialog_history": {"preflight": {"verdict": "contained"}, "before": 0, "after": 0, "added": {}}}
-report.update(script.get("report", {}))
-Path(args.report).write_text(json.dumps(report), encoding="utf-8")
-sys.exit(script.get("exit", 0))
-"""
+#: Phase 1A-1 R2: the scripted runner is the reviewed recipe files/tests/routine_recipes/scripted_acceptance_runner.py,
+#: driven by its validated scripted.json.
 
 
 def _with_runner(tree, script=None, *, required=("mp3.journey",), tools=("mp3-tool",), **policy_overrides) -> None:
-    tree.write("files/dev-work/verification-gate/acceptance_runner.py", _SCRIPTED_RUNNER)
-    tree.declare("files/dev-work/verification-gate/acceptance_runner.py")
-    tree.write("files/dev-work/verification-gate/scripted.json", json.dumps(script or {}))
+    tree.stand_in("files/dev-work/verification-gate/acceptance_runner.py", "scripted-acceptance-runner", script or {})
     policy = tree.policy()
     policy["acceptance"] = {"required_tools": list(tools), "required_scenarios": list(required), "optional_scenarios": [], "journey_routes": {},
                             # v0.8.x P1B: the macOS gate judges by its darwin map; Windows never reads it.
@@ -2002,33 +2013,20 @@ def test_a_runs_scratch_carries_its_owner_and_the_audit_reads_it(tree):
 # no test and runs no journey, so every true qualification PASS read INVALID (Phase 7B's among them): the reader could
 # refuse a true PASS, though never certify a false one. Each test below makes a real run with a real runner of the
 # scenario, through the gate, and reads it back through the public --status.
-SCENARIO_RUNNER = '''
-import json, subprocess, sys, time
-from pathlib import Path
-out = Path(sys.argv[sys.argv.index("--out") + 1])
-out.mkdir(parents=True)
-(out / "progress.log").write_text("started\\n")
-head = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
-(out / "identity.json").write_text(json.dumps({{"scenario": "m4b-scaling", "head": head}}))
-(out / "runs.json").write_text(json.dumps([{{"label": f"run-{{n}}"}} for n in range({runs})]))
-{before}
-{write_verdict}
-sys.exit({code})
-'''
+#: Phase 1A-1 R2: the scenario's runner is the reviewed recipe files/tests/routine_recipes/scenario_runner.py; what it
+#: does beyond a scenario run's fixed steps is data in its closed vocabulary (scenario.json).
 TWO_CHECKS = [{"name": "T8:one", "status": "PASS", "detail": "identical"}, {"name": "T1", "status": "PASS", "detail": "2.1x"}]
 #: What this small tree's policy says a PASS of the scenario holds: the two checks above, by name and by family, and three runs.
 SMALL_PASS = {"checks": 2, "runs": 3, "names": ["T1"], "families": {"T8:": 1}}
 _UNSET = object()
 
 
-def _qualification(tree, verdict, code: int, *, before: str = "", requires=_UNSET, stage: dict | None = None):
+def _qualification(tree, verdict, code: int, *, before=(), requires=_UNSET, stage: dict | None = None):
     """One real qualification run of m4b-scaling whose runner leaves its identity and its runs, writes *verdict* (a string is
-    written as it is; ``None`` writes no verdict) and exits *code*. *before* runs just before the verdict is written."""
+    written as it is; ``None`` writes no verdict) and exits *code*. *before* (operations of the recipe's vocabulary) runs just
+    before the verdict is written."""
     counted = verdict.get("runs") if isinstance(verdict, dict) else 0
-    written = ("" if verdict is None else f'(out / "verdict.json").write_text({verdict!r})' if isinstance(verdict, str)
-               else f'(out / "verdict.json").write_text(json.dumps({verdict!r}))')
-    (tree.gate / "scaling" / "qualify.py").write_text(textwrap.dedent(SCENARIO_RUNNER).format(
-        write_verdict=written, code=code, before=before, runs=counted if type(counted) is int else 0), encoding="utf-8")
+    data = {"runs": counted if type(counted) is int else 0, "verdict": verdict, "code": code, "before": [list(op) for op in before]}
     policy = tree.policy()
     if requires is None:
         policy["scenarios"]["m4b-scaling"].pop("pass_requires", None)
@@ -2037,7 +2035,7 @@ def _qualification(tree, verdict, code: int, *, before: str = "", requires=_UNSE
     if stage is not None:
         policy["stages"]["qualification"] = stage
     tree.write_policy(policy)
-    tree.declare("files/dev-work/verification-gate/scaling/qualify.py")
+    tree.stand_in("files/dev-work/verification-gate/scaling/qualify.py", "scenario-runner", data)
     tree.commit("a small runner for the scenario")
     return tree.run("--mode", "qualification", "--scenario", "m4b-scaling")
 
@@ -2102,13 +2100,12 @@ def test_a_pass_verdict_from_a_runner_that_did_not_exit_zero_reads_fail_never_pa
     assert status.returncode == 1 and "status: FAIL" in status.stdout, status.stdout
 
 
+@pytest.mark.routine_stop("terminate-process")  # the gate is killed outright on purpose; its own kill-on-close Job ends its tree
 def test_a_qualification_stopped_part_way_is_incomplete_and_never_a_pass(tree):
     """A real interruption: the gate is killed while the scenario's runner works. What is left has no verdict."""
     started = tree.root / "runner-started"
-    (tree.gate / "scaling" / "qualify.py").write_text(textwrap.dedent(SCENARIO_RUNNER).format(
-        write_verdict=f'(out / "verdict.json").write_text(json.dumps({_verdict("PASS")!r}))', code=0, runs=3,
-        before=f"Path({str(started)!r}).write_text('x')\ntime.sleep(120)"), encoding="utf-8")
-    tree.declare("files/dev-work/verification-gate/scaling/qualify.py")
+    tree.stand_in("files/dev-work/verification-gate/scaling/qualify.py", "scenario-runner",
+                  {"runs": 3, "verdict": _verdict("PASS"), "code": 0, "before": [["touch", str(started)], ["sleep", 120]]})
     tree.commit("a runner that is still working")
     proc = subprocess.Popen([sys.executable, str(tree.gate / "verify.py"), "--mode", "qualification", "--scenario", "m4b-scaling"],
                             cwd=tree.outside, env=tree.environment(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -2335,7 +2332,7 @@ def test_a_runner_stopped_by_the_gate_after_writing_pass_is_not_a_pass(tree):
     """An interrupted child: the PASS verdict is on disk, but the runner never exited by itself. The gate stops it at its
     budget, and what it stopped did not pass."""
     outcome = _qualification(tree, _verdict("PASS"), 0, stage={"timeout_seconds": 8, "stall_seconds": 60},
-                             before=f'(out / "verdict.json").write_text(json.dumps({_verdict("PASS")!r}))\ntime.sleep(300)')
+                             before=[["write-verdict", _verdict("PASS")], ["sleep", 300]])
     answers = _answers(tree, outcome)
     stage = [s for s in outcome.results["stages"] if s["name"] == "qualification:m4b-scaling"][0]
     assert stage["ended"] != "exited", stage
@@ -2344,20 +2341,19 @@ def test_a_runner_stopped_by_the_gate_after_writing_pass_is_not_a_pass(tree):
 
 
 @pytest.mark.parametrize("before, requires, needle", [
-    ('(out / "identity.json").unlink()', _UNSET, "no readable identity.json"),
-    ('(out / "identity.json").write_text("{ not json")', _UNSET, "no readable identity.json"),
-    ('(out / "identity.json").write_text(json.dumps({"scenario": "m4b-scaling", "head": "0" * 40}))', _UNSET,
+    ([["unlink", "identity.json"]], _UNSET, "no readable identity.json"),
+    ([["write", "identity.json", "{ not json"]], _UNSET, "no readable identity.json"),
+    ([["write-identity", "m4b-scaling", "0" * 40]], _UNSET,
      "the scenario measured HEAD '0000000000000000000000000000000000000000'"),
-    ('(out / "identity.json").write_text(json.dumps({"scenario": "edge-low-memory", "head": head}))', _UNSET,
-     "identity.json is of scenario 'edge-low-memory'"),
-    ('(out / "runs.json").unlink()', _UNSET, "no readable runs.json"),
-    ('(out / "runs.json").write_text(json.dumps([{"label": "only-one"}]))', _UNSET, "runs.json records 1 run(s), the verdict counts 3"),
-    ("", {**SMALL_PASS, "checks": 3}, "2 checks, the scenario has at least 3"),
-    ("", {**SMALL_PASS, "runs": 4}, "3 runs, the scenario has at least 4"),
-    ("", {**SMALL_PASS, "names": ["T1", "T6"]}, "required checks are missing: ['T6']"),
-    ("", {**SMALL_PASS, "families": {"T8:": 1, "T5:": 1}}, "0 checks named 'T5:'*, the scenario has at least 1"),
-    ("", {**SMALL_PASS, "families": {"T8:": 2}}, "1 checks named 'T8:'*, the scenario has at least 2"),
-    ("", None, "the policy states no pass_requires for m4b-scaling"),
+    ([["write-identity", "edge-low-memory", None]], _UNSET, "identity.json is of scenario 'edge-low-memory'"),
+    ([["unlink", "runs.json"]], _UNSET, "no readable runs.json"),
+    ([["write", "runs.json", json.dumps([{"label": "only-one"}])]], _UNSET, "runs.json records 1 run(s), the verdict counts 3"),
+    ([], {**SMALL_PASS, "checks": 3}, "2 checks, the scenario has at least 3"),
+    ([], {**SMALL_PASS, "runs": 4}, "3 runs, the scenario has at least 4"),
+    ([], {**SMALL_PASS, "names": ["T1", "T6"]}, "required checks are missing: ['T6']"),
+    ([], {**SMALL_PASS, "families": {"T8:": 1, "T5:": 1}}, "0 checks named 'T5:'*, the scenario has at least 1"),
+    ([], {**SMALL_PASS, "families": {"T8:": 2}}, "1 checks named 'T8:'*, the scenario has at least 2"),
+    ([], None, "the policy states no pass_requires for m4b-scaling"),
 ], ids=["no-identity", "unreadable-identity", "another-head", "another-scenarios-identity", "no-runs-file", "fewer-runs-recorded",
         "fewer-checks-than-the-scenario", "fewer-runs-than-the-scenario", "a-required-check-missing", "a-required-family-missing",
         "a-family-short-of-its-checks", "no-requirement-stated"])
@@ -2374,9 +2370,7 @@ def test_a_pass_verdict_without_the_whole_scenario_or_its_evidence_is_not_accept
 @WINDOWS_ONLY
 def test_a_scenario_that_passes_but_leaves_a_process_behind_fails_the_run_and_satisfies_nothing(tree):
     pid_file = tree.root / "left-behind.pid"
-    before = (f"child = subprocess.Popen([sys.executable, '-c', {SLEEPER!r}])\n"
-              f"Path({str(pid_file)!r}).write_text(str(child.pid), encoding='ascii')")
-    outcome = _qualification(tree, _verdict("PASS"), 0, before=before)
+    outcome = _qualification(tree, _verdict("PASS"), 0, before=[["sleeper", str(pid_file)]])
     answers = _answers(tree, outcome)
     assert answers["scenario"] == "PASS" and outcome.check("cleanup")["status"] == "FAIL", answers
     assert outcome.results["cleanup"]["owned_children_remaining"] >= 1 and answers["satisfied"] == [], answers
@@ -2387,7 +2381,7 @@ def test_a_scenario_that_passes_but_leaves_a_process_behind_fails_the_run_and_sa
 def test_a_scenario_that_passes_while_its_source_changes_fails_the_run_and_satisfies_nothing(tree):
     """The tested inputs were not frozen: the PASS describes no one source."""
     target = tree.root / "scripts" / "launcher.py"
-    outcome = _qualification(tree, _verdict("PASS"), 0, before=f"Path({str(target)!r}).write_text('# changed during the run\\n')")
+    outcome = _qualification(tree, _verdict("PASS"), 0, before=[["write-path", str(target), "# changed during the run\n"]])
     answers = _answers(tree, outcome)
     assert answers["scenario"] == "PASS" and outcome.check("tree")["status"] == "FAIL", answers
     assert answers["satisfied"] == [], answers

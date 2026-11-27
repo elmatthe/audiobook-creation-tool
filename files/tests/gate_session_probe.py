@@ -39,6 +39,8 @@ class SessionProbe:
     def __init__(self, path: str, token: str) -> None:
         self._sink = open(path, "x", encoding="utf-8", newline="\n")
         self._get_mode, self._set_mode = _mode_functions()
+        #: Phase 1A-1 R2 (M1): every item as pytest collected it, before any hook could drop it from the session.
+        self._initial: list[str] = []
         self._write({"e": "session-start", "token": token, "pid": os.getpid(), "ppid": os.getppid(),
                      "argv": sys.argv[1:], "python": sys.version.split()[0], "mode": self._mode_text()})
 
@@ -66,7 +68,13 @@ class SessionProbe:
     def pytest_deselected(self, items) -> None:
         self._write({"e": "deselected", "ids": [item.nodeid for item in items]})
 
+    def pytest_itemcollected(self, item) -> None:
+        self._initial.append(item.nodeid)
+
     def pytest_collection_finish(self, session) -> None:
+        # The initial inventory first: the reader reconciles it with what was deselected and what the session kept, so a
+        # test that silently vanished between collection and the run is never a smaller, passing module.
+        self._write({"e": "initial", "ids": list(self._initial)})
         self._write({"e": "collected", "ids": [item.nodeid for item in session.items]})
 
     def pytest_runtest_logstart(self, nodeid, location) -> None:

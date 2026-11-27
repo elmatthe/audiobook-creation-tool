@@ -37,172 +37,17 @@ EVIDENCE_FILES = {"logs/verify.log", "logs/pytest.log", "reports/pytest.xml", "r
                   "results.json", "selection.json", "summary.md", "coverage-report.md",
                   # v0.8.x P1B closeout: every file the run saw, as a git blob, for incremental evidence (helpers/evidence_ledger.py)
                   "evidence-files.json",
-                  # v0.8.2 Phase 1A-1 R1: the pytest stage's effect ledger: its header and the stage session's own record
-                  "reports/pytest-effects/ledger.json", "reports/pytest-effects/<process>.jsonl"}
+                  # v0.8.2 Phase 1A-1 R1/R2: the pytest stage's effect ledger: its header, the gate's own record and the
+                  # stage session's (one participant file each), and the reservation of the stage's launch
+                  "reports/pytest-effects/ledger.json", "reports/pytest-effects/<process>.jsonl",
+                  "reports/pytest-effects/<reservation>.json"}
 
 pytestmark = pytest.mark.skipif(shutil.which("git") is None, reason="the tree fingerprint needs git")
 
-# Stands in for pytest: argv is <junit path> <mode> [extra]. Output goes to both streams, as pytest's does.
-FAKE_PYTEST = r'''
-import ctypes, json, os, pathlib, sys, time
-
-junit, mode = pathlib.Path(sys.argv[1]), sys.argv[2]
-extra = sys.argv[3] if len(sys.argv) > 3 else None
-token = os.environ.get("ACT_GATE_TOKEN", "")
-probe_path = os.environ.get("ACT_GATE_PROBE")
-error_mode = hex(ctypes.WinDLL("kernel32").GetErrorMode()) if sys.platform == "win32" else None
-# v0.8.2 Phase 1A-1 R1: a stand-in for pytest keeps the routine accounting contract too: its own record in the stage's
-# effect ledger (helpers/routine_context.py format), start now and end when it exits normally. A killed stand-in leaves
-# an incomplete record, as a killed pytest would.
-_ledger = os.environ.get("ACT_EFFECT_LEDGER")
-if _ledger:
-    import atexit
-    _record = pathlib.Path(_ledger) / f"p{os.getpid()}-fake.jsonl"
-    _record.write_text(json.dumps({"kind": "start", "pid": os.getpid(), "ppid": os.getppid(), "role": "routine-pytest"})
-                       + "\n", encoding="utf-8")
-
-    def _end():
-        with open(_record, "a", encoding="utf-8") as sink:
-            sink.write(json.dumps({"kind": "end", "exit": 0, "refusals": 0, "unexpected": 0, "accounting": "ok"}) + "\n")
-
-    atexit.register(_end)
-
-
-def row(sink, **fields):
-    sink.write(json.dumps(fields) + "\n")
-
-
-def record(tests, failed=0, skipped=0, exit_status=0, finish=True, drop_first=False):
-    """A session record: this many tests, the last ones failed or skipped."""
-    with open(probe_path, "x", encoding="utf-8") as sink:
-        row(sink, e="session-start", token=token, pid=os.getpid(), ppid=os.getppid(), mode=error_mode)
-        ids = [f"synthetic_test.py::test_{index}" for index in range(tests)]
-        row(sink, e="collected", ids=ids)
-        for index, nodeid in enumerate(ids):
-            if drop_first and index == 0:
-                continue
-            if index >= tests - skipped:
-                row(sink, e="r", id=nodeid, w="setup", o="skipped", d=0, reason="synthetic skip reason")
-            else:
-                row(sink, e="r", id=nodeid, w="setup", o="passed", d=0)
-                row(sink, e="r", id=nodeid, w="call", o="failed" if index >= tests - skipped - failed else "passed", d=0)
-            row(sink, e="r", id=nodeid, w="teardown", o="passed", d=0)
-        if finish:
-            row(sink, e="session-finish", exit=exit_status, mode=error_mode)
-
-
-def report(tests, failures=0, errors=0, skipped=0, suite=None, listed=None):
-    cases = []
-    for index in range(tests if listed is None else listed):
-        body = ""
-        if index >= tests - skipped:
-            body = '<skipped message="synthetic skip reason"/>'
-        elif index >= tests - skipped - failures:
-            body = '<failure message="boom"/>'
-        cases.append(f'<testcase classname="synthetic_test" name="test_{index}">{body}</testcase>')
-    junit.write_text(
-        '<?xml version="1.0" encoding="utf-8"?><testsuites><testsuite '
-        f'name="{token if suite is None else suite}" tests="{tests}" failures="{failures}" errors="{errors}" '
-        f'skipped="{skipped}">{"".join(cases)}</testsuite></testsuites>', encoding="utf-8")
-
-
-def passed():
-    report(3, skipped=1)
-    record(3, skipped=1)
-    print("SKIPPED [1] synthetic_test.py:4: synthetic skip reason")
-    print("2 passed, 1 skipped in 0.01s")
-    sys.exit(0)
-
-
-print("synthetic session starts", flush=True)
-print("synthetic stderr line", file=sys.stderr, flush=True)
-if mode == "pass":
-    passed()
-elif mode == "fail":
-    print("Traceback (most recent call last):")
-    print('  File "synthetic_test.py", line 7, in test_boom')
-    print("E   AssertionError: synthetic boom")
-    print("FAILED synthetic_test.py::test_boom - AssertionError: synthetic boom")
-    report(3, failures=1)
-    record(3, failed=1, exit_status=1)
-    print("1 failed, 2 passed in 0.01s")
-    sys.exit(1)
-elif mode == "empty":
-    report(0)
-    record(0, exit_status=5)
-    print("no tests ran in 0.01s")
-    sys.exit(5)
-elif mode == "collection-error":
-    print("ERROR collecting synthetic_test.py")
-    report(0, errors=1, listed=0)
-    record(0, exit_status=2)
-    print("1 error in 0.01s")
-    sys.exit(2)
-elif mode == "exit0-no-junit":
-    record(3)
-    print("3 passed in 0.01s")
-    sys.exit(0)
-elif mode == "exit0-truncated-junit":
-    junit.write_text('<?xml version="1.0"?><testsuites><testsuite name="pytest" tests="3"', encoding="utf-8")
-    record(3)
-    print("3 passed in 0.01s")
-    sys.exit(0)
-elif mode == "exit0-zero-tests":
-    report(0)
-    record(0)
-    print("no tests ran in 0.01s")
-    sys.exit(0)
-elif mode == "exit0-junit-failures":
-    report(3, failures=1)
-    record(3)
-    print("3 passed in 0.01s")
-    sys.exit(0)
-elif mode == "exit0-no-record":
-    report(3)
-    print("3 passed in 0.01s")
-    sys.exit(0)
-elif mode == "exit0-unfinished-record":
-    report(3)
-    record(3, finish=False)
-    sys.exit(0)
-elif mode == "exit0-masked-session":
-    report(3)
-    record(3, exit_status=1)
-    sys.exit(0)
-elif mode == "exit0-stale-report":
-    report(3, suite="an-earlier-run-pytest")
-    record(3)
-    sys.exit(0)
-elif mode == "exit0-count-mismatch":
-    report(3, listed=2)
-    record(3)
-    sys.exit(0)
-elif mode == "exit0-collected-not-run":
-    report(3)
-    record(3, drop_first=True)
-    sys.exit(0)
-elif mode == "wait":
-    print("first streamed line", flush=True)
-    sys.stdout.write("..partial-progress")  # no newline: still has to reach the log
-    sys.stdout.flush()
-    go = pathlib.Path(extra)
-    deadline = time.monotonic() + 60
-    while not go.exists() and time.monotonic() < deadline:
-        time.sleep(0.02)
-    print()
-    passed()
-elif mode == "forever":
-    deadline = time.monotonic() + 60  # bounded, so a lost child can never outlive the test session by much
-    while time.monotonic() < deadline:
-        print("still running", flush=True)
-        time.sleep(0.05)
-    sys.exit(0)
-elif mode == "touch":
-    pathlib.Path(extra).write_text("changed while the gate ran\n", encoding="utf-8")
-    passed()
-else:
-    sys.exit(f"unknown mode {mode}")
-'''
+# Stands in for pytest: argv is <junit path> <mode> [extra]. Phase 1A-1 R2: the reviewed recipe
+# files/tests/routine_recipes/fake_pytest.py, in its exact bytes (helpers/routine_context.py SYNTHETIC_RECIPES): the
+# verification-owned bootstrap accounts for it as the stage's routine pytest session; it writes no record itself.
+FAKE_PYTEST = (GATE_DIR.parents[2] / "files" / "tests" / "routine_recipes" / "fake_pytest.py").read_bytes()
 
 POLICY = {
     "schema_version": 1, "stages": {"preflight": {"timeout_seconds": 60}, "collect": {"timeout_seconds": 60},
@@ -271,7 +116,7 @@ def fake_repo(tmp_path) -> Path:
     orchestrator.parent.mkdir(parents=True)
     shutil.copyfile(GATE_PATH, orchestrator)
     (root / routine_effects.context.SYNTHETIC_DECLARATION).write_text(json.dumps(
-        {"format": routine_effects.context.SYNTHETIC_FORMAT, "root": str(root), "synthetic": {}}), encoding="utf-8")
+        {"format": routine_effects.context.SYNTHETIC_FORMAT, "root": str(root), "recipes": {}}), encoding="utf-8")
     git(root, "init", "-q")
     git(root, "add", "-A")
     git(root, "commit", "-q", "-m", "fixture")
@@ -281,7 +126,7 @@ def fake_repo(tmp_path) -> Path:
 @pytest.fixture
 def fake_pytest(tmp_path) -> Path:
     script = tmp_path / "fake_pytest.py"
-    script.write_text(FAKE_PYTEST, encoding="utf-8")
+    script.write_bytes(FAKE_PYTEST)
     return script
 
 
@@ -709,7 +554,8 @@ def test_a_successful_run_is_finalized_with_every_gate_the_interpreter_and_the_t
 
     code, target = run(verify)
     assert code == 0
-    found = {re.sub(r"/p\d+-[^/]+\.jsonl$", "/<process>.jsonl", name) for name in files_of(target)}
+    found = {re.sub(r"/r-[0-9a-f]{20}\.json$", "/<reservation>.json",
+                    re.sub(r"/p\d+-[^/]+\.jsonl$", "/<process>.jsonl", name)) for name in files_of(target)}
     assert found == EVIDENCE_FILES  # no marker, no temporary file left behind
     results = load(target, "results.json")
     outcome = runstore.read_run_status(target)
@@ -967,6 +813,7 @@ def test_an_unexpected_error_keeps_its_traceback_and_leaves_the_run_incomplete(v
     assert "check pytest: PASS" in verify_log
 
 
+@pytest.mark.routine_stop("terminate-process")  # the gate's process is killed outright on purpose (D-R2-1)
 def test_a_run_killed_outright_reads_incomplete(fake_repo, fake_pytest, policy_files, tmp_path):
     wrapper = tmp_path / "killable_run.py"
     wrapper.write_text(KILLABLE_RUN, encoding="utf-8")

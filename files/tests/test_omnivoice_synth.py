@@ -344,6 +344,7 @@ def test_cancel_between_chunks_stops_the_worker_and_publishes_nothing(fake):
     assert sum("OmniVoice chunk" in line for line in fake.logs) < 5, "stopped before the file was finished"
 
 
+@pytest.mark.routine_stop("terminate-job")  # the conversion ends its own worker's Job after the grace period (D-R2-1)
 def test_a_worker_that_ignores_cancel_is_killed_after_the_grace_period(fake):
     started = time.monotonic()
     with pytest.raises(ConversionCancelled):
@@ -395,6 +396,7 @@ def test_a_cancel_after_the_commit_point_keeps_the_whole_file_and_reports_it(fak
     assert not list(fake.tmp.glob("story.mp3.*.part")) and fake.leftovers() == []
 
 
+@pytest.mark.routine_stop("terminate-job")  # the conversion ends its own worker's Job within its bound (D-R2-1)
 def test_a_worker_that_ignores_sigterm_and_the_flag_is_ended_within_the_omnivoice_bound(fake, tmp_path):
     """CX-2 (macOS P4B): a worker that ignores the cancel flag and SIGTERM, blocked as if in a native call, is ended by
     the supervisor's kill after the production 2 s grace, within the OmniVoice T_stop of 4 s (plan section 11.2.1),
@@ -430,7 +432,8 @@ def test_a_worker_that_ignores_sigterm_and_the_flag_is_ended_within_the_omnivoic
     ({"behavior": "exit_early"}, "ended unexpectedly \\(exit code 3\\). CUDA error"),
     ({"behavior": "no_terminal"}, "ended unexpectedly"),
     ({"behavior": "done_then_crash"}, "did not exit cleanly"),
-    ({"behavior": "malformed"}, "unreadable message"),
+    # A worker whose message cannot be read is ended by the conversion's own Job (a reviewed stop, D-R2-1).
+    pytest.param({"behavior": "malformed"}, "unreadable message", marks=pytest.mark.routine_stop("terminate-job")),
     ({"behavior": "missing_file", "at": 1}, "chunk 2 was reported but its audio file is missing"),
     ({"behavior": "nan", "at": 0}, "chunk 1 could not be used"),
 ], ids=["generate", "oom", "no-gpu", "exit-early", "no-terminal", "done-then-crash", "malformed", "missing-file", "nan"])

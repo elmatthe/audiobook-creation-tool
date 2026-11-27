@@ -374,13 +374,19 @@ def test_the_declared_total_and_padding_must_agree_with_the_packets():
     assert check_packet_lines([], total=0, priming=0) == "no audio packets"
 
 
-def _python_child(code: str):
+def _python_child(code: str, python: str | None = None):
     """A ``popen`` seam that runs a small Python child in place of FFmpeg/ffprobe, on real pipes."""
     def spawn(argv, **kwargs):
-        return sp.popen([sys.executable, "-c", code], **kwargs)
+        return sp.popen([python or sys.executable, "-c", code], **kwargs)
     return spawn
 
 
+#: One process, as FFmpeg is: a virtual environment's python.exe is a launcher whose interpreter (the process holding the
+#: decoder's log open) outlives the launcher the decoder reaps for a moment.
+SINGLE_PROCESS_PYTHON = getattr(sys, "_base_executable", "") or sys.executable
+
+
+@pytest.mark.routine_stop("terminate-process")  # the code under test kills its child on purpose (D-R2-1)
 def test_a_cancelled_packet_scan_stops_its_child_at_once():
     endless = ("import sys,time\npts=0\nwhile True:\n    sys.stdout.write(f'{pts},1024,K__\\n'); sys.stdout.flush()\n"
                "    pts += 1024\n    time.sleep(0.01)\n")
@@ -426,7 +432,7 @@ def _frames(first, count, channels=2) -> bytes:
     return b"".join(struct.pack("<" + "f" * channels, *([float(i)] * channels)) for i in range(first, first + count))
 
 
-def _writer_child(total, *, channels=2, exit_code=0, partial=False, linger=False):
+def _writer_child(total, *, channels=2, exit_code=0, partial=False, linger=False, python=None):
     code = (
         "import struct,sys,time\n"
         f"total,channels={total},{channels}\n"
@@ -438,7 +444,7 @@ def _writer_child(total, *, channels=2, exit_code=0, partial=False, linger=False
         + ("time.sleep(120)\n" if linger else "")
         + f"sys.exit({exit_code})\n"
     )
-    return _python_child(code)
+    return _python_child(code, python)
 
 
 def make_decoder(tmp_path, total, *, declared=None, channels=2, rate=44100, **child) -> ContinuousDecoder:
@@ -505,6 +511,7 @@ def test_a_feed_the_book_cannot_honour_fails_loudly(tmp_path, name, kwargs, feed
         decoder.close()
 
 
+@pytest.mark.routine_stop("terminate-process")  # the code under test kills its child on purpose (D-R2-1)
 def test_a_killed_decoder_fails_the_next_chapter_never_ends_the_book(tmp_path):
     decoder = make_decoder(tmp_path, 100_000, linger=True)
     try:
@@ -516,8 +523,11 @@ def test_a_killed_decoder_fails_the_next_chapter_never_ends_the_book(tmp_path):
         decoder.close()
 
 
+@pytest.mark.routine_stop("terminate-process")  # the code under test kills its child on purpose (D-R2-1)
 def test_close_stops_a_running_decoder_and_reaps_it(tmp_path):
     decoder = make_decoder(tmp_path, 1000, linger=True)
+    # Ready first (D-R2-8 class B): its first samples show the decoder running; what is timed is the close of a running one.
+    assert collect(decoder, 0, 10) == _frames(0, 10)
     started = time.monotonic()
     assert decoder.close() is True
     assert time.monotonic() - started < 5.0
@@ -527,10 +537,12 @@ def test_close_stops_a_running_decoder_and_reaps_it(tmp_path):
         collect(decoder, 0, 10)
 
 
+@pytest.mark.routine_stop("terminate-process")  # the code under test kills its child on purpose (D-R2-1)
 def test_owned_decoders_closes_whatever_the_body_left_running(tmp_path):
     with pytest.raises(RuntimeError, match="unexpected"):
         with m4b_continuous.owned_decoders():
-            decoder = make_decoder(tmp_path, 1000, linger=True)
+            decoder = make_decoder(tmp_path, 1000, linger=True, python=SINGLE_PROCESS_PYTHON)
+            assert collect(decoder, 0, 10) == _frames(0, 10)  # running (D-R2-8 class B) when the body fails
             raise RuntimeError("unexpected")
     assert decoder._proc.poll() is not None
     assert not list(tmp_path.glob(".act-tmp-*"))

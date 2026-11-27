@@ -137,6 +137,9 @@ interrupted work never counts as passing. Until Phase 1A: never run `--mode full
 GATE.md describes. The 56 native journeys take over mouse and keyboard; a locked desktop is BLOCKED. Scratch is repository-contained
 (`files/run-temp/`) except the approved `%TEMP%\act-gate`. Feature changes are recorded in `files/dev-work/feature-map/` and `coverage.json`, which
 must be restamped after source changes. Test rules that bite: AST guards, not substring guards; Windows tests must skip, never fail, on macOS.
+Inside routine verification (Phase 1A-1 R2) every child gets one launch decision -- bootstrapped through `files/tests/routine_child.py`, an exact
+reviewed profile in `files/tests/routine_fixtures.py` (an inert `-c` stand-in included), or refused -- and a test that stops an effect-capable
+child on purpose declares the mechanism with an exact `@pytest.mark.routine_stop(...)` marker on that test.
 
 ## 9. Documentation and workspace conventions (Implemented)
 

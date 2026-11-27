@@ -179,6 +179,7 @@
     "files/tests/test_native_acceptance.py",
     "files/tests/test_real_media_acceptance.py",
     "files/tests/test_repository_contract.py",
+    "files/tests/test_routine_accounting.py",
     "files/tests/test_routine_effects.py",
     "files/tests/test_surface_discovery.py",
     "files/tests/test_verification_coverage.py",
@@ -601,8 +602,36 @@
       "files/tests/routine_effects.py": [
         "files/tests/test_suite_isolation.py",
         "files/tests/test_routine_effects.py",
+        "files/tests/test_routine_accounting.py",
         "files/tests/test_verify_guarded.py",
         "files/tests/test_application_source_boundary.py"
+      ],
+      "files/tests/routine_child.py": [
+        "files/tests/test_suite_isolation.py",
+        "files/tests/test_routine_effects.py",
+        "files/tests/test_routine_accounting.py",
+        "files/tests/test_verify_guarded.py",
+        "files/tests/test_application_source_boundary.py"
+      ],
+      "files/tests/routine_fixtures.py": [
+        "files/tests/test_suite_isolation.py",
+        "files/tests/test_routine_effects.py",
+        "files/tests/test_routine_accounting.py",
+        "files/tests/test_verify_guarded.py",
+        "files/tests/test_application_source_boundary.py"
+      ],
+      "files/tests/routine_recipes/scripted_acceptance_runner.py": [
+        "files/tests/test_routine_effects.py",
+        "files/tests/test_verification_gate_contract.py",
+        "files/tests/test_verify_evidence.py"
+      ],
+      "files/tests/routine_recipes/scenario_runner.py": [
+        "files/tests/test_routine_effects.py",
+        "files/tests/test_verification_gate_contract.py"
+      ],
+      "files/tests/routine_recipes/fake_pytest.py": [
+        "files/tests/test_routine_effects.py",
+        "files/tests/test_verify_evidence.py"
       ],
       "files/tests/routine_pytest.py": [
         "files/tests/test_suite_isolation.py",
@@ -702,6 +731,7 @@
         ],
         "tests": [
           "files/tests/test_execution_plan.py",
+          "files/tests/test_routine_accounting.py",
           "files/tests/test_routine_effects.py"
         ]
       },
@@ -763,6 +793,7 @@
     "about": "v0.8.2 Phase 1A-1 (helpers/effects.py): the effect vocabulary is native-desktop, real-app-launch, real-engine, external-network, install, scaling and release-build. Tests declare effects sparsely, at the real boundary (ACT_EFFECTS in the module). reviewed_bounded lists test modules whose source shows a live-boundary indicator but which were reviewed as bounded for routine verification; any other module with an indicator and no declaration is an unclassified boundary (withheld as a gap, and a contract test fails).",
     "reviewed_bounded": {
       "files/tests/test_book_workspace_ui.py": "imports the Plan 6 harness in-process and builds it under a withdrawn window",
+      "files/tests/test_routine_accounting.py": "the Phase 1A-1 R2 regression matrix: drives the routine envelope's own refusals of native process creation (containment.spawn_low with an unreviewed command line) and checks launch decisions; every operation is refused or a reviewed fixture",
       "files/tests/test_dialog_containment.py": "drives the acceptance runner and Windows containment in-process with refusing stand-ins: in-process with stand-ins, or source text only: no real window, input, engine, install or network",
       "files/tests/test_job_ui.py": "reads and imports the Plan 3 harness for static boundary checks; starts no window",
       "files/tests/test_m4b_metadata_editor_ui.py": "reads the UI prototype fixture's source text only",
@@ -1261,6 +1292,12 @@
       "effects": [],
       "routine": "bounded",
       "why": "the routine pytest bootstrap the gate starts ordinary pytest through"
+    },
+    "files/tests/routine_child.py": {
+      "class": "support",
+      "effects": [],
+      "routine": "bounded",
+      "why": "the verification-owned child bootstrap (Phase 1A-1 R2): binds a prepared launch to its reservation, installs the routine envelope, then runs the program the unprepared command named, in the same process"
     }
   },
   "acceptance": {

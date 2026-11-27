@@ -107,86 +107,161 @@ Allowed, after inspecting what the selected tests do: `verify.py --mode focused 
 and a narrowly targeted direct pytest run (rules below). Use `--mode changed --plan` (or `--feature ... --plan`,
 `--component ... --plan`) to see what a change owes, then run its routine tests with `--test`.
 
-## The routine envelope (Phase 1A-1, corrected in R1)
+## The routine envelope (Phase 1A-1, corrected in R1 and R2)
 
-Every pytest process of this checkout is a routine verification process. The shared contract -- marker names, launch
-roots, data-only argument shapes, the synthetic-fixture rule, the operation check and the effect-ledger format -- has one
-home, `helpers/routine_context.py` (standard library only); `files/tests/routine_effects.py` enforces it in pytest
-processes.
+Every pytest process of this checkout is a routine verification process, and so is every Python child one of them starts.
+The shared contract -- marker names, launch roots, data-only argument shapes, the Python command-line reading, the synthetic
+recipes, the operation check and the effect-ledger format -- has one home, `helpers/routine_context.py` (standard library
+only); `files/tests/routine_effects.py` enforces it, `files/tests/routine_child.py` is the child bootstrap, and
+`files/tests/routine_fixtures.py` holds the small set of reviewed bounded fixture and measurement profiles.
 
 - **Supported invocations.** `files/tests/routine_pytest.py <pytest args>` (ordinary pytest: the gate's ordinary stages
   and a direct targeted run) and `files/tests/guarded_pytest.py` (the guarded groups, through the gate). Both call the
   same early setup, `routine_effects.bootstrap`, before pytest, its plugins, `conftest.py` or any test module is imported:
-  third-party plugin autoload off, opt-ins and overrides scrubbed, the launch, network, model-weight and native-input checks
-  installed, and the session's accounting opened in its effect ledger. The guarded runner installs its own stronger hooks
-  first and keeps its process-site, write-tripwire, network/model and lifetime-report contracts; its lifetime report now
-  carries `routine_accounting`, which also decides its exit status. A raw `python -m pytest` still gets the restrictions
-  from `conftest.py`, but only after its plugins loaded and with its accounting opened at session start; it prints that it
-  is not verification evidence, and it is not a supported verification invocation.
+  third-party plugin autoload off, opt-ins and overrides scrubbed, the envelope installed, and the session's accounting
+  bound to the launch its parent reserved for it (the gate's stage launch, or a parent session's) or, for a direct run, a
+  new ledger beside the basetemp. The guarded runner keeps its own stronger hooks and lifetime report; it judges its
+  reviewed callsite profiles on the command a test asked for, and its exit status consumes the ledger verdict (the whole
+  ledger when it owns it or runs as a gate stage; nested in another session, its own clean record, the owner judging the
+  rest). Its end record carries the status it exits with, and a reserved runner that refuses its arguments still binds
+  and ends its record before it exits. A raw
+  `python -m pytest` still gets the restrictions from `conftest.py`, after its plugins loaded; it is not verification
+  evidence.
 - **Scrubbed.** Real-engine opt-ins (`ACT_*_REAL`), the destination overrides `ACT_P2_EVIDENCE`, `ACT_XHE_PROOF_APPLE_CAF`,
   `ACT_MAC_FFMPEG`, and an inherited disposable-root marker never reach a test or a child. They never grant anything.
 - **Nothing grants a heavyweight effect.** `routine_effects.admitted()` is always False until Phase 1A-2; no `--mock`
   flag, no environment-variable bypass, no "under pytest" grant.
-- **Declared boundaries refuse** (`ACT_EFFECTS` plus `routine_effects.require`, as before), and so do the operations where
-  an audit event exists: a non-loopback `socket.connect`/`getaddrinfo`/`sendto`/`bind`; reading a model-weight file
-  (`.pt .pth .safetensors .onnx .ckpt .gguf`) outside the session's disposable roots; resolving `SendInput` and its kin
-  (`ctypes.dlsym`) outside the gate's own native-input adapter; `os.startfile`. Importing a library (torch, spaCy, Kokoro)
-  is not an effect; loading real weights is.
-- **Operation checks in the gate's own callables** (`routine_context.check_operation`), not only in `__main__`: the
-  acceptance runner before its desktop lease, the native-input sender before `SendInput`, every scaling program's `main()`
-  after argument parsing, and the gate itself before it starts the acceptance runner or a qualification runner.
-- **Launches are classified** (`subprocess.Popen`, `os.system`, `os.exec*`, `os.spawn*`, `os.posix_spawn`) by the program
-  actually started (an `executable=` override, not `argv[0]`), its arguments, working directory and environment:
-  - a heavyweight entrypoint (the `LAUNCH_ROOTS` of `routine_context.py`, with `verification.json` `entrypoints`
-    dispositions) is recognized **wherever it lies** -- this checkout, another checkout, a disposable copy, a renamed copy
-    (by its bytes) -- and refused unless the arguments have the entry's reviewed data-only shape (`--help` only as the sole
-    argument, a reviewed flag only as the first argument, the gate's `--plan` as a standalone token) or the entry is
-    reviewed as bounded;
-  - Python is judged by its script, its `-m` module (resolved from the working directory and `PYTHONPATH`) and path
-    literals in `-c` code; a nested pytest must use `routine_pytest.py`;
-  - shells by what they run (`cmd /c`, `call`, `sh -c`, `powershell -File`); an unreviewed PowerShell `-Command` is refused;
-  - a Python or shell child whose environment drops the routine marker, changes the marked checkout, replaces the ledger
-    or re-adds an opt-in is refused, except a child the guarded runner's reviewed process profile vouches for (that profile
-    constrains it: fixed module, disposable request and result, scrubbed environment);
-  - installers, online pip, network tools, desktop hand-offs, machine-configuration programs, engine interpreters and
-    unreviewed native programs are refused; reviewed native programs (`NATIVE_BOUNDED`: Git, FFmpeg, process probes and
-    similar) and programs the test made in its own disposable folder are allowed; stage 0 (`bootstrap_host.ps1`/`.sh`)
-    only in its reviewed no-install shapes; a setup launcher (`Setup_and_Run-*`) only as a copy in the session's
-    disposable tree in which every (interpreter, script) pair it can start has a stand-in side (a script that is absent or
-    not this checkout's bytes, an interpreter that is absent or a text shim) and whose stage 0 is a stand-in; `sh -n`
-    (a syntax check) runs nothing.
-- **The maintained roots refuse themselves, wherever they lie.** A child Python has no audit hook, so the gate, the
-  acceptance runner, the qualification scenarios (`common.start`), the scaling programs, the native adapters and the test
-  drivers check the inherited marker first and refuse -- in this checkout, in another checkout or in a copy alike. Location
-  is never evidence that an execution is synthetic.
-- **The reviewed synthetic gate fixture** is the one exception, for the gate's own contract tests: a disposable tree inside
-  the session's owned disposable root (its basetemp), declared in `act-synthetic-fixture.json` at the tree's root (the
-  tree's own path and the exact SHA-256 of each synthetic stand-in), whose gate orchestrator is byte-identical to this
-  checkout's. Its orchestrator may run (only this session's interpreter may start it); its acceptance and qualification
-  launches start only declared stand-ins whose bytes differ from the real runner; a real runner copied into it is refused at
-  the gate's operation boundary and by its own guard. The declaration grants nothing outside its tree, outside the
-  session's disposable root, or without the routine session that owns that root.
-- **Accounting fails closed.** Each stage's effect ledger is a directory the gate creates and initializes (a header with
-  the run's token) before the stage's process exists; every cooperating process writes its own record file (start,
-  refusals, end), so concurrent writers never share a file. A write failure is an accounting failure, never absorbed. The
-  gate's `routine-effects` check passes only initialized, complete, well-formed ledgers in which the stage's own runner
-  recorded a completed session and nothing unexpected was refused: a missing, empty, unreadable, incomplete or malformed
-  ledger -- or a cooperating child that exited without completing its record -- fails the run. `conftest.py` errors the test
-  that caused a refusal or accounting failure in any phase; the bootstrap fails the process for one after the session
-  ended. `expected_refusals(effect, ...)` marks refusals of the named effects on its own thread as expected for a synthetic
-  negative control (it grants nothing), and adopts a private child ledger: refusals of other effects in it count as
+- **Operations refuse where an audit event exists**: a non-loopback `socket.connect`/`getaddrinfo`/`sendto`/`bind`;
+  reading a model-weight file outside the disposable roots from a model library; resolving `SendInput` and its kin outside
+  the gate's native-input adapter, or a native process-creation function (`CreateProcessW`, `CreateProcessAsUserW`, ...)
+  outside the reviewed containment module; `os.startfile`; and every process mechanism that cannot take part in launch
+  preparation (`os.system`, `os.exec*`, `os.spawn*`, `os.fork`, a direct `os.posix_spawn` or `_winapi.CreateProcess`).
+  The gate's own callables check their operation (`routine_context.check_operation`) as before.
+- **One launch decision (R2).** `routine_effects.decide_launch` (side-effect free) judges the program actually started --
+  resolved by the platform's own search, an `executable=` override included -- its arguments, working directory and
+  effective environment, and returns exactly one of: **refuse**; **bootstrap** (the same interpreter and options run
+  `routine_child.py`, which binds to the launch's reservation, records its start and initialization, installs the envelope
+  and then runs the script, `-m` module or `-c` code exactly as the unprepared command would have: `sys.argv`,
+  `sys.path[0]`, `__main__`, and a `PYTHONPATH` moved past the envelope and restored); or **profile** (run unchanged under
+  an exact reviewed profile). The same decision prepares the launch (a verification-only wrapper of the pinned CPython
+  3.12 `subprocess.Popen._execute_child`, which validates that interface and fails closed if it differs) and, through the
+  audit hook, admits the actual `subprocess.Popen` event, which must be the prepared one.
+  - Heavyweight entrypoints (the `LAUNCH_ROOTS`, with `verification.json` `entrypoints`) are recognized wherever they lie
+    and by their bytes, and refused outside their reviewed data-only shapes, as in R1.
+  - A Python child's startup customization is reviewed: `PYTHONHOME`, `PYTHONINSPECT` and a `PYTHONPATH` holding a
+    `sitecustomize`/`usercustomize` are refused (unless `-E`/`-I` makes the interpreter ignore them); an interpreter must be
+    this session's, its base, or a disposable venv or copy made from it.
+  - **Shells run only in reviewed forms**: `cmd /c rem`, a junction between two disposable paths, the setup-launcher sandbox
+    recipe, the gate contract's console-host helper, stage 0 declined or judging a disposable offline archive, the tk_proof
+    stage-0 harness, the fake-ffmpeg wrapper, Git for Windows' bash (beside the session's `git`, or the session PATH's bash
+    when it is Git for Windows' own) for `-c "exit 0"`, `-n` over the launcher's exact
+    bytes and the packaged launcher against its reviewed shims, and the clone-transcript extractor's fixed owner-only
+    access script on a disposable artifact. Arbitrary shell text, expansions, chains, stdin programs and encoded commands
+    are refused.
+  - **Reviewed profiles are exact and few** (`routine_fixtures.py`, D-R2-2..4): fixture sources are pinned by SHA-256, and
+    a modified source, target or environment is not the family. Startup measurements run unchanged with parent-side
+    evidence only: the tk_proof hanging `sitecustomize` under a production Tk probe and its bound, and the `-I -S`
+    pre-venv import-footprint probe; the tk_proof Tk-breaking `sitecustomize` runs through the bootstrap with its
+    `PYTHONPATH` kept. Native leaf programs: Git (no network subcommand, writes only to disposable repositories; `git init`
+    only of a disposable directory, with no template or a disposable one and at most a plain initial-branch name), an installed FFmpeg/ffprobe on disposable
+    outputs, the two exact read-only NVIDIA queries (the product's and the Qwen evaluation tool's), `tasklist` of one pid,
+    `taskkill` of a process this session owns, disposable PING copies on loopback, deliberately invalid stubs and missing
+    programs. **Inert Python stand-ins** (D-R2-8): a `-c` program on this session's interpreter whose syntax tree uses only
+    `time.sleep`, standard-stream writes and flushes, `print`, `sys.exit` and ignoring a signal, with constant arguments,
+    runs unchanged and owes no participant, so a cancellation inside its startup is measured as written (nothing may
+    follow the program, `-i` is refused, and `PYTHONPATH`, `PYTHONHOME`, `PYTHONINSPECT`, `PYTHONUSERBASE` and
+    `PYTHONEXECUTABLE` must be unset unless `-I`/`-E` ignores them; `PYTHONSTARTUP` is read only by an interactive session);
+    any other program is effect-capable and bootstrapped. A test that measures a cancellation after readiness waits for an
+    independently observed ready condition (the decoder's first samples) before it cancels. The guarded runner's exact profiles are honoured; its generic Python profiles
+    never let a Python child skip the bootstrap.
+  - **Scrubbed guarded workers (D-R2-9).** The v3 supervisor's fixed fake worker, the read-only planning worker and the
+    planning bridge worker keep their production six-name environment exactly (`SystemRoot` the real Windows directory,
+    the temporary folders the run root, the two offline flags) and run unchanged under exact profiles: this interpreter
+    with `-I -B -S`, the reviewed program (the fake worker's fixed text, production's `_BOOTSTRAP` or one of the read-only
+    worker's negative controls assembled only from its test's literals), a working directory whose every file is a
+    byte-identical copy of the marked `scripts/` (the bridge's test adapter must open with the reviewed containment prefix
+    `FIXTURE_ADAPTER`; the module-pin control's one inert comment line is the only other admitted difference). The
+    envelope cannot run inside them (their own audit hooks refuse its writes); their Jobs own them and the parent records
+    launch, pid and observed exit. A routine marker is never added to such an environment, and any other replacement
+    environment, a changed worker or a widened one is refused as before.
+  - **Worker network-guard measurements (D-R2-7).** The real OmniVoice worker on the reviewed stand-in stack (launcher,
+    worker copy and stand-in libraries byte-identical to the test's own; every output disposable), the reference probe and
+    the dev-tools worker's inert-event measurement run through the bootstrap with `measurement: network-guard` in their
+    reservation. In that child the envelope's network refusal is appended behind every hook the program installed, so the
+    worker's own guard decides first; whatever it lets through is still refused before anything resolves or connects, and
+    recorded, so the test fails.
+  - **Native process creation**: only `containment.spawn_low`'s reviewed Low-integrity launches (its own preflight probe and
+    test_dialog_containment's two probes: the integrity probe and the labelled-scratch write probe, each in its exact text
+    and paths) run, through a verification-only proxy that records each as a profiled launch with its spawn and observed
+    end. Labels and ledger permissions are never widened.
+  - **Multiprocessing `spawn`** children start through the bootstrap (spawn semantics, `__main__` preparation and exit codes
+    kept); the launch identity travels on the command line, because the spawn copies the environment itself. The wrapper is
+    applied when a program loads `multiprocessing.spawn` (a meta-path finder), never eagerly: an eager import put `socket`,
+    `select` and `multiprocessing` into every bootstrapped child's module set.
+  - The envelope's own ledger I/O uses the original `open` captured at import, so a test that replaces `builtins.open`
+    cannot redirect the evidence.
+- **The reviewed synthetic gate fixture (R2: positive recipes).** A disposable tree inside the session's owned disposable
+  roots, declared in `act-synthetic-fixture.json` (format 2: the tree's own path and, for each stand-in, the reviewed
+  recipe it is), whose orchestrator, runners and envelope are this checkout's own bytes. A stand-in is valid only while
+  its bytes are exactly its recipe's source in this checkout (`files/tests/routine_recipes/`), it stands where the recipe
+  may stand, and its data file validates in the recipe's closed vocabulary; a real runner, a modified or historical runner,
+  another recipe or arbitrary code is never a stand-in. The free-standing stand-in for pytest accounts as the routine pytest
+  session its stage reserved, only in its exact bytes: a gate driven by a test reserves a substituted stage command in the
+  session role only when it is that recipe in a disposable root (any other substitute is a routine child), and the stand-in
+  writes the same initial collection inventory the real probe writes.
+- **Accounting obligations (R2, ledger format 3).** A launch that owes accounting is reserved before it exists: the
+  reserving parent writes a reservation file (`r-<launch>.json`, exclusive, authoritative) and a corroborating `reserve`
+  row, then records the spawn (actual pid and creation time; a Windows venv redirector is bound only with its recorded
+  redirector role, the participant as its direct child and the same interpreter), any intentional stop it makes and the
+  observed end. The child records its start and initialization before any target work and its end last. Every reserved
+  launch must be reconciled exactly once: a required child that never wrote its first record, an unresolved launch, a
+  duplicate, orphan or foreign participant, a reservation that disagrees with its row, or a mismatched exit is a problem.
+  Exact profiles owe no participant; their `profiled`, spawn and observation rows are their parent-side evidence. The
+  reader is total: any malformed record is a controlled problem, never an exception. Format 2 ledgers read back only as
+  history. A write failure is an accounting failure, never absorbed. `conftest.py` errors the test that caused a refusal
+  or accounting failure in any phase, and the runners fail the process for one after the session ended.
+  `expected_refusals(effect, ...)` marks refusals of the named effects on its own thread as expected for a synthetic
+  negative control (it grants nothing) and adopts a private child ledger, in which refusals of other effects count as
   unexpected.
+- **Explained termination (D-R2-1).** A participant may end without its own end record only by an explained stop: its
+  launch was reserved, before it existed, with an expected lifecycle (`expected_termination`, or the `routine_stop` test
+  marker); it initialized its accounting; its owner recorded the stop's intent and action for that launch's own process
+  (`Popen.kill`/`terminate`, `os.kill`, `taskkill` of an owned pid, kernel32 job and process terminations and the close of
+  a kill-on-close Job reached through ctypes), successfully, before the outcome was observed; the observed outcome agrees
+  with the mechanism; and every descendant is accounted (ended, explained, or observed gone after a tree stop). After any
+  recorded stop -- also one made after the launch had ended, when a worker exited and its Job then ended what it left --
+  the owner observes the stopped tree's unended participants and the profiled leaves their parents never observed. A
+  descendant of an ancestor that ended with its own record is accounted through a declared, successful tree stop its
+  reserving parent then made; a descendant held in the kill-on-close Job of a participant whose own end is an explained
+  stop is accounted when it was then observed gone (the envelope records `contained` when a process assigns its own launch
+  to such a Job; children inherit membership); a profiled leaf its parent never observed, only when an ancestor saw its own
+  process gone after that ancestor's tree stop of the chain, or after its stop of a parent that itself ended by an
+  explained stop. An exit that differs from a participant's own end record is accepted only
+  as the code of an explained stop recorded after that record. A crash fixture is explained only by an observed exit among
+  the codes its reservation declared. A kill request alone, a post-hoc explanation, a child that never initialized, or a
+  gate stage's runner killed at a timeout is never explained; no graceful end record is ever written for a process that did
+  not end gracefully, and an interrupted run's evidence stays incomplete. Markers are exact and per test: they name the
+  mechanisms the code under test uses on the launches that test makes.
+- **Stage binding.** The gate's own participant in each stage ledger reserves the stage runner's launch, records its spawn
+  and observed end, and binds the runner's participant to the session that wrote the probe. Its `routine-effects` check
+  judges every ledger whole and is a sealed FAIL if a ledger cannot be judged; ledgers are kept as evidence without
+  following links.
+- **Collection reconciles (M1).** The probe records every collected item before any hook can drop one; the gate (and, in
+  memory, a direct run's `conftest.py`) fails a session whose initial inventory does not equal what it kept plus what it
+  deselected.
+- **Owner-private paths are private before any read (C2).** The local-only rule applies to the tree fingerprint, the
+  incremental-evidence file map, the candidate identity and changed selection before a file is read; a tracked local-only
+  path stops the run (`privacy` BLOCKED) and blocks a plan, and its name is never written.
+- **Ambiguous imports are gaps (C4).** A dotted import that resolves to more than one file, in a module some test reaches,
+  is a gap for the importer, each candidate and everything reached through them.
 
 **Limitations, stated plainly.** This makes accidental heavyweight execution from supported routine paths fail closed; it
-is a cooperating-verification control, not an operating-system sandbox. A cooperating Python child inherits the marker,
-the ledger and the disposable scope (so every maintained root refuses in it, and accounts for it), but not this process's
-audit hook: what a child's own code does directly (an engine interpreter it starts itself, its own sockets) is outside
-parent enforcement unless it reaches a maintained root or a routine bootstrap. Native code, Quartz/pyobjc input on macOS,
-and an unrestricted shell are outside what Python audit hooks see (a shell fed commands on standard input is judged
-only by its environment). A child that refuses but cannot write its record, and
-whose exit status its caller ignores, is detected only when the ledger itself was unusable. Static classification cannot
-certify every dynamic launch. Another checkout's maintained roots are refused at launch by this process; started through
-an intermediary, they refuse only if they carry the R1 guard. macOS native verification of all of this is pending.
+is a cooperating-verification control, not an operating-system sandbox. Native code a process runs directly, a hostile
+child, Quartz/pyobjc input on macOS, and what a reviewed shell program or a profiled native program does internally are
+outside what Python audit hooks see; that is why shells and native programs run only in exact reviewed forms. A
+grandchild a reviewed shell or native program starts (stage 0's probe interpreter, the setup sandbox's stub run) is
+accounted only through its profile's parent-side evidence. Static classification cannot certify every dynamic launch.
+macOS native verification of all of this is pending.
 
 ## Compatibility seams (each with its removal criterion)
 

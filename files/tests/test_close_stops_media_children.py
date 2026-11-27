@@ -71,6 +71,7 @@ def test_a_child_with_another_image_name_lives(named_ffmpeg, tmp_path):
         media.kill()
 
 
+@pytest.mark.routine_stop("taskkill")  # the code under test ends its child's tree with taskkill on purpose (D-R2-1)
 def test_an_ffmpeg_started_by_someone_else_lives(named_ffmpeg, tmp_path):
     """The name is not enough. This one's parent is another process, which is the shape of the owner's own FFmpeg in another program."""
     pid_file = tmp_path / "pid.txt"

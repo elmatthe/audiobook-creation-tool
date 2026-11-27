@@ -122,6 +122,7 @@ def test_only_the_end_of_a_long_crash_is_quoted_and_the_log_file_keeps_all_of_it
     assert all(f"line {number:02d} of the crash" in kept for number in range(1, 61))
 
 
+@pytest.mark.routine_stop("terminate-process")  # the code under test kills its child on purpose (D-R2-1)
 def test_a_window_still_running_after_the_grace_is_a_started_launch(launch):
     start, log, logs, children = launch
     assert start("""

@@ -488,6 +488,8 @@ def _run_own_root_child(*, boundary=True, variable=True, same_test=False, worker
 
 
 @pytest.mark.parametrize("variable", [False, True], ids=["root-alone", "root-with-a-variable"])
+# The child is a crash fixture: Tcl_AsyncDelete panics and the process ends with STATUS_BREAKPOINT (D-R2-1).
+@pytest.mark.routine_stop("native-crash", codes=(0x80000003,))
 def test_without_the_boundary_a_closed_root_collected_on_a_worker_ends_the_process(variable):
     """The no-fix control of the tests below, and the reason they exist: not a warning, the end of the process."""
     result = _run_own_root_child(boundary=False, variable=variable)

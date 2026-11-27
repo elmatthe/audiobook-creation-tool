@@ -443,6 +443,7 @@ def test_a_failure_during_synthesis_or_encoding_leaves_nothing(stage, temp, tmp_
 
 
 @windows_only
+@pytest.mark.routine_stop("terminate-process")  # the code under test kills its child on purpose (D-R2-1)
 def test_a_folder_another_program_holds_is_left_finished_and_removed_later(temp, children):
     folder = work_area.new_folder("edge")
     held = folder.path / "assembly.wav"
@@ -464,6 +465,7 @@ def test_a_folder_another_program_holds_is_left_finished_and_removed_later(temp,
 
 
 @windows_only
+@pytest.mark.routine_stop("terminate-process")  # the code under test kills its child on purpose (D-R2-1)
 def test_a_killed_conversion_is_removed_at_the_next_start_and_nothing_else_is(temp, tmp_path, children):
     legacy = temp / "epub2tts_k3x9q1ab"
     legacy.mkdir()
@@ -493,6 +495,7 @@ def test_a_killed_conversion_is_removed_at_the_next_start_and_nothing_else_is(te
 
 
 @windows_only
+@pytest.mark.routine_stop("terminate-process")  # the code under test kills its child on purpose (D-R2-1)
 def test_a_running_owner_is_never_disturbed(temp, children):
     live = converting_child(children, temp, "live")
     killed = converting_child(children, temp, "killed")
@@ -511,6 +514,7 @@ def test_a_running_owner_is_never_disturbed(temp, children):
 
 
 @windows_only
+@pytest.mark.routine_stop("terminate-process")  # the code under test kills its child on purpose (D-R2-1)
 def test_a_reused_process_id_is_not_the_owner(temp, children):
     child = converting_child(children, temp)
     workspace = workspace_of(temp, child)
@@ -812,6 +816,7 @@ def test_cancel_stops_recovery_at_once(temp):
 
 
 @windows_only
+@pytest.mark.routine_stop("terminate-process")  # the code under test kills its child on purpose (D-R2-1)
 def test_a_dead_owners_file_another_program_still_holds_is_left_and_removed_once_free(temp, children, monkeypatch):
     workspace = fabricate(temp)
     held = workspace / "1" / "deep" / "assembly.wav"

@@ -1101,3 +1101,62 @@ def test_r1_c4_the_plan_candidate_binds_working_bytes_not_porcelain_status(repo)
     second = git_changes.selection_identity(repo, policy_digest="p", local_only=LOCAL_ONLY)
     assert first["available"] and first["working_digest"] != second["working_digest"]
     assert "not an authorization" in first["limitation"]
+
+
+# --------------------------------------------------------------------------- #
+#  Phase 1A-1 R2: privacy before reads (C2) and ambiguous imports as gaps (C4)
+# --------------------------------------------------------------------------- #
+def test_r2_c2_a_tracked_private_path_stops_the_evidence_map_without_naming_it(repo):
+    (repo / ".ai").mkdir()
+    (repo / ".ai" / "secret-notes.md").write_text("private\n", encoding="utf-8")
+    assert "secret-notes" not in json.dumps(evidence_ledger.blob_map(repo, local_only=LOCAL_ONLY)), "untracked: never read"
+    git(repo, "add", "-f", ".ai/secret-notes.md")
+    with pytest.raises(git_changes.PrivacyViolation) as stopped:
+        evidence_ledger.blob_map(repo, local_only=LOCAL_ONLY)
+    assert "secret-notes" not in str(stopped.value) and "1 tracked path" in str(stopped.value)
+    assert git_changes.tracked_private_count(repo, LOCAL_ONLY) == 1
+
+
+def test_r2_c2_the_tree_fingerprint_neither_reads_nor_names_a_private_path(repo, monkeypatch):
+    sys.path.insert(0, str(GATE_DIR))
+    import verify as gate  # noqa: E402 - the gate module, imported for its pure fingerprint
+
+    (repo / ".ai").mkdir()
+    (repo / ".ai" / "secret.md").write_text("private\n", encoding="utf-8")
+    git(repo, "add", "-f", ".ai/secret.md")
+    (repo / ".ai" / "secret.md").write_text("changed\n", encoding="utf-8")
+    read = []
+    real = gate.runstore.sha256_file
+    monkeypatch.setattr(gate.runstore, "sha256_file", lambda path: (read.append(str(path)), real(path))[1])
+    found = gate.tree_fingerprint(repo, local_only=LOCAL_ONLY)
+    assert found["available"] and found["private_tracked"] == 1
+    assert not any("secret" in path for path in read), "a private file is never read"
+    assert "secret" not in json.dumps(found), "a private path is never named"
+
+
+def test_r2_c2_a_candidate_with_tracked_private_paths_blocks_the_plan():
+    plan = ep.ExecutionPlan(mode="focused", kind="focused", requested=("files/tests/test_a.py",), native_platform="windows",
+                            target_platforms=("windows",), candidate={"violations": 1}, scope=("files/tests/test_a.py",),
+                            ordinary=("files/tests/test_a.py",))
+    assert plan.status == "BLOCKED"
+    assert dataclasses.replace(plan, candidate={"violations": 0}).status != "BLOCKED"
+
+
+def test_r2_c4_a_relevant_ambiguous_import_is_a_gap_for_the_importer_the_candidates_and_what_they_reach(code_tree):
+    write(code_tree, "files/tests/shared/__init__.py", "")
+    write(code_tree, "files/tests/shared/util.py", "from shared import deeper\n\ndef helper():\n    return 2\n")
+    write(code_tree, "files/tests/shared/deeper.py", "X = 1\n")
+    for path in ("scripts/shared/util.py", "files/tests/shared/util.py", "files/tests/shared/deeper.py",
+                 "files/tests/test_util.py"):
+        routing = route(code_tree, (path, "M", None))
+        assert any(gap.kind == "ambiguous" and gap.subject == path for gap in routing.gaps), (path, routing.gaps)
+    unrelated = route(code_tree, ("scripts/tts/voices.py", "M", None))
+    assert not any(gap.kind == "ambiguous" for gap in unrelated.gaps), unrelated.gaps
+
+
+def test_r2_c4_an_ambiguous_import_no_test_reaches_decides_nothing(code_tree):
+    write(code_tree, "scripts/orphan.py", "from shared import util\n")
+    write(code_tree, "files/tests/shared/util.py", "def helper():\n    return 2\n")
+    write(code_tree, "files/tests/test_util.py", "def test_util():\n    pass\n")  # nothing imports shared.util any more
+    routing = route(code_tree, ("scripts/shared/util.py", "M", None))
+    assert not any(gap.kind == "ambiguous" for gap in routing.gaps), routing.gaps

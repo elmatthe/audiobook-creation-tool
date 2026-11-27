@@ -560,7 +560,16 @@ def _digest_class(relative: str) -> str:
     return "other"
 
 
-def tree_fingerprint(repo_root: Path | None = None) -> dict:
+def _local_only() -> list:
+    """The owner-declared local-only entries of the policy (Phase 1A-1 R2, C2). An unreadable policy names none here; the run
+    then stops at its own policy check."""
+    try:
+        return list(load_policy().get("changed", {}).get("local_only", []))
+    except Exception:  # noqa: BLE001 - reported by the policy check, never here
+        return []
+
+
+def tree_fingerprint(repo_root: Path | None = None, *, local_only=None) -> dict:
     """SHA-256 over the working-tree bytes of what the suite tests, as a whole and per class.
 
     The starting commit alone does not identify the tested tree when edits are uncommitted (plan §13.3), so this hashes
@@ -569,12 +578,28 @@ def tree_fingerprint(repo_root: Path | None = None) -> dict:
     outputs/ is excluded even if the ignore rules were damaged, since this run is writing there.
     """
     repo_root = REPO_ROOT if repo_root is None else Path(repo_root)
+    local_only = _local_only() if local_only is None else local_only
     try:
-        tracked = {p for p in _git(repo_root, "ls-files", "-z", "--cached").split("\0") if p}
+        # Phase 1A-1 R2 (C2): owner-private paths are filtered out of every listing before any file is read or named.
+        private = git_changes.private_predicate(
+            local_only, case_sensitive=git_changes.repo_files.probe_case_sensitive(Path(os.path.abspath(repo_root))))
+        listed = [p for p in _git(repo_root, "ls-files", "-z", "--cached").split("\0") if p]
+        tracked = {p for p in listed if not private(p)}
+        private_tracked = len(listed) - len(tracked)
         untracked = {p for p in _git(repo_root, "ls-files", "-z", "--others", "--exclude-standard",
-                                     "--", *FINGERPRINT_UNTRACKED_SCOPES).split("\0") if p}
-        status = [line for line in _git(repo_root, "status", "--porcelain=v1",
-                                        "--untracked-files=no").splitlines() if line]
+                                     "--", *FINGERPRINT_UNTRACKED_SCOPES).split("\0") if p and not private(p)}
+        fields = _git(repo_root, "status", "--porcelain=v1", "-z", "--untracked-files=no").split("\0")
+        status, index = [], 0
+        while index < len(fields):
+            entry = fields[index]
+            index += 1
+            if not entry:
+                continue
+            code, path = entry[:2], entry[3:]
+            if code[0] in "RC" and index < len(fields):
+                index += 1  # the rename's source path follows; never named when private
+            if not private(path):
+                status.append(f"{code} {path}")
         try:
             head = _git(repo_root, "rev-parse", "--verify", "HEAD").strip()
         except subprocess.CalledProcessError:
@@ -606,6 +631,7 @@ def tree_fingerprint(repo_root: Path | None = None) -> dict:
         "head": head,
         "branch": branch,
         "tracked_files": len(tracked),
+        "private_tracked": private_tracked,
         "untracked_in_scope": sorted(untracked),
         "untracked_scopes": list(FINGERPRINT_UNTRACKED_SCOPES),
         "dirty_tracked": status,
@@ -742,6 +768,49 @@ def _ordinary_scope(targets) -> list[str]:
     return targets
 
 
+def _is_stage_runner(argv) -> bool:
+    """Whether a stage command is the gate's own runner (the routine or the guarded pytest runner script)."""
+    command = routine_context.parse_python(list(argv[1:]))
+    return command.mode == "script" and os.path.basename(command.target or "").lower() in (ROUTINE_PYTEST.lower(),
+                                                                                         "guarded_pytest.py")
+
+
+def _is_recipe_session(argv, role) -> bool:
+    """Whether a test-substituted stage command is a free-standing reviewed recipe that accounts as this stage's session
+    (the stand-in for pytest, in its exact bytes, in a disposable root of this routine session): it binds to the stage
+    launch in that role, as the real runner would (routine_context.recipe_role)."""
+    command = routine_context.parse_python(list(argv[1:]))
+    if command.mode != "script" or not command.target or role is None:
+        return False
+    return routine_context.recipe_role(os.path.abspath(command.target)) == role
+
+
+def stage_sessions(verdict: dict, launch: str, role: str | None) -> list[dict] | None:
+    """The participants a stage launch's session may be, from a stage ledger's verdict: the participant bound to the launch
+    itself, or -- only when that participant is a routine child (a test-substituted wrapper inside routine verification) --
+    the ``role`` sessions its own reservations started, transitively through routine children. None when nothing is bound
+    to the launch (judged by the ledger reader itself)."""
+    launches, participants = verdict.get("launches", {}), verdict.get("participants", {})
+    bound = [key for key in launches.get(launch, {}).get("participants", []) if key in participants]
+    if not bound:
+        return None
+    if role is None or participants[bound[0]]["role"] != "routine-child":
+        return [participants[key] for key in bound]
+    found, frontier, seen = [], list(bound), set()
+    while frontier:
+        key = frontier.pop(0)
+        if key in seen or key not in participants:
+            continue
+        seen.add(key)
+        entry = participants[key]
+        if entry["role"] == role:
+            found.append(entry)
+        elif entry["role"] == "routine-child":
+            frontier += [child for data in launches.values() if data.get("parent") == key
+                         for child in data.get("participants", [])]
+    return found
+
+
 def _routine_pytest() -> list[str]:
     """Ordinary pytest through the routine bootstrap: restrictions first, then pytest (files/tests/routine_pytest.py)."""
     return [sys.executable, "-u", str(TESTS_DIR / ROUTINE_PYTEST)]
@@ -809,6 +878,10 @@ class GateRun:
         self.scope = {"platform": sys.platform, "profile": args.mode, "full_acceptance": False}
         #: Each pytest stage's effect ledger (files/tests/routine_effects.py), read back when the stage ends.
         self.effect_ledgers: list[tuple[str, Path, str | None]] = []
+        #: Phase 1A-1 R2: the gate's own participant in each stage ledger (it reserves the stage's runner launch before
+        #: the process exists and records its spawn, any stop it made and its observed end), keyed by the ledger path.
+        self.stage_records: dict[str, dict] = {}
+        self.ledger_failures: list[str] = []
         self.acceptance: acceptance_report.Judgement | None = None
         self.coverage_result: coverage_model.CoverageResult | None = None
         #: Qualification scenarios this run executed, and their verdicts.
@@ -835,10 +908,15 @@ class GateRun:
 
     def supervise(self, stage: str, argv, *, log: Path, env: dict, progress=()) -> winproc.ChildResult:
         budget = self.budget(stage)
+        account = self.bind_stage(argv, env)
 
         def started(result: winproc.ChildResult) -> None:
             self.record.log(f"{log.stem} child started, pid {result.pid}, ownership {result.ownership}, "
                             f"error mode {result.error_mode_at_launch}")
+            if account is not None and result.pid:
+                self.ledger_write(account, "spawned", account["launch"], result.pid,
+                                  executable=os.path.normcase(os.path.abspath(argv[0])),
+                                  redirector=_venv_redirector(argv[0]), created=routine_context.process_created(result.pid))
 
         result = winproc.run_supervised(
             argv, log_path=log, cwd=REPO_ROOT, env=env, timeout=budget.get("timeout_seconds", 600),
@@ -846,7 +924,74 @@ class GateRun:
             kill_wait=budget.get("kill_wait_seconds", 20), on_start=started)
         self.record.log(f"{log.stem} child pid {result.pid} ended: {result.ended}, exit {result.returncode}, "
                         f"{result.seconds:.1f}s, remaining {result.remaining}, survivors {result.survivors}")
+        if account is not None:
+            self.settle_stage(account, result, env)
         return result
+
+    def bind_stage(self, argv, env: dict) -> dict | None:
+        """Phase 1A-1 R2: the accounting obligation of a stage's process, established before it exists. The gate's own
+        participant in the stage ledger reserves the launch the stage's runner must bind to (its identity is the runner's
+        command line), and the launch identity travels in the stage's environment. A pytest stage's runner must be the
+        routine (or guarded) session; inside routine verification (a gate driven by a test) any stage child is a bootstrapped
+        routine child. Outside routine verification a stage without a session role (acceptance, qualification) owes nothing."""
+        ledger = env.get(EFFECT_LEDGER_ENV)
+        account = self.stage_records.get(os.path.normcase(str(ledger))) if ledger else None
+        if account is None:
+            return None
+        expect = account["role"]
+        if routine_context.in_routine() and (expect is None or not (_is_stage_runner(argv)
+                                                                    or _is_recipe_session(argv, expect))):
+            # A gate driven by a test whose stage command a test substituted (a wrapper around the runner): the stage child
+            # is a bootstrapped routine child, and the session it starts is reserved in its own record (stage_sessions).
+            expect = "routine-child"
+        if expect is None:
+            return None
+        if account.get("launch"):
+            self.ledger_failures.append(f"{account['stage']}: a second process for one stage ledger")
+            return None
+        launch = routine_context.new_launch()
+        effects = sys.modules.get("routine_effects") if routine_context.in_routine() else None
+        # The stage's runner takes its disposable roots from its reservation: the temporary folder this gate made for the
+        # stage (stage_env), and -- for a bootstrapped routine child -- those of the session driving the gate, as for any
+        # launch that session's envelope reserves itself.
+        roots = [env["TEMP"]] if env.get("TEMP") else []
+        if expect == "routine-child" and hasattr(effects, "disposable_roots"):
+            roots += effects.disposable_roots()
+        try:
+            account["record"].reserve(launch, expect=expect, identity=routine_context.launch_identity(list(argv[1:])),
+                                      roots=roots, stage=account["stage"], note="the stage's runner")
+        except (routine_context.LedgerError, OSError) as exc:
+            self.ledger_failures.append(f"{account['stage']}: the stage launch could not be reserved ({exc})")
+            raise winproc.JobUnavailable(f"the stage's accounting obligation could not be established: {exc}") from exc
+        account["launch"] = launch
+        env[routine_context.LAUNCH_ENV] = launch
+        if effects is not None and hasattr(effects, "bind_stage_launch"):
+            effects.bind_stage_launch(launch, ledger)  # a gate driven in-process: its envelope delegates this launch
+        return account
+
+    def ledger_write(self, account: dict, kind: str, *args, **kwargs) -> None:
+        try:
+            getattr(account["record"], kind.replace("-", "_"))(*args, **kwargs)
+        except (routine_context.LedgerError, OSError) as exc:
+            self.ledger_failures.append(f"{account['stage']}: {kind}: {exc}")
+
+    def settle_stage(self, account: dict, result: winproc.ChildResult, env: dict) -> None:
+        """The stage's outcome in its ledger: never spawned, or spawned, stopped by the gate if it was (a stage runner's
+        reservation expects no stop, so a timeout or stall kill stays an accounting failure as well as a stage failure), and
+        its observed end. The probe session's own pid is kept to bind the runner participant to the session."""
+        launch = account["launch"]
+        if not result.pid:
+            self.ledger_write(account, "not-spawned", launch, result.start_error or result.ended)
+            return
+        if result.ended in ("timeout", "stall", "interrupted"):
+            self.ledger_write(account, "stop", launch, mechanism="terminate-job", pid=result.pid, code=None, tree=True,
+                              ok=True)
+        how = "exited" if result.returncode is not None else "unobservable"
+        self.ledger_write(account, "observed", launch, exit_status=result.returncode, how=how, pid=result.pid)
+        probe = env.get("ACT_GATE_PROBE")
+        if probe:
+            parsed = pytest_reports.read_probe(Path(probe), env.get("ACT_GATE_TOKEN"), require_finish=False)
+            account["probe_pid"] = (parsed.session or {}).get("pid")
 
     def stage_env(self, temp: Path, *, probe: Path | None = None, token: str = "", ledger: Path | None = None) -> dict:
         env = {key: value for key, value in os.environ.items()
@@ -857,6 +1002,10 @@ class GateRun:
             env.update(ACT_GATE_PROBE=str(probe), ACT_GATE_TOKEN=token)
         if ledger is not None:
             env[EFFECT_LEDGER_ENV] = str(ledger)
+        elif routine_context.in_routine() and os.environ.get(EFFECT_LEDGER_ENV):
+            # A gate driven by a test: a stage child without a stage ledger (the preflight interpreter) is accounted in the
+            # driving session's own ledger, like any other launch of this process (files/tests/routine_effects.py).
+            env[EFFECT_LEDGER_ENV] = os.environ[EFFECT_LEDGER_ENV]
         return env
 
     def ledger(self, stage: str, folder: Path | None = None, *, role: str | None = "routine-pytest") -> Path:
@@ -869,6 +1018,10 @@ class GateRun:
         path = (folder or self.reports()) / f"{stage}-effects"
         routine_context.init_ledger(path, owner="gate", stage=stage, token=f"{self.record.run_id}-{stage}")
         self.effect_ledgers.append((stage, path, role))
+        record = routine_context.ProcessRecord(path, "gate")
+        account = {"stage": stage, "role": role, "record": record, "launch": None, "probe_pid": None}
+        self.stage_records[os.path.normcase(str(path))] = account
+        self.ledger_write(account, "start")
         return path
 
     def scratch(self, name: str) -> Path:
@@ -901,6 +1054,10 @@ class GateRun:
     def _sequence(self) -> None:
         self.enter("preflight")
         self.write_start()
+        if self.identity_start.get("private_tracked"):
+            self.check("privacy", "BLOCKED", f"{self.identity_start['private_tracked']} tracked path(s) at owner-declared "
+                                             "local-only entries (names withheld): nothing runs until they are untracked")
+            return
         try:
             self.policy = load_policy()
             self.coverage = load_coverage()
@@ -970,7 +1127,8 @@ class GateRun:
         return plan
 
     def write_start(self) -> None:
-        self.identity_start = tree_fingerprint()
+        local_only = _local_only()
+        self.identity_start = tree_fingerprint(local_only=local_only)
         self.environment = environment_identity()
         self.record.log(f"interpreter {sys.executable} ({sys.version.split()[0]})")
         self.record.log(f"tree fingerprint at start: {self.identity_start.get('sha256', self.identity_start.get('error'))}")
@@ -981,8 +1139,9 @@ class GateRun:
         })
         # Every file this run sees, as a git blob: what lets --evidence tell later which of this run's results a change reaches.
         try:
-            runstore.write_json_atomic(self.directory / evidence_ledger.FILES_NAME, evidence_ledger.blob_map(REPO_ROOT))
-        except (OSError, RuntimeError) as exc:
+            runstore.write_json_atomic(self.directory / evidence_ledger.FILES_NAME,
+                                       evidence_ledger.blob_map(REPO_ROOT, local_only=local_only))
+        except (OSError, RuntimeError, git_changes.ChangeError) as exc:  # its privacy check asks Git too (R2, C2)
             self.record.log(f"no file record for incremental evidence: {exc}")
 
     def preflight(self) -> bool:
@@ -1143,10 +1302,11 @@ class GateRun:
                 scratch / "t", probe=probe, token=token, ledger=self.ledger("collect-pytest")))
             parsed = pytest_reports.read_probe(probe, token)
             self.stages.append({"name": "collect-pytest", "log": self.relative(log), "probe": self.relative(probe), **result.record()})
-            if result.returncode != 0 or not parsed.valid or parsed.collected is None or parsed.collect_errors:
-                self.check("collection", "FAIL" if result.returncode not in (0, 5) or parsed.collect_errors else "NOT RUN",
-                           f"ordinary collection: exit {result.returncode}, {len(parsed.collect_errors)} error(s), "
-                           f"record {parsed.problem or 'ok'}")
+            vanished = parsed.vanished() if parsed.valid and parsed.collected is not None else None
+            if result.returncode != 0 or not parsed.valid or parsed.collected is None or parsed.collect_errors or vanished:
+                self.check("collection", "FAIL" if result.returncode not in (0, 5) or parsed.collect_errors or vanished
+                           else "NOT RUN", f"ordinary collection: exit {result.returncode}, {len(parsed.collect_errors)} "
+                           f"error(s), record {parsed.problem or 'ok'}" + (f"; {vanished}" if vanished else ""))
                 return False
             self.collected_ordinary = parsed.collected
             self._write_inventory("pytest", parsed.collected, parsed.collect_skips)
@@ -1188,9 +1348,10 @@ class GateRun:
         self.stages.append({"name": f"collect-guarded-{name}", "log": self.relative(log), "probe": self.relative(stored),
                             "report": self.relative(stored_report), **result.record()})
         ok, detail = _judge_group(name, result.returncode, _read_guard_report(report), require_tests=False)
-        if not ok or not parsed.valid or parsed.collected is None or parsed.collect_errors:
+        vanished = parsed.vanished() if parsed.valid and parsed.collected is not None else None
+        if not ok or not parsed.valid or parsed.collected is None or parsed.collect_errors or vanished:
             self.check("collection", "FAIL", f"guarded collection: {detail}; record {parsed.problem or 'ok'}; "
-                                             f"{len(parsed.collect_errors)} error(s)")
+                                             f"{len(parsed.collect_errors)} error(s)" + (f"; {vanished}" if vanished else ""))
             return None
         self.remember_temp(basetemp)
         self._write_inventory(f"guarded-{name}", parsed.collected, parsed.collect_skips)
@@ -1443,8 +1604,11 @@ class GateRun:
         if self.lifecycle_reached_tests():
             self.check("cleanup", "FAIL" if cleanup else "PASS",
                        f"owned processes left behind: {cleanup}" if cleanup else "no owned process remained after any stage")
-        if self.effect_ledgers:
-            self.check_routine_effects()
+        if self.effect_ledgers or self.ledger_failures:
+            try:
+                self.check_routine_effects()
+            except Exception as exc:  # noqa: BLE001 - an unreadable accounting is a FAIL, sealed with the run
+                self.check("routine-effects", "FAIL", f"the stage ledgers could not be judged: {type(exc).__name__}: {exc}")
         self.check_requested_scope()
         if ran_tests:
             self.check_error_mode()
@@ -1455,7 +1619,7 @@ class GateRun:
         if self.args.mode == "full" and self.lifecycle_reached_tests():
             self.check_self_tests()
             self.check_later_requirements()
-        identity_end = tree_fingerprint() if self.identity_start else {}
+        identity_end = tree_fingerprint(local_only=_local_only()) if self.identity_start else {}
         match = self.check_tree(identity_end)
         status, exit_code = self.outcome()
         temp_problems = self.remove_temp(status)
@@ -1504,16 +1668,30 @@ class GateRun:
         was refused. A refusal fails the run even when the test that caused it caught the exception, whichever process (a
         test, a child, an atexit callback) caused it; a missing, empty, unreadable, incomplete or malformed ledger is never
         clean."""
-        refused, problems = [], []
+        refused, problems = [], list(self.ledger_failures)
         for stage, path, role in self.effect_ledgers:
+            account = self.stage_records.get(os.path.normcase(str(path)))
+            if account is not None and not account["record"].ended:
+                self.ledger_write(account, "end", exit_status=0, refusals=0, unexpected=0)
+                problems += [item for item in self.ledger_failures if item not in problems]
             verdict = routine_context.read_ledger(path, token=f"{self.record.run_id}-{stage}", require_role=role)
             refused += [f"{stage}: {row.get('effect')}: {str(row.get('detail'))[:160]}" for row in verdict["unexpected"]]
             problems += [f"{stage}: {item}" for item in verdict["problems"]]
+            if account is not None and account.get("launch"):
+                sessions = stage_sessions(verdict, account["launch"], role)
+                if account.get("probe_pid") is not None and sessions is not None and \
+                        account["probe_pid"] not in {entry["pid"] for entry in sessions}:
+                    problems.append(f"{stage}: the session that recorded the probe (pid {account['probe_pid']}) is not the "
+                                    f"participant bound to the stage launch "
+                                    f"({', '.join(str(entry['pid']) for entry in sessions) or 'none'})")
             stored = None
             if path.is_dir():
                 stored = path if path.parent == self.reports() else self.reports() / path.name
                 if stored != path:
-                    shutil.copytree(path, stored)
+                    try:
+                        _copy_plain_tree(path, stored)
+                    except OSError as exc:
+                        problems.append(f"{stage}: the ledger could not be kept as evidence ({exc})")
             self.record.log(f"effect ledger {stage}: {self.relative(stored) if stored else path} ({verdict['status']}, "
                             f"{verdict['processes']} process record(s), {verdict['complete']} complete)")
         status = "FAIL" if refused or problems else "PASS"
@@ -1914,6 +2092,28 @@ def _pinned_pytest() -> str | None:
     return found.group(1) if found else None
 
 
+def _venv_redirector(program) -> bool:
+    """A Windows venv ``python.exe``: a launcher whose interpreter is its direct child (``pyvenv.cfg`` one folder up)."""
+    path = Path(program)
+    return os.name == "nt" and path.name.lower() in ("python.exe", "pythonw.exe") and \
+        (path.parent.parent / "pyvenv.cfg").is_file()
+
+
+def _copy_plain_tree(source: Path, target: Path) -> None:
+    """Copy a ledger directory as evidence, never following a link: only plain files and plain directories are copied."""
+    target.mkdir(parents=False, exist_ok=False)
+    with os.scandir(source) as entries:
+        for entry in entries:
+            info = entry.stat(follow_symlinks=False)
+            reparse = getattr(info, "st_file_attributes", 0) & 0x400
+            if entry.is_symlink() or reparse:
+                raise OSError(f"{entry.name} is a link; it is never followed")
+            if entry.is_dir(follow_symlinks=False):
+                _copy_plain_tree(Path(entry.path), target / entry.name)
+            elif entry.is_file(follow_symlinks=False):
+                shutil.copyfile(entry.path, target / entry.name, follow_symlinks=False)
+
+
 def _report_lines(results: dict, directory: Path) -> list[str]:
     tags = {"NOT RUN": "NOT RUN", "NOT APPLICABLE": "N/A"}
     lines = ["=" * 60, "verify.py — Audiobook Creation Tool gate", "=" * 60, f"  mode: {results['mode']}"]
@@ -2025,7 +2225,11 @@ def _evidence_command(args) -> int:
     policy = load_policy()
     roots = [OUTPUTS_ROOT, *[Path(item) if Path(item).is_absolute() else REPO_ROOT / item for item in (args.evidence_root or [])]]
     runs, skipped = evidence_ledger.load_runs(REPO_ROOT, roots)
-    current = evidence_ledger.blob_map(REPO_ROOT)
+    try:
+        current = evidence_ledger.blob_map(REPO_ROOT, local_only=policy.get("changed", {}).get("local_only", []))
+    except (git_changes.PrivacyViolation, git_changes.ChangeError) as exc:
+        print(f"EVIDENCE: BLOCKED: {exc}")
+        return runstore.EXIT_BLOCKED
     head = evidence_ledger._git(REPO_ROOT, "rev-parse", "HEAD").strip()
     environment = environment_identity()
     sys.path.insert(0, str(GATE_DIR))
