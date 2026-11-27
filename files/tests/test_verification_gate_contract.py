@@ -1650,7 +1650,7 @@ def active_callers_of_the_retired_path(listed: str) -> list[str]:
                "scripts/requirements.txt", "md-instructions/Handoff.md", "md-instructions/Decisions.md",
                "md-instructions/Changelog.md", "md-instructions/Briefing.md"}
     return [path for path in listed.splitlines()
-            if path not in allowed and not path.startswith(("files/plans/", "files/release-history/"))
+            if path not in allowed and not path.startswith(("files/plans/", "files/release-history/", "files/documentation-history/"))
             and not (path.startswith("files/dev-work/phase9-remote-review/") and path.endswith(".md")
                      and "/" not in path[len("files/dev-work/phase9-remote-review/"):])]
 

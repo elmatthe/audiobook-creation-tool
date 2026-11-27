@@ -447,6 +447,7 @@
       "files/codex-summary-for-remote-access/",
       "files/plans/",
       "files/release-history/",
+      "files/documentation-history/",
       "md-instructions/",
       "README.md",
       "AI-WORKSPACE.md",
@@ -534,6 +535,9 @@
         "doc-links"
       ],
       "files/release-history/": [
+        "doc-links"
+      ],
+      "files/documentation-history/": [
         "doc-links"
       ],
       "README.md": [
@@ -784,7 +788,7 @@
     }
   },
   "entrypoints": {
-    "about": "v0.8.2 Phase 1A-1, decision ENTRY: every executable verification entrypoint (a __main__ block under the gate, files/dev-tools or the test helpers), classified. class: active (verification infrastructure, integrated with the controls), maintained (developer qualification tools: integrated or disabled until admitted in Phase 1A-2), obsolete (experiments kept for history: retirement is Phase 2), bounded (a reviewed short disposable fixture), support. routine: what a routine verification process may do with it -- refused (only --help), data-only (only --help and the listed data_only flags), bounded (permitted). Each refusing entrypoint checks the routine marker itself (helpers/routine_context.py; there is no launch interception since the v0.8.2 simplification); the contract test of helpers/effects.py keeps it equal to the tree.",
+    "about": "v0.8.2 Phase 1A-1, decision ENTRY: every executable verification entrypoint (a __main__ block under the gate, files/dev-tools or the test helpers), classified. class: active (verification infrastructure, integrated with the controls), maintained (developer qualification tools: integrated or disabled until admitted in Phase 1A-2), obsolete (historical experiments; Phase 2 removed the four with no dependents, and the rest stay because a maintained tool or a test imports them), bounded (a reviewed short disposable fixture), support. routine: what a routine verification process may do with it -- refused (only --help), data-only (only --help and the listed data_only flags), bounded (permitted). Each refusing entrypoint checks the routine marker itself (helpers/routine_context.py; there is no launch interception since the v0.8.2 simplification); the contract test of helpers/effects.py keeps it equal to the tree.",
     "files/dev-work/verification-gate/verify.py": {
       "class": "active",
       "effects": [
@@ -1027,15 +1031,6 @@
       "routine": "refused",
       "why": "P1A simulated native audit of a Mac installation"
     },
-    "files/dev-tools/macos_p2_kokoro_assets.py": {
-      "class": "obsolete",
-      "effects": [
-        "external-network",
-        "install"
-      ],
-      "routine": "refused",
-      "why": "P2 Kokoro asset acquisition (historical)"
-    },
     "files/dev-tools/macos_p2_qualify.py": {
       "class": "maintained",
       "effects": [
@@ -1071,15 +1066,6 @@
       "routine": "refused",
       "why": "P4A OmniVoice feasibility engine worker (historical)"
     },
-    "files/dev-tools/macos_p4b_omnivoice_install_qa.py": {
-      "class": "obsolete",
-      "effects": [
-        "install",
-        "external-network"
-      ],
-      "routine": "refused",
-      "why": "P4B installer fault-path QA (historical)"
-    },
     "files/dev-tools/macos_p4b_omnivoice_qualify.py": {
       "class": "maintained",
       "effects": [
@@ -1087,14 +1073,6 @@
       ],
       "routine": "refused",
       "why": "P4B qualification of the installed OmniVoice engine on macOS (Phase 1A-2 admission)"
-    },
-    "files/dev-tools/macos_p4b_omnivoice_setup.py": {
-      "class": "obsolete",
-      "effects": [
-        "install"
-      ],
-      "routine": "refused",
-      "why": "P4B OmniVoice adoption and install (historical)"
     },
     "files/dev-tools/omnivoice_p1.py": {
       "class": "obsolete",
@@ -1110,14 +1088,6 @@
       "effects": [],
       "routine": "bounded",
       "why": "v0.8.0 Phase 1 worker; a routine test runs it under the base interpreter with a refused job (it cannot load the model there); an engine-environment interpreter needs owner authorization (GATE.md)"
-    },
-    "files/dev-tools/omnivoice_p2_smoke.py": {
-      "class": "obsolete",
-      "effects": [
-        "real-engine"
-      ],
-      "routine": "refused",
-      "why": "v0.8.0 Phase 2 real smoke of the six OmniVoice voices (historical)"
     },
     "files/dev-tools/omnivoice_p4_acceptance.py": {
       "class": "maintained",

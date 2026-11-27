@@ -75,7 +75,10 @@ def test_the_bundled_mode_table_is_exactly_the_g1_matrix():
 
 
 def test_every_exception_is_an_explicit_owner_preference_and_is_documented():
-    decisions = (Path(__file__).resolve().parents[2] / "md-instructions" / "Decisions.md").read_text(encoding="utf-8")
+    # v0.8.2 Phase 2 (DOC-1): the Decisions record is the permanent document plus its per-era archive files.
+    repo = Path(__file__).resolve().parents[2]
+    record = [repo / "md-instructions" / "Decisions.md", *sorted((repo / "files" / "documentation-history" / "decisions").glob("*.md"))]
+    decisions = "\n".join(path.read_text(encoding="utf-8") for path in record)
     for engine, cls in EXCEPTIONS:
         verdict = next(v for v in VERDICTS if (v["engine"], v["class"]) == (engine, cls))
         assert verdict["verdict"] in ("A", "B") and verdict["prefers"] == "native"

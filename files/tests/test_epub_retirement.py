@@ -934,7 +934,10 @@ def test_the_surviving_package_names_are_a_documented_compatibility_boundary():
     """Phase 5 chose not to rename (drop §4.4). The choice must be written down."""
     assert (TTS / "epub2tts_edge" / "epub2tts_edge.py").is_file()
     assert (TTS / "epub2tts_gui.py").is_file()
-    decisions = (REPO_ROOT / "md-instructions" / "Decisions.md").read_text(encoding="utf-8")
+    # v0.8.2 Phase 2 (DOC-1): the Decisions record is the permanent document plus its per-era archive files.
+    record = [REPO_ROOT / "md-instructions" / "Decisions.md",
+              *sorted((REPO_ROOT / "files" / "documentation-history" / "decisions").glob("*.md"))]
+    decisions = "\n".join(path.read_text(encoding="utf-8") for path in record)
     assert "compatibility boundary" in decisions.lower()
     header = source("tts/epub2tts_gui.py")[:2000]
     assert "PDF" in header and "TXT" in header

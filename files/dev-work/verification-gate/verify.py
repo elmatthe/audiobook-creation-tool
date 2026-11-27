@@ -143,7 +143,8 @@ DIGEST_CLASSES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("tests", ("files/tests/", "files/test-files/")),
     ("locks", ("scripts/requirements", "scripts/qwen3-requirements", "scripts/qwen3-artifacts")),
     ("source", ("scripts/", "config.toml", "Setup_and_Run-")),
-    ("docs", ("md-instructions/", "files/plans/", "files/release-history/", "README.md", "REPO-STRUCTURE.md")),
+    ("docs", ("md-instructions/", "files/plans/", "files/release-history/", "files/documentation-history/", "README.md",
+              "REPO-STRUCTURE.md")),
 )
 _OUTPUTS_RELATIVE = "files/dev-work/verification-gate/outputs/"
 SCENARIO_NAMES = ("m4b-scaling", "edge-low-memory", "optional-engines", "fresh-windows")

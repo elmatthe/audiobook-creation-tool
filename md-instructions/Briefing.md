@@ -148,7 +148,8 @@ repository-contained (`files/run-temp/`) except the approved `%TEMP%\act-gate`. 
 
 - `md-instructions/` holds exactly five permanent documents in exact case and nothing else: `Briefing.md`, `Handoff.md`, `Feature-Map.md`,
   `Decisions.md`, `Changelog.md`. The gate reads real directory entries because path lookups are case-insensitive. Decisions is append-only,
-  newest first, with a navigation index at its top; Changelog keeps release history with an index at its top.
+  newest first, with a navigation index at its top; Changelog keeps release history with an index at its top. Entries before v0.8.0 are
+  archived unchanged in `files/documentation-history/decisions/` and `files/documentation-history/changelog/` (DOC-1, Phase 2).
 - Plans: `files/plans/`. Release qualification records: `files/release-history/`. Protected archives: `files/Archives/`, `dist/`.
 - **Two kinds of checkout (D-5).** The repository is public. A fresh public checkout (clone, source ZIP, release ZIP) has no AI Workspace
   files and works fully. A development checkout adds local-only `AGENTS.md`, root `CLAUDE.md`, `AI-WORKSPACE.md`, `.ai/` and `.claude/`
@@ -163,7 +164,8 @@ repository-contained (`files/run-temp/`) except the approved `%TEMP%\act-gate`. 
 
 Never modify, clean or reorganize: `dist/`, `files/Archives/`, `.venv/`, `files/runtime-data/`, `files/bin/`, owner fixtures (`files/test-files/`,
 `files/test-for-manual-listen-*`), listening evidence and regenerated audio under `files/dev-work/`, active worktrees, other agents' scratch,
-unknown paths and ACL-locked folders. Phase 2 owns classified cleanup of historical artifacts.
+unknown paths and ACL-locked folders. Retention rules for agents' scratch and gate evidence: `files/dev-work/verification-gate/GATE.md`
+("Retention and cleanup", v0.8.2 Phase 2).
 
 ## 11. Direction (Approved future; none of it is built)
 

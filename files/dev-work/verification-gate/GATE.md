@@ -160,12 +160,26 @@ source changed. Count results from pytest's own summary or JUnit XML, never from
 application's files or an active run's, failed-run diagnostics copied into repository evidence, no general TEMP sweep).
 Direct pytest runs do not use it. The exception is not widened by this policy.
 
-## Cleanup obligations recorded for Phase 2
+## Retention and cleanup (v0.8.2 Phase 2)
 
-The entrypoint table classifies 17 `files/dev-tools/*` programs as obsolete; they are Phase 2 removal candidates after their
-still-cited facts move. The old `files/dev-work/wt082` worktree, the historical `C:\t\` scratch (D-2), the ACL-locked
-folders (D-3) and the owner's listening evidence stay untouched until Phase 2's classified cleanup. Never create new
-`C:\t\` scratch or another external basetemp without approval. Check free disk space before any expensive run.
+Simple rules, applied by hand; nothing deletes historical evidence automatically and there is no cleanup service.
+
+- **Own work.** Every agent removes its own disposable work (direct-run basetemps, probes, review bundles no longer needed)
+  before it stops, and reports what it kept, what it removed and the space freed. The gate already removes its own
+  `%TEMP%\act-gate` scratch after a clean run; `--audit-scratch` lists what is left there and changes nothing.
+- **Gate evidence.** `outputs/` run folders and the guarded basetemps under `files/dev-work/p05b-stage4c/` are kept while a
+  permanent document, the plan or a review cites them, and the newest run of each mode is always kept. Any other run folder
+  is eligible for manual removal after 7 days. Soft budget: 2 GiB for those two folders together (about 0.93 GiB at
+  Phase 2); over budget, report it at the checkpoint and remove only eligible folders of finished runs.
+- **Never removed by an agent:** `dist/`, `files/Archives/`, `.venv/`, `files/runtime-data/`, `files/bin/`, user data and
+  outputs, `files/test-files/`, the old worktree `files/dev-work/wt082` and the owner's listening evidence, another agent's
+  scratch, an unknown path, an unreadable (ACL-locked) folder, a link or junction target. Unknown or unreadable means leave
+  it and report it.
+- **External locations.** Never create `C:\t\` scratch or another external basetemp without approval. The historical
+  `C:\t\` folders (D-2) and the ACL-locked folders (D-3) wait for the owner. Check free disk space before an expensive run.
+
+Phase 2 removed the four obsolete `files/dev-tools/*` programs that nothing imports; the other 13 the entrypoint table calls
+obsolete stay, because a maintained tool or a test that runs production code imports them.
 
 Still open from earlier phases: `scripts/requirements.txt`'s dev/test comment names the retired gate path (byte-locked into
 setup; next dependency change, Phase 4); `coverage.require_reviewed_inventory` and the `source_review` stamps (moved off
@@ -177,6 +191,6 @@ Consumers of the five-document contract: `verify.py` `CANONICAL_DOCS` and `check
 
 ## Next
 
-Phase 2 (classified repository hygiene, dry-run first), then Phase 3 (uv feasibility). The reduced Phase 1A-2 admission is
+Phase 3A (Windows uv feasibility, owner-authorized downloads), then 3B (macOS). The reduced Phase 1A-2 admission is
 built only when the first genuinely needed heavyweight run requires it. See the plan's "Verification simplification"
 amendment for the consolidated checkpoint dispositions.
