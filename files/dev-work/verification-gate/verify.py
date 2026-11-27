@@ -560,13 +560,26 @@ def _digest_class(relative: str) -> str:
     return "other"
 
 
-def _local_only() -> list:
-    """The owner-declared local-only entries of the policy (Phase 1A-1 R2, C2). An unreadable policy names none here; the run
-    then stops at its own policy check."""
+def _local_only() -> list | None:
+    """The owner-declared local-only entries of the policy (Phase 1A-1 R2, C2), or None when the policy is unavailable,
+    malformed or lacks them (R3): never an empty list standing in for "nothing is private". Every reader that is handed None
+    withholds what it would read (tree_fingerprint, blob_map, the argv record), and the run stops at its own policy check."""
     try:
-        return list(load_policy().get("changed", {}).get("local_only", []))
-    except Exception:  # noqa: BLE001 - reported by the policy check, never here
-        return []
+        return list(load_policy()["changed"]["local_only"])
+    except (PolicyError, KeyError, TypeError):
+        return None
+
+
+_DIGEST_KEYS = ("sha256", "source_digest", "test_digest", "policy_digest", "locks_digest", "docs_digest", "other_digest")
+
+
+def _withheld_identity(privacy: str, error: str, *, available: bool = True, **facts) -> dict:
+    """A fingerprint that captured nothing (Phase 1A-1 R3, C2): no digest, no path name -- only its state, a count and a
+    fixed reason. ``privacy`` is ``unavailable`` (no usable local-only policy), ``violation`` (tracked local-only paths) or
+    ``linked`` (a tracked or in-scope path is a link or lies below one). runstore.compare_identity never calls it current."""
+    return {"available": available, "privacy": privacy, "error": error, **{key: None for key in _DIGEST_KEYS},
+            "head": None, "branch": None, "tracked_files": None, "private_tracked": None, "untracked_in_scope": [],
+            "untracked_scopes": list(FINGERPRINT_UNTRACKED_SCOPES), "dirty_tracked": [], "deleted_tracked": [], **facts}
 
 
 def tree_fingerprint(repo_root: Path | None = None, *, local_only=None) -> dict:
@@ -576,19 +589,39 @@ def tree_fingerprint(repo_root: Path | None = None, *, local_only=None) -> dict:
     what is on disk: every tracked file, plus untracked, non-ignored files in FINGERPRINT_UNTRACKED_SCOPES. A tracked file
     missing from the working tree is recorded as deleted, not skipped. Read-only: no index refresh, no objects written.
     outputs/ is excluded even if the ignore rules were damaged, since this run is writing there.
+
+    Phase 1A-1 R3 (C2), in this order and before anything is read: without a usable local-only policy (``local_only`` None
+    and the policy unavailable, or malformed) nothing is asked of Git at all (``available`` False, ``privacy``
+    ``unavailable``); a tracked local-only path stops the capture (``violation``: a count, no digest, no status); a tracked
+    or in-scope path that is a link or lies below one stops it too (``linked``). Only then does Git compare working files
+    (``status``, without rename detection), and every byte hashed here is read through the no-follow inventory.
     """
     repo_root = REPO_ROOT if repo_root is None else Path(repo_root)
     local_only = _local_only() if local_only is None else local_only
     try:
+        git_changes.require_policy(local_only)
+    except git_changes.PrivacyViolation:
+        return _withheld_identity("unavailable", "the owner-declared local-only policy is unavailable or malformed: nothing "
+                                                 "was read or named", available=False)
+    inventory = git_changes.repo_files.Inventory(Path(os.path.abspath(repo_root)))
+    try:
         # Phase 1A-1 R2 (C2): owner-private paths are filtered out of every listing before any file is read or named.
-        private = git_changes.private_predicate(
-            local_only, case_sensitive=git_changes.repo_files.probe_case_sensitive(Path(os.path.abspath(repo_root))))
+        private = git_changes.private_predicate(local_only, case_sensitive=inventory.case_sensitive)
         listed = [p for p in _git(repo_root, "ls-files", "-z", "--cached").split("\0") if p]
         tracked = {p for p in listed if not private(p)}
         private_tracked = len(listed) - len(tracked)
+        if private_tracked:
+            return _withheld_identity("violation", f"{private_tracked} tracked path(s) at owner-declared local-only entries "
+                                                   "(names withheld): nothing was read", private_tracked=private_tracked)
         untracked = {p for p in _git(repo_root, "ls-files", "-z", "--others", "--exclude-standard",
                                      "--", *FINGERPRINT_UNTRACKED_SCOPES).split("\0") if p and not private(p)}
-        fields = _git(repo_root, "status", "--porcelain=v1", "-z", "--untracked-files=no").split("\0")
+        linked = git_changes.linked_count(inventory, sorted(tracked | {p for p in untracked
+                                                                       if not p.startswith(_OUTPUTS_RELATIVE)}))
+        if linked:
+            return _withheld_identity("linked", f"{linked} tracked or in-scope path(s) are links or lie below one (names "
+                                                "withheld): nothing was read through them", private_tracked=0,
+                                      linked_paths=linked)
+        fields = _git(repo_root, "status", "--porcelain=v1", "-z", "--untracked-files=no", "--no-renames").split("\0")
         status, index = [], 0
         while index < len(fields):
             entry = fields[index]
@@ -609,7 +642,9 @@ def tree_fingerprint(repo_root: Path | None = None, *, local_only=None) -> dict:
         except subprocess.CalledProcessError:
             branch = None
     except (OSError, subprocess.CalledProcessError) as exc:
-        return {"available": False, "error": f"{type(exc).__name__}: {exc}"}
+        # Neither Git's stderr nor its argv is echoed: they can name paths (R3, C2).
+        code = getattr(exc, "returncode", None)
+        return {"available": False, "error": f"{type(exc).__name__}" + (f": git exited {code}" if code is not None else "")}
     digest = hashlib.sha256()
     classes = {name: hashlib.sha256() for name, _prefixes in DIGEST_CLASSES}
     classes["other"] = hashlib.sha256()
@@ -617,16 +652,23 @@ def tree_fingerprint(repo_root: Path | None = None, *, local_only=None) -> dict:
     for relative in sorted(tracked | untracked):
         if relative.startswith(_OUTPUTS_RELATIVE):
             continue
-        try:
-            content = runstore.sha256_file(repo_root / relative)
-        except (FileNotFoundError, NotADirectoryError):
+        _spelled, kind, _detail = inventory.canonical(relative)
+        if kind == git_changes.repo_files.FILE:
+            try:
+                content = hashlib.sha256(inventory.read_bytes(relative)).hexdigest()
+            except OSError:
+                content = "<unreadable>"
+        elif kind == git_changes.repo_files.MISSING:
             content = "<deleted>"
             deleted.append(relative)
+        else:
+            content = f"<{kind}>"
         line = relative.encode("utf-8", "surrogateescape") + b"\0" + content.encode("ascii") + b"\n"
         digest.update(line)
         classes[_digest_class(relative)].update(line)
     return {
         "available": True,
+        "privacy": "ok",
         "sha256": digest.hexdigest(),
         "head": head,
         "branch": branch,
@@ -700,6 +742,13 @@ def load_policy(path: Path | None = None) -> dict:
                 "changed", "required_self_tests"):
         if key not in policy:
             raise PolicyError(f"{path.name}: missing {key!r}")
+    # Phase 1A-1 R3 (C2): the owner's local-only declaration is mandatory. Absent or malformed, nothing can tell a private
+    # path from a public one, so the policy is unusable -- never "nothing is private".
+    try:
+        git_changes.require_policy(policy["changed"].get("local_only") if isinstance(policy["changed"], dict) else None)
+    except git_changes.PrivacyViolation:
+        raise PolicyError(f"{path.name}: changed.local_only is missing or malformed: owner-private paths cannot be "
+                          "established") from None
     if set(policy["scenarios"]) != set(SCENARIO_NAMES):
         raise PolicyError(f"{path.name}: scenarios {sorted(policy['scenarios'])} are not the frozen {sorted(SCENARIO_NAMES)}")
     if sys.platform == "darwin":
@@ -1058,6 +1107,9 @@ class GateRun:
             self.check("privacy", "BLOCKED", f"{self.identity_start['private_tracked']} tracked path(s) at owner-declared "
                                              "local-only entries (names withheld): nothing runs until they are untracked")
             return
+        if self.identity_start.get("privacy") == "linked":
+            self.check("privacy", "BLOCKED", self.identity_start["error"] + ": nothing runs until the link is removed")
+            return
         try:
             self.policy = load_policy()
             self.coverage = load_coverage()
@@ -1066,6 +1118,10 @@ class GateRun:
             self.check("policy", "NOT RUN", str(exc))
             return
         self.check("policy", "PASS", f"{POLICY_FILE.name}, {COVERAGE_FILE.name} usable")
+        if self.identity_start.get("privacy", "ok") != "ok":  # unusable at the start, usable now: still nothing was captured
+            self.check("privacy", "BLOCKED", f"the starting identity was withheld ({self.identity_start.get('privacy')}): "
+                                             "nothing runs without it")
+            return
         # Preflight first, as selection always followed it: a broken guarded specification or interpreter is named by its own
         # check, not hidden behind the plan it also prevents.
         if not self.preflight():
@@ -1131,13 +1187,17 @@ class GateRun:
         self.identity_start = tree_fingerprint(local_only=local_only)
         self.environment = environment_identity()
         self.record.log(f"interpreter {sys.executable} ({sys.version.split()[0]})")
-        self.record.log(f"tree fingerprint at start: {self.identity_start.get('sha256', self.identity_start.get('error'))}")
+        self.record.log(f"tree fingerprint at start: {self.identity_start.get('sha256') or self.identity_start.get('error')}")
         self.record.write_start({
             "started_at": self.started_at, "mode": self.args.mode, "label": self.args.label, "argv": self.argv,
             "cwd": os.getcwd(), "repo_root": str(REPO_ROOT), "error_mode": self.established,
             "utc_offset": time.strftime("%z"), "environment": self.environment, "identity": self.identity_start,
         })
         # Every file this run sees, as a git blob: what lets --evidence tell later which of this run's results a change reaches.
+        # Phase 1A-1 R3 (C2): never when the starting identity was withheld or unavailable -- nothing is hashed then.
+        if not self.identity_start.get("available") or self.identity_start.get("privacy", "ok") != "ok":
+            self.record.log("no file record for incremental evidence: the starting identity was withheld or unavailable")
+            return
         try:
             runstore.write_json_atomic(self.directory / evidence_ledger.FILES_NAME,
                                        evidence_ledger.blob_map(REPO_ROOT, local_only=local_only))
@@ -1238,15 +1298,16 @@ class GateRun:
         # the network refuses, BLOCKED, without its grant, and one that needs none keeps its own children offline.
         granted = ["--network", self.args.network] if self.args.network else []
         effects = [effect for effect in scenario.get("effects", []) if effect in routine_context.EFFECTS]
+        command = [sys.executable, "-u", str(script), "--out", str(folder), *granted]
         try:
-            # v0.8.2 Phase 1A-1 R1: the operation boundary (see run_acceptance).
+            # v0.8.2 Phase 1A-1 R1: the operation boundary (see run_acceptance). The checked and supervised commands are one.
             routine_context.check_operation(effects[0] if effects else "real-app-launch", f"the qualification scenario {name}",
-                                            root=REPO_ROOT, stand_in=f"{routine_context.GATE}{runner}")
+                                            root=REPO_ROOT, stand_in=f"{routine_context.GATE}{runner}", argv=command)
         except PermissionError as exc:
             self.check(f"scenario:{name}", "BLOCKED", f"{exc}: a qualification scenario never starts inside routine verification")
             return
         try:
-            result = self.supervise("qualification", [sys.executable, "-u", str(script), "--out", str(folder), *granted],
+            result = self.supervise("qualification", command,
                                     log=log, env=self.stage_env(scratch / "t", ledger=self.ledger("qualification", role=None)),
                                     progress=(folder / "progress.log",))
         except winproc.JobUnavailable as exc:
@@ -1431,7 +1492,7 @@ class GateRun:
             # v0.8.2 Phase 1A-1 R1: the operation boundary. Inside routine verification the runner never starts, wherever
             # this gate lies, unless this is a reviewed synthetic fixture tree and the runner is its declared stand-in.
             routine_context.check_operation("native-desktop", "the acceptance runner (native journeys)", root=REPO_ROOT,
-                                            stand_in=ACCEPTANCE_RUNNER.relative_to(REPO_ROOT).as_posix())
+                                            stand_in=ACCEPTANCE_RUNNER.relative_to(REPO_ROOT).as_posix(), argv=argv)
         except PermissionError as exc:
             self.check("acceptance", "BLOCKED", f"{exc}: native journeys never start inside routine verification")
             return
@@ -1836,7 +1897,7 @@ class GateRun:
 
     def check_tree(self, end: dict) -> bool:
         start = self.identity_start
-        if not start.get("available"):
+        if not start.get("available") or start.get("privacy", "ok") != "ok":
             return False  # already reported as BLOCKED: nothing was compared, so nothing can match
         same = bool(start.get("available") and end.get("available") and start.get("sha256") == end.get("sha256")
                     and start.get("head") == end.get("head"))
@@ -2136,6 +2197,40 @@ def _report_lines(results: dict, directory: Path) -> list[str]:
     return lines
 
 
+#: What stands in a logged or recorded command line for an argument that names an owner-private path (R3, C2).
+WITHHELD_ARGUMENT = "<withheld: names a local-only path>"
+
+
+def redact_argv(argv, local_only=None) -> list[str]:
+    """The command line as it may be logged or recorded (Phase 1A-1 R3, C2): an argument -- or an ``--option=value`` value --
+    naming a local-only path (relative, or absolute inside this checkout) becomes WITHHELD_ARGUMENT. Without a usable policy
+    nothing can be told apart, so every argument is withheld and only their count is kept."""
+    argv = [str(item) for item in argv]
+    local_only = _local_only() if local_only is None else local_only
+    try:
+        private = git_changes.private_predicate(local_only,
+                                                case_sensitive=git_changes.repo_files.probe_case_sensitive(REPO_ROOT))
+    except git_changes.PrivacyViolation:
+        return [f"<{len(argv)} argument(s) withheld: the local-only policy is unavailable>"] if argv else []
+    root = os.path.normcase(os.path.abspath(REPO_ROOT))
+
+    def names_private(text: str) -> bool:
+        values = [text] + ([text.split("=", 1)[1]] if text.startswith("-") and "=" in text else [])
+        for value in values:
+            if not value:
+                continue
+            if os.path.isabs(value) or (len(value) > 1 and value[1] == ":"):
+                full = os.path.normcase(os.path.abspath(value))
+                if not full.startswith(root + os.sep):
+                    continue  # outside this checkout: no local-only entry can name it
+                value = os.path.relpath(os.path.abspath(value), REPO_ROOT)
+            if private(value.replace("\\", "/")):
+                return True
+        return False
+
+    return [WITHHELD_ARGUMENT if names_private(item) else item for item in argv]
+
+
 def _execute_run(args, argv: list[str], established: dict, plan: execution_plan.ExecutionPlan | None = None,
                  plan_error: str | None = None) -> int:
     try:
@@ -2143,6 +2238,7 @@ def _execute_run(args, argv: list[str], established: dict, plan: execution_plan.
     except runstore.RunRefused as exc:
         print(f"verify.py: refusing to create a run: {exc}", file=sys.stderr)
         return runstore.EXIT_INVALID
+    argv = redact_argv(argv)  # R3 (C2): before the first log line and the start record
     record = runstore.RunRecord(directory)
     run = GateRun(args, argv, record, established, plan, plan_error)
     try:
@@ -2214,6 +2310,9 @@ def _status_command(args) -> int:
         elif outcome["current"] == "elsewhere":
             print("  a run is current only where the gate wrote it; a copy or a link is a record of that run, not acceptance "
                   "of this source (plan section 10)")
+        elif any(str(item).startswith("privacy:") for item in outcome.get("identity_differences") or []):
+            print("  privacy requirements are not met (tracked local-only paths, an unusable local-only policy or a withheld "
+                  "identity): nothing is current until they are")
         else:
             print("  this PASS does not describe the current source and environment")
         return runstore.EXIT_NOT_RUN
@@ -2222,14 +2321,20 @@ def _status_command(args) -> int:
 
 def _evidence_command(args) -> int:
     """The incremental-evidence ledger (helpers/evidence_ledger.py). Prints EVIDENCE, never RESULT: it is not a gate run."""
-    policy = load_policy()
-    roots = [OUTPUTS_ROOT, *[Path(item) if Path(item).is_absolute() else REPO_ROOT / item for item in (args.evidence_root or [])]]
-    runs, skipped = evidence_ledger.load_runs(REPO_ROOT, roots)
+    # Phase 1A-1 R3 (C2): the policy and the current map (privacy and no-follow admission) come first; saved maps are read
+    # only after, each filtered as it is consumed (evidence_ledger.admit_names).
     try:
-        current = evidence_ledger.blob_map(REPO_ROOT, local_only=policy.get("changed", {}).get("local_only", []))
-    except (git_changes.PrivacyViolation, git_changes.ChangeError) as exc:
+        policy = load_policy()
+        local_only = policy["changed"]["local_only"]
+        current = evidence_ledger.blob_map(REPO_ROOT, local_only=local_only)
+    except PolicyError as exc:
+        print(f"EVIDENCE: BLOCKED: the policy is unusable: {exc}")
+        return runstore.EXIT_BLOCKED
+    except (git_changes.PrivacyViolation, git_changes.ChangeError, RuntimeError, OSError) as exc:
         print(f"EVIDENCE: BLOCKED: {exc}")
         return runstore.EXIT_BLOCKED
+    roots = [OUTPUTS_ROOT, *[Path(item) if Path(item).is_absolute() else REPO_ROOT / item for item in (args.evidence_root or [])]]
+    runs, skipped = evidence_ledger.load_runs(REPO_ROOT, roots, local_only=local_only)
     head = evidence_ledger._git(REPO_ROOT, "rev-parse", "HEAD").strip()
     environment = environment_identity()
     sys.path.insert(0, str(GATE_DIR))
@@ -2352,7 +2457,7 @@ def _owner_visual_status(policy: dict, current: dict) -> str:
         if not sha or path.parent.name != record.get("sha"):
             continue
         try:
-            then = evidence_ledger.blob_map_at(REPO_ROOT, sha)
+            then = evidence_ledger.blob_map_at(REPO_ROOT, sha, local_only=policy.get("changed", {}).get("local_only", []))
         except RuntimeError:
             return f"NOT RUN - the owner's record names {str(sha)[:12]}, which this repository does not have"
         moved = [p for p in evidence_ledger.changed_between(then, current)

@@ -180,7 +180,9 @@ class ProcessPolicy:
             rest = argv[6:]
             if "-OutFile" not in rest or not self.disposable(rest[rest.index("-OutFile") + 1]):
                 return None
-            if "-AssumeNo" in rest:
+            if "-AssumeNo" in rest and not (ROOT / "files/runtime-data/python/python.exe").exists():
+                # v0.8.2 R3-02: stage 0 proves an existing interpreter (a Tk proof) before it asks; declining is harmless
+                # only where this checkout has none to prove.
                 return ("bootstrap-no-install", caller)
             if "-InstallerPath" in rest and "-NoWinget" in rest and "-IgnoreInstalled" in rest:
                 path = Path(rest[rest.index("-InstallerPath") + 1])

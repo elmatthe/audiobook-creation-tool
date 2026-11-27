@@ -254,6 +254,46 @@ only); `files/tests/routine_effects.py` enforces it, `files/tests/routine_child.
   path stops the run (`privacy` BLOCKED) and blocks a plan, and its name is never written.
 - **Ambiguous imports are gaps (C4).** A dotted import that resolves to more than one file, in a module some test reaches,
   is a gap for the importer, each candidate and everything reached through them.
+- **R3 (independent R2 review).** These tighten the rules above; nothing is relaxed.
+  - *Launch evidence.* Every completed reserved launch carries its reserving parent's own `spawned` row and exactly one
+    terminal observation (`exited`) of that spawned process; the child's own records never stand in for them (for a child
+    linked to a private ledger, they are required in the parent's ledger). A completed child whose parent was stopped
+    first is accounted only when the writer of that stop observed it gone afterwards. Only a `not-spawned` row by the
+    reserving parent excuses both.
+  - *Stop attribution.* An explained stop is ONE successful action by the reserving parent (or `self`), for the launch's
+    own process -- pid and, where read, creation time -- before that parent's observation of exactly the code the action
+    leaves (`Popen.kill`/`taskkill /F` 1, `TerminateJobObject` its code, the close of a kill-on-close Job 0); a stop with
+    no known code explains nothing. Its own tree flag, never another record's, decides its descendants, which are
+    accounted only when that stop's writer observed them gone after it. A reviewed `taskkill` is recorded from its actual
+    result, after it ran. `expected_termination` and the `routine_stop` marker reach the launches of the thread that opened
+    them and of threads started from it while open, never an unrelated concurrent launch.
+  - *Startup and admission.* One startup check judges every Python launch -- bootstrapped, nested runner and unchanged
+    form: startup variables, a sitecustomize/usercustomize on PYTHONPATH, and the user site's startup code where that
+    interpreter would process it. A nested runner also has nothing beside it shadowing a library module, and its
+    PYTHONPATH (like a bootstrapped child's) is restored only after its envelope exists; `routine_pytest.py` imports
+    nothing from the working directory, its own folder or PYTHONPATH before its bootstrap. The inert profile needs a trusted
+    import path (-I/-P, or no module in the working directory standing for one it imports). The final admission of a
+    process creation compares the program the platform starts, the complete arguments, the working directory, the
+    effective environment's values and, for an unchanged form, the reviewed profile itself with what was prepared.
+  - *Recipes and stage 0.* A synthetic recipe is admitted on its actual command: every destination it writes inside its
+    fixture tree with no link on the way, every identifier one plain name, no abbreviated option; the gate's operation
+    check is given the exact command it supervises. Stage 0 runs only as a disposable copy whose app folder holds no
+    interpreter it would prove before consent other than a proved disposable state -- an inert stub, or (D-R2-2's stage-0
+    Tk measurement) a byte-identical copy of this session's base interpreter with no startup code but the base's own
+    `.pth` files and, at most, the pinned BREAK_TK fault -- with no planted PowerShell module path; cmd forms without `/d` run only
+    while no AutoRun is set, and the setup sandbox holds nothing runnable cmd would find first; bash forms refuse
+    `BASH_ENV`/`ENV`/exported functions and resolve helpers to the reviewed shims, then system folders (macOS proof pending).
+  - *Qwen3 read-only selfcheck (R3-05).* Exactly `<this checkout's Qwen3 interpreter> -I -B
+    files/dev-tools/qwen3_calm_venv_tools.py selfcheck <a folder under files/runtime-data/models>`, offline
+    (`HF_HUB_OFFLINE=1`) with every cache and scratch destination disposable, runs under its exact profile; every other
+    engine-interpreter launch is refused. The installed-library proof is a separate environment obligation.
+  - *Privacy (C2).* The local-only policy is mandatory: unavailable or malformed, nothing is fingerprinted, read, logged
+    or compared (`privacy` unavailable); a tracked local-only path stops capture with a count only; a tracked or in-scope
+    path through a link or junction stops it too. Names are listed before content, rename detection runs only when no
+    side is private, file bytes are read through the no-follow inventory and Git blob ids are made from those bytes
+    (`hash-object --stdin --path`; an external `filter=` is refused). Historical maps are filtered as they are read,
+    never rewritten; Git's stderr and logged arguments never carry a private name; equal digests never make an identity
+    current while either side records a privacy problem.
 
 **Limitations, stated plainly.** This makes accidental heavyweight execution from supported routine paths fail closed; it
 is a cooperating-verification control, not an operating-system sandbox. Native code a process runs directly, a hostile

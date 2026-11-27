@@ -380,21 +380,28 @@ def adopting_ledgers():
 
 @contextlib.contextmanager
 def expected_termination(*stops: str, codes=()):
-    """The lifecycle a test's launches are reserved to expect (D-R2-1): launches prepared while this is open (on any thread:
-    production code starts its workers from its own threads) may end by one of ``stops`` -- recorded by their owner as an
+    """The lifecycle a test's launches are reserved to expect (D-R2-1): launches prepared while this is open, on this thread
+    or on a thread started from it (or from such a thread) while it is open -- production code starts its workers from its
+    own threads; R3-03: never an unrelated thread's concurrent launch -- may end by one of ``stops`` -- recorded by their owner as an
     intent and action and then observed with the outcome the mechanism leaves -- instead of a normal end of their own. A
     crash fixture names ``native-crash`` and the exit ``codes`` it may end with. It explains nothing by itself, after the
     fact or for a launch made before it opened, and never waives a refusal or an accounting failure."""
     lifecycle = {"stops": sorted(set(stops)), "codes": sorted({int(code) for code in codes})}
     context._lifecycle(lifecycle)  # validates the vocabulary
+    if getattr(_local, "lifecycles", None) is None:
+        _local.lifecycles = []
+    carried = _local.lifecycles
     with _lock:
         _stop_scopes.append(lifecycle)
+    carried.append(lifecycle)
     try:
         yield lifecycle
     finally:
         observe_children()
         with _lock:
-            _stop_scopes.remove(lifecycle)
+            _stop_scopes[:] = [scope for scope in _stop_scopes if scope is not lifecycle]
+        if lifecycle in carried:
+            carried.remove(lifecycle)
 
 
 def new_ledger(path, owner: str = "test") -> Path:
@@ -713,18 +720,83 @@ def _context_problem(view: dict) -> str | None:
     return None
 
 
-def _startup_problem(view: dict, command) -> str | None:
-    """Unreviewed startup customization a bootstrapped child would run before its envelope."""
-    if command.ignores_environment:
+def _startup_problem(view: dict, command, program: str = "") -> str | None:
+    """Unreviewed startup customization a Python child would run before its envelope or its program (R3-01: one check for
+    every Python launch -- bootstrapped, nested runner and unchanged reviewed forms): startup variables, a sitecustomize or
+    usercustomize on its PYTHONPATH, and the user site's own startup code (``usercustomize``, ``.pth`` files) when that
+    interpreter, with these options and this environment, would process it."""
+    if not command.ignores_environment:
+        for name in STARTUP_REFUSED:
+            if view.get(name):
+                return f"its environment sets {name} (startup customization)"
+        # PYTHONSTARTUP is read only by an interactive interpreter; a prepared launch never is one (-i, stdin programs and
+        # interactive forms are refused as unsupported), so it is inert here and stays as the caller set it.
+        for entry in (view.get("PYTHONPATH") or "").split(os.pathsep):
+            if entry and any(os.path.lexists(os.path.join(entry, name)) for name in CUSTOMIZE):
+                return "its PYTHONPATH holds a sitecustomize or usercustomize that would run before the envelope"
+    site_dir = _user_site(view, command, program)
+    if site_dir:
+        try:
+            names = os.listdir(site_dir)
+        except OSError:
+            names = []
+        if any(name.lower() == "usercustomize.py" or name.lower().endswith(".pth") for name in names):
+            return f"its user site ({site_dir}) holds startup code (usercustomize or a .pth file) that would run first"
+    return None
+
+
+#: Modules a Python process imports at startup from its path when present: never from an unreviewed folder.
+CUSTOMIZE = ("sitecustomize.py", "usercustomize.py", "sitecustomize", "usercustomize")
+
+
+def _user_site(view: dict, command, program: str) -> str | None:
+    """The user site-packages folder the child's ``site`` module would process, or None when it would not: -I, -s or -S, an
+    honoured PYTHONNOUSERSITE, or a venv interpreter without the system site."""
+    if command.isolated or {"s", "S"} & command.letters:
         return None
-    for name in STARTUP_REFUSED:
-        if view.get(name):
-            return f"its environment sets {name} (startup customization)"
-    # PYTHONSTARTUP is read only by an interactive interpreter; a prepared launch never is one (-i, stdin programs and
-    # interactive forms are refused as unsupported), so it is inert here and stays as the caller set it.
-    for entry in (view.get("PYTHONPATH") or "").split(os.pathsep):
-        if entry and any(os.path.exists(os.path.join(entry, name)) for name in ("sitecustomize.py", "usercustomize.py")):
-            return "its PYTHONPATH holds a sitecustomize or usercustomize that would run before the envelope"
+    if not command.ignores_environment and view.get("PYTHONNOUSERSITE"):
+        return None
+    if program:
+        for config in (Path(program).parent / "pyvenv.cfg", Path(program).parent.parent / "pyvenv.cfg"):
+            try:
+                text = config.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            system = next((line.split("=", 1)[1].strip().lower() for line in text.splitlines()
+                           if line.split("=", 1)[0].strip().lower() == "include-system-site-packages"), "false")
+            if system != "true":
+                return None
+            break
+    try:
+        import site
+
+        if os.name == "nt":
+            base = view.get("APPDATA")
+            if not base:
+                return None
+            userbase = os.path.join(base, "Python")
+        elif sys.platform == "darwin" and getattr(sys, "_framework", ""):
+            userbase = os.path.join(view.get("HOME") or os.path.expanduser("~"), "Library", sys._framework,
+                                    f"{sys.version_info[0]}.{sys.version_info[1]}")
+        else:
+            userbase = os.path.join(view.get("HOME") or os.path.expanduser("~"), ".local")
+        return site._get_path(userbase)
+    except (AttributeError, ImportError, OSError, TypeError):
+        return None
+
+
+def shadowed(folder, names) -> str | None:
+    """The first of the top-level module ``names`` that a file or package in ``folder`` would shadow, or None (R3-01: an
+    import path a Python child searches before its interpreter's own library). Case-folded, so it never under-reports."""
+    try:
+        entries = {entry.lower() for entry in os.listdir(folder)}
+    except (OSError, TypeError, ValueError):
+        return None
+    for name in names:
+        low = name.lower()
+        if low in entries or any(low + suffix in entries for suffix in (".py", ".pyc", ".pyw", ".pth")) or \
+                any(entry.startswith(low + ".") and entry.endswith((".pyd", ".so")) for entry in entries):
+            return name
     return None
 
 
@@ -771,9 +843,18 @@ def _target(path: str, args, *, command=None, argv=(), program="") -> LaunchDeci
     if relative == context.ORCHESTRATOR and tree is not None:
         if disposable(tree) and context.synthetic_fixture(tree) is not None:
             return LaunchDecision(BOOTSTRAP, "the orchestrator of a reviewed synthetic gate fixture", expect="routine-child")
-    if tree is not None and disposable(tree) and context.synthetic_stand_in(tree, relative):
-        return LaunchDecision(BOOTSTRAP, f"a reviewed synthetic stand-in ({relative})", expect="routine-child")
     effects = entry.get("effects") or [role[1]]
+    if tree is not None and disposable(tree) and context.synthetic_stand_in(tree, relative):
+        # R3-02: the actual command -- its arguments inside the recipe's contract (every destination in the fixture tree,
+        # every identifier one plain name), and no module beside the recipe on its path standing for a library module.
+        recipe = context.synthetic_recipe(tree, relative)
+        problem = context.stand_in_arguments_problem(recipe, list(args), tree)
+        if problem is None and command is not None and not command.safe_path and \
+                context.shadows_stdlib(os.path.dirname(path)):
+            problem = "its folder holds a module standing for a library module"
+        if problem:
+            return _refusal(effects[0], f"a synthetic stand-in ({relative}) outside its recipe's contract: {problem}")
+        return LaunchDecision(BOOTSTRAP, f"a reviewed synthetic stand-in ({relative})", expect="routine-child")
     where = "this checkout" if _inside_repo(path) else "another checkout or a copy"
     return _refusal(effects[0], f"a heavyweight entrypoint ({relative}, in {where}; {entry.get('class', 'unclassified')})")
 
@@ -800,7 +881,8 @@ def facts_for(argv, program, cwd, view, caller, command=None) -> dict:
     return {"argv": list(argv), "program": program, "name": _stem(program or (argv[0] if argv else "")),
             "cwd": os.fspath(cwd) if cwd else os.getcwd(), "env": view, "caller": _caller_facts(caller),
             "python": command, "marked": REPO_ROOT, "disposable": disposable, "interpreter_kind": interpreter_kind,
-            "owned_pids": owned_pids(), "same_bytes": _same_bytes, "child": _child_target}
+            "owned_pids": owned_pids(), "same_bytes": _same_bytes, "child": _child_target,
+            "startup_problem": _startup_problem, "shadowed": shadowed}
 
 
 #: The guarded runner's profiles that are not exact: a Python child they approve still runs through the bootstrap.
@@ -811,8 +893,10 @@ _MP_DECISION = LaunchDecision(BOOTSTRAP, "a multiprocessing spawn child", expect
 
 
 def owned_pids() -> dict[int, str]:
+    """The pids of this process's own launches that have not been observed ended (a pid is never attributed to an ended
+    launch: it may already name another process)."""
     with _lock:
-        return {launch.pid: launch.launch for launch in _launches.values() if launch.pid}
+        return {launch.pid: launch.launch for launch in _launches.values() if launch.pid and not launch.done}
 
 
 def decide_launch(command, cwd=None, *, executable=None, env=None, shell: bool = False, caller=None) -> LaunchDecision:
@@ -923,7 +1007,7 @@ def _decide_python(argv, program, cwd, view, command, common, *, reviewed=None, 
         script = _resolve(command.target, cwd)
         base = os.path.basename(script).lower()
         if base in RUNNERS:
-            return _nested_runner(script, base, common, view)
+            return _nested_runner(script, base, common, view, command, program)
         if base in ("pytest", "py.test"):
             return _refusal("real-app-launch", "a nested pytest outside the routine bootstrap", **common)
         target = _target(script, command.rest, command=command, argv=argv, program=program)
@@ -938,7 +1022,7 @@ def _decide_python(argv, program, cwd, view, command, common, *, reviewed=None, 
     if target is not None and target.refused:
         return LaunchDecision(REFUSE, target.reason, effect=target.effect, **common)
     problem = _context_problem(view) or (None if reviewed and reviewed.get("keep_pythonpath")
-                                         else _startup_problem(view, command))
+                                         else _startup_problem(view, command, program))
     if problem:
         return _refusal("real-app-launch", f"a Python child: {problem}", **common)
     problem, ledger, delegated = _ledger_problem(view)
@@ -952,9 +1036,11 @@ def _decide_python(argv, program, cwd, view, command, common, *, reviewed=None, 
     return LaunchDecision(BOOTSTRAP, reason, expect="routine-child", ledger=ledger, delegated=delegated, **common)
 
 
-def _nested_runner(script: str, base: str, common, view: dict) -> LaunchDecision:
+def _nested_runner(script: str, base: str, common, view: dict, command, program: str = "") -> LaunchDecision:
     """A genuine nested verification session: its own early bootstrap, one participant, one terminal writer. Genuine only
-    when the runner and the envelope it loads are byte-identical to the marked checkout's."""
+    when the runner and the envelope it loads are byte-identical to the marked checkout's, and (R3-01) nothing runs before
+    that bootstrap: no startup customization (the same check as every Python child), no folder on its pre-bootstrap import
+    path shadowing a standard-library module, and its PYTHONPATH moved past the bootstrap, which restores it."""
     tree = Path(script).parents[2]
     relative = "files/tests/" + base
     files = [relative, *RUNNER_SUPPORT] + (["files/tests/write_tripwire" + _PY] if base == "guarded_pytest" + _PY else [])
@@ -962,7 +1048,14 @@ def _nested_runner(script: str, base: str, common, view: dict) -> LaunchDecision
         if not _same_bytes(tree / item, REPO_ROOT / item):
             return _refusal("real-app-launch", f"a nested {base} whose runner or envelope ({item}) is not the marked "
                                                "checkout's", **common)
-    problem = _context_problem(view)
+    problem = _context_problem(view) or _startup_problem(view, command, program)
+    if problem is None:
+        folders = [tree / "files" / "tests"] + ([tree / "scripts"] if base == "guarded_pytest" + _PY else [])
+        for folder in folders:
+            found = shadowed(folder, sorted(sys.stdlib_module_names) + list(CUSTOMIZE[:2]))
+            if found:
+                problem = f"its pre-bootstrap import path ({folder}) shadows the standard-library module {found}"
+                break
     ledger = delegated = None
     if problem is None:
         problem, ledger, delegated = _ledger_problem(view)
@@ -995,6 +1088,8 @@ class _Launch:
     #: A stop was recorded whose descendants are still to be observed (set by every stop, also one recorded after the
     #: launch had ended: the worker exited first and its Job then ended what it left behind).
     descendants_pending: bool = False
+    #: The process's creation time (Windows), read at spawn: a stop binds to this very process (R3-03).
+    created: int | None = None
 
 
 @dataclass
@@ -1041,8 +1136,10 @@ def _child_env(env, decision: LaunchDecision, launch: str | None) -> dict:
         setvar(LAUNCH_ENV, launch)
     with _lock:
         roots = list(_disposable_roots)
-    if decision.outcome == BOOTSTRAP:
-        setvar(DISPOSABLE_ENV, os.pathsep.join(roots) if roots else None)
+    nested = decision.profile == "nested-verification" and decision.python is not None
+    if decision.outcome == BOOTSTRAP or nested:
+        if decision.outcome == BOOTSTRAP:
+            setvar(DISPOSABLE_ENV, os.pathsep.join(roots) if roots else None)
         if not decision.python.ignores_environment and not decision.keep_pythonpath:
             current = next((value for key, value in view.items()
                             if (key.upper() if os.name == "nt" else key) == "PYTHONPATH"), None)
@@ -1056,11 +1153,18 @@ def _bootstrap_argv(decision: LaunchDecision) -> list[str]:
     return [decision.argv[0], *command.flags, _marked_bootstrap(), command.mode, command.target, *command.rest]
 
 
+def _active_lifecycles() -> list:
+    """The termination expectations this thread carries (R3-03): those opened on it, or inherited by a thread started from
+    it while they were open -- never another thread's. Only those still open count."""
+    mine = getattr(_local, "lifecycles", None) or []
+    with _lock:
+        return [scope for scope in mine if any(scope is open_scope for open_scope in _stop_scopes)]
+
+
 def _lifecycle_now(decision: LaunchDecision) -> dict | None:
     if decision.lifecycle:
         return decision.lifecycle
-    with _lock:
-        scopes = list(_stop_scopes)
+    scopes = _active_lifecycles()
     if not scopes:
         return None
     stops = sorted({stop for scope in scopes for stop in scope["stops"]})
@@ -1121,16 +1225,12 @@ def _prepare(decision: LaunchDecision, args, executable, env, shell: bool) -> _P
     return _Prepared(decision, launch, args, executable, final_env, shell)
 
 
-def _record_stop_intents(decision: LaunchDecision) -> None:
-    for pid, tree in decision.stops:
-        _stop_pid(pid, mechanism="taskkill", code=1, tree=tree, ok=True)
-
-
 def _prepared_execute_child(self, args, executable, preexec_fn, close_fds, pass_fds, cwd, env, startupinfo, creationflags,
                             shell, *rest):
     if _boundary_problem:
         refuse("real-app-launch", f"the launch boundary is unavailable: {_boundary_problem}", origin="subprocess.Popen")
-    decision = decide_launch(args, cwd, executable=executable, env=env, shell=bool(shell), caller=_caller())
+    caller = _caller()
+    decision = decide_launch(args, cwd, executable=executable, env=env, shell=bool(shell), caller=caller)
     if decision.refused:
         refuse(decision.effect, decision.reason, origin="subprocess.Popen")
     try:
@@ -1138,8 +1238,9 @@ def _prepared_execute_child(self, args, executable, preexec_fn, close_fds, pass_
     except (context.LedgerError, OSError) as exc:
         _accounting_failure(f"a launch could not be reserved, so it was not started: {exc}")
         refuse("real-app-launch", f"its accounting obligation could not be established ({exc})", origin="subprocess.Popen")
-    _record_stop_intents(decision)
     prepared.extra["original"] = (args, cwd, env)
+    prepared.extra["env_view"] = _env_view(prepared.env)
+    prepared.extra["caller"] = caller
     _local.pending = prepared
     try:
         _original_execute_child(self, prepared.args, prepared.executable, preexec_fn, close_fds, pass_fds, cwd,
@@ -1167,7 +1268,8 @@ def _after_spawn(popen, prepared: _Prepared) -> None:
         return
     handle = _duplicate(popen)
     created = context.process_created(popen.pid) if os.name == "nt" else None
-    entry = _Launch(prepared.launch, decision, _record, pid=popen.pid, handle=handle, popen=weakref.ref(popen))
+    entry = _Launch(prepared.launch, decision, _record, pid=popen.pid, handle=handle, popen=weakref.ref(popen),
+                    created=created)
     with _lock:
         _launches[prepared.launch] = entry
     try:
@@ -1227,6 +1329,30 @@ def _install_boundary() -> None:
     subprocess.Popen.send_signal = _stopping("send_signal")
     _install_native_stops()
     _install_multiprocessing()
+    _install_thread_inheritance()
+
+
+def _install_thread_inheritance() -> None:
+    """A thread carries the termination expectations open on the thread that started it (R3-03): production code starts its
+    workers from its own threads, and a test's expectation reaches exactly the work it started -- never a thread that was
+    already running, or one another test started."""
+    import threading
+
+    if getattr(threading.Thread.start, "_act_inherits", False):
+        return
+    original_start, original_inner = threading.Thread.start, threading.Thread._bootstrap_inner
+
+    def start(self):
+        self._act_lifecycles = list(getattr(_local, "lifecycles", None) or ())
+        return original_start(self)
+
+    def bootstrap_inner(self):
+        _local.lifecycles = list(getattr(self, "_act_lifecycles", ()) or ())
+        return original_inner(self)
+
+    start._act_inherits = True
+    threading.Thread.start = start
+    threading.Thread._bootstrap_inner = bootstrap_inner
 
 
 def _install_multiprocessing() -> None:
@@ -1376,7 +1502,7 @@ def _wrap_mp_popen(cls) -> None:
                 except (OSError, AttributeError, TypeError):
                     handle = None
             with _lock:
-                _launches[token] = _Launch(token, _MP_DECISION, record, pid=self.pid, handle=handle)
+                _launches[token] = _Launch(token, _MP_DECISION, record, pid=self.pid, handle=handle, created=created)
 
     launch._act_prepared = True
     setattr(cls, method, launch)
@@ -1419,10 +1545,10 @@ def _stopping(method: str):
 def _stop_launch(launch: str, *, mechanism: str, code, tree: bool, ok: bool) -> None:
     with _lock:
         entry = _launches.get(launch)
-    if entry is None or entry.record is None or entry.pid is None:
-        return
+    if entry is None or entry.record is None or entry.pid is None or entry.done:
+        return  # an ended launch is never stopped: its end was already observed
     try:
-        entry.record.stop(launch, mechanism=mechanism, pid=entry.pid, code=code, tree=tree, ok=ok)
+        entry.record.stop(launch, mechanism=mechanism, pid=entry.pid, code=code, tree=tree, ok=ok, created=entry.created)
         entry.stopped = True
         entry.descendants_pending = True
     except context.LedgerError as exc:
@@ -1430,9 +1556,18 @@ def _stop_launch(launch: str, *, mechanism: str, code, tree: bool, ok: bool) -> 
 
 
 def _stop_pid(pid: int, *, mechanism: str, code, tree: bool, ok: bool) -> None:
+    """A stop reached by pid (taskkill, os.kill, TerminateProcess through a handle): attributed only to a live owned launch
+    whose process is still the one created for it (its creation time, where it can be read)."""
     launch = owned_pids().get(int(pid))
-    if launch is not None:
-        _stop_launch(launch, mechanism=mechanism, code=code, tree=tree, ok=ok)
+    if launch is None:
+        return
+    with _lock:
+        entry = _launches.get(launch)
+    if entry is not None and entry.created is not None and os.name == "nt":
+        now = context.process_created(int(pid))
+        if now is not None and now != entry.created:
+            return  # the pid names another process now: never this launch's stop
+    _stop_launch(launch, mechanism=mechanism, code=code, tree=tree, ok=ok)
 
 
 # --------------------------------------------------------------------------- #
@@ -1593,7 +1728,7 @@ class _NativeLaunch:
                 created = context.process_created(pid)
                 record.spawned(launch, pid, executable=_norm(argv[0]) if argv else "", via="native", created=created)
                 entry = _Launch(launch, LaunchDecision(PROFILE, "low-integrity", profile=profile), record, pid=pid,
-                                handle=_open_process(pid))
+                                handle=_open_process(pid), created=created)
                 with _lock:
                     _launches[launch] = entry
             else:
@@ -1645,14 +1780,26 @@ def observe_children(*, wait: float = 0.0) -> None:
     deadline = time.monotonic() + wait
     with _lock:
         pending = [entry for entry in _launches.values() if not entry.done]
+    # R3-03: a reviewed stopper (an owned taskkill) is settled first. Its stop is recorded only once its own result is known
+    # (ok only when it succeeded), and before the end of the process it stopped is observed; while it still runs, that
+    # process's observation waits.
+    pending.sort(key=lambda item: not item.decision.stops)
+    held: set[int] = set()
     for entry in pending:
+        if entry.pid in held and not wait:
+            continue
         status = _poll(entry, max(0.0, deadline - time.monotonic()) if wait else 0.0)
         if status is None and not wait:
+            held |= {int(pid) for pid, _tree in entry.decision.stops}
             continue
         exit_status, how = status if status is not None else (None, "running")
         if how == "running" and not wait:
+            held |= {int(pid) for pid, _tree in entry.decision.stops}
             continue
         entry.done = how != "running"
+        if entry.done and entry.decision.stops:
+            for pid, tree in entry.decision.stops:
+                _stop_pid(int(pid), mechanism="taskkill", code=1, tree=bool(tree), ok=how == "exited" and exit_status == 0)
         if entry.decision.delegated is None and entry.record is not None:
             try:
                 entry.record.observed(entry.launch, exit_status=exit_status, how=how, pid=entry.pid)
@@ -1721,7 +1868,9 @@ def _observe_descendants(stopped) -> bool:
         frontier = found
     for key in roots:
         entry = participants[key]
-        if entry.get("end") is not None or entry.get("launch") in {item.launch for item in stopped}:
+        # Every descendant of the stopped tree is looked at, also one that wrote its own end record (R3-03): its reserving
+        # parent may have been stopped before it could observe that end, and its own record never stands in for it.
+        if entry.get("launch") in {item.launch for item in stopped} or not entry.get("launch"):
             continue
         created = context.process_created(entry["pid"]) if os.name == "nt" else None
         alive = created is not None and created == entry.get("created")
@@ -1817,9 +1966,47 @@ def _admit_popen(args) -> None:
         refuse("real-app-launch", "a second launch inside one prepared invocation", origin="subprocess.Popen")
     if pending.env is not None and env is not pending.env:
         refuse("real-app-launch", "the launch is not the prepared one (its environment differs)", origin="subprocess.Popen")
-    if _argv(command)[1:] != [str(part) for part in _argv(pending.args)][1:] and not pending.shell:
-        refuse("real-app-launch", "the launch is not the prepared one (its arguments differ)", origin="subprocess.Popen")
+    problem = _binding_problem(pending, executable, command, cwd, env)
+    if problem:
+        refuse("real-app-launch", f"the launch is not the prepared one ({problem})", origin="subprocess.Popen")
     pending.admitted = True
+
+
+#: Environment entries a verification process's own runner changes while it runs (pytest's current-test marker): an
+#: inherited environment is compared without them.
+_VOLATILE_ENV = frozenset({"PYTEST_CURRENT_TEST"})
+
+
+def _canon(path) -> str:
+    return os.path.normcase(os.path.abspath(os.fspath(path))) if path else ""
+
+
+def _binding_problem(pending: _Prepared, executable, command, cwd, env) -> str | None:
+    """R3-01: the actual process creation is the prepared one in every fact the decision judged -- the program the platform
+    starts (by its own search), the complete arguments, the working directory, the effective environment's values, and
+    for a launch run unchanged the reviewed profile itself (decided again on the original request)."""
+    decision = pending.decision
+    argv = _argv(command)
+    if not pending.shell and argv[1:] != [str(part) for part in _argv(pending.args)][1:]:
+        return "its arguments differ"
+    actual = _search(os.fspath(executable) if executable else (argv[0] if argv else ""), cwd=cwd, env=env) or ""
+    if _canon(actual) != _canon(decision.program):
+        return "its executable differs"
+    if _canon(os.fspath(cwd) if cwd else os.getcwd()) != _canon(decision.cwd):
+        return "its working directory differs"
+    view, prepared = _env_view(env), pending.extra.get("env_view", {})
+    if env is None:
+        view = {key: value for key, value in view.items() if key not in _VOLATILE_ENV}
+        prepared = {key: value for key, value in prepared.items() if key not in _VOLATILE_ENV}
+    if view != prepared:
+        return "its environment's values differ"
+    if decision.outcome == PROFILE:
+        args, original_cwd, original_env = pending.extra.get("original", (pending.args, cwd, env))
+        again = decide_launch(args, original_cwd, executable=pending.executable, env=original_env, shell=pending.shell,
+                              caller=pending.extra.get("caller"))
+        if (again.outcome, again.profile, again.expect) != (decision.outcome, decision.profile, decision.expect):
+            return f"it is no longer the reviewed {decision.profile} launch"
+    return None
 
 
 def _audit(event: str, args) -> None:
@@ -1860,8 +2047,9 @@ def _audit(event: str, args) -> None:
             launch = getattr(_record, "launch", None)
             if launch and _record is not None:
                 try:
-                    _record.stop(launch, mechanism="self", pid=pid, code=signal_number if os.name == "nt" else None,
-                                 tree=False, ok=True)
+                    _record.stop(launch, mechanism="self", pid=pid,
+                                 code=signal_number if os.name == "nt" else -signal_number, tree=False, ok=True,
+                                 created=context.process_created(pid))
                 except context.LedgerError as exc:
                     _accounting_failure(str(exc))
         elif signal_number:
@@ -2053,12 +2241,24 @@ def bootstrap(runner: str, argv: list[str], *, ledger=None) -> None:
         raise BindingError("an inherited effect ledger with no reserved launch: a nested session must be prepared by its "
                            "parent's launch boundary")
     install(launch=launch, parent=parent, role=runner)
+    _restore_runner_path()
     if launch is not None:
         # The roots its reserving parent gave this launch (the gate: the stage's own temporary folder; a parent session:
         # its own roots), as a bootstrapped child takes them.
         reservation = context.read_reservation(os.environ[LEDGER_ENV], launch) or {}
         for root in reservation.get("roots", []):
             own_disposable(root)
+
+
+def _restore_runner_path() -> None:
+    """A nested runner's PYTHONPATH, moved past its bootstrap by the launch that prepared it, restored now that its envelope
+    is installed (R3-01): in the environment, and in front of the interpreter's own library as Python would have put it."""
+    moved = os.environ.pop(PYTHONPATH_ENV, None)
+    if moved is None:
+        return
+    os.environ["PYTHONPATH"] = moved
+    if not sys.flags.ignore_environment:
+        sys.path[0:0] = [part for part in moved.split(os.pathsep) if part]
 
 
 def finish(exit_status: int) -> int:

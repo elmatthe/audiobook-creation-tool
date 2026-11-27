@@ -18,6 +18,7 @@ import hashlib
 import io as _io  # the original open: a test patching builtins.open never reaches it
 import os
 import re
+import stat
 import sys
 from pathlib import Path
 
@@ -278,18 +279,33 @@ def _powershell(facts) -> dict | None:
         return None
     script, rest = argv[5], argv[6:]
     if os.path.basename(script).lower() == "bootstrap_host.ps1" and _bytes_equal(script, STAGE_ZERO):
-        return _stage_zero(script, rest, disposable)
+        return _stage_zero(script, rest, disposable, facts["env"])
     if os.path.basename(script).lower() == "harness.ps1" and not rest and disposable(script):
         return _tk_harness(script, disposable)
     return None
 
 
-def _stage_zero(script, rest, disposable) -> dict | None:
-    """Stage 0 (the reviewed copy or the checkout's own), never downloading: declined (-AssumeNo), or offline with a
-    disposable archive or installer to judge."""
-    copy = not _same(script, STAGE_ZERO)
-    if copy and not disposable(script):
+def _stage_zero(script, rest, disposable, env=None) -> dict | None:
+    """Stage 0, never downloading: declined (-AssumeNo), or offline with a disposable archive or installer to judge.
+
+    R3-02: only a disposable copy, in a disposable app folder that holds no interpreter stage 0 would prove before it asks
+    (its ``files/runtime-data/python/python.exe`` absent or a small inert stub, never a link), started by Windows
+    PowerShell with no profile and no module path a test could have planted. The checkout's own stage 0 is never run: its
+    first act is to run this checkout's real interpreter with a Tk proof, before any consent."""
+    if _same(script, STAGE_ZERO) or not disposable(script):
         return None
+    app = Path(script).parents[2]
+    if not disposable(app) or not _unlinked(app, Path(script)):
+        return None
+    existing = app / "files" / "runtime-data" / "python" / "python.exe"
+    if os.path.lexists(existing):
+        if not _unlinked(app, existing) or not os.path.isfile(existing):
+            return None
+        if os.path.getsize(existing) > INERT_STUB_MAX and not _trusted_base_copy(existing):
+            return None
+    if not _module_path_reviewed((env or {}).get("PSMODULEPATH"), disposable):
+        return None
+    copy = True
     options, index = {}, 0
     switches = {"-AssumeNo", "-AssumeYes", "-NoWinget", "-IgnoreInstalled"}
     valued = {"-OutFile", "-ArchivePath", "-InstallerPath"}
@@ -312,6 +328,73 @@ def _stage_zero(script, rest, disposable) -> dict | None:
     return _profile("stage-zero-offline", "stage 0, declined or judging a disposable offline archive")
 
 
+def _trusted_base_copy(python: Path) -> bool:
+    """A disposable copy of this session's own base interpreter that stage 0's proof may run (D-R2-2's stage-0 Tk
+    measurement): its executable is byte-identical to the base interpreter's, its site-packages holds no startup code but
+    the base's own ``.pth`` files (identical bytes) and, at most, the pinned BREAK_TK fault as ``sitecustomize.py``."""
+    base = Path(sys.base_prefix)
+    if not _bytes_equal(python, base / "python.exe"):
+        return False
+    site, base_site = python.parent / "Lib" / "site-packages", base / "Lib" / "site-packages"
+    custom = site / "sitecustomize.py"
+    if os.path.lexists(custom) and not _pinned(custom, "tk-break-tk"):
+        return False
+    if os.path.lexists(site / "usercustomize.py"):
+        return False
+    try:
+        names = os.listdir(site)
+    except OSError:
+        return not os.path.lexists(site)
+    return all(_bytes_equal(site / name, base_site / name) for name in names if name.lower().endswith(".pth"))
+
+
+def _native(part: str) -> str:
+    """A Git-for-Windows bash path (``/c/Users/...``) as the Windows path it names; any other path unchanged."""
+    match = re.match(r"^/([A-Za-z])(/.*)?$", part) if os.name == "nt" else None
+    return f"{match.group(1)}:{match.group(2) or '/'}" if match else part
+
+
+def _unlinked(root: Path, path: Path) -> bool:
+    """``path`` lies inside ``root`` with no component from ``root`` down a link or junction (never followed)."""
+    try:
+        relative = Path(os.path.abspath(path)).relative_to(Path(os.path.abspath(root)))
+    except ValueError:
+        return False
+    current = Path(os.path.abspath(root))
+    for part in ("", *relative.parts):
+        current = current / part if part else current
+        try:
+            info = os.lstat(current)
+        except FileNotFoundError:
+            return True
+        except OSError:
+            return False
+        if stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400:
+            return False
+    return True
+
+
+def _module_path_reviewed(value, disposable) -> bool:
+    """A child PowerShell's PSModulePath names only folders this session inherited, or the system's and Program Files'
+    own module folders: never one a test made (a planted module would shadow a cmdlet stage 0 calls)."""
+    if not value:
+        return True
+    inherited = {os.path.normcase(part) for part in os.environ.get("PSModulePath", "").split(os.pathsep) if part}
+    trusted = [os.path.normcase(folder) for folder in (os.environ.get("SystemRoot", r"C:\Windows"),
+                                                       os.environ.get("ProgramFiles", r"C:\Program Files"),
+                                                       os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"))]
+    for part in value.split(os.pathsep):
+        if not part:
+            continue
+        folded = os.path.normcase(part)
+        if disposable(part) or not os.path.isabs(part):
+            return False
+        if folded not in inherited and not any(folded == root or folded.startswith(root.rstrip("\\") + "\\")
+                                               for root in trusted):
+            return False
+    return True
+
+
 def _tk_harness(script, disposable) -> dict | None:
     """test_tk_proof's harness: the production Test-Candidate with a 1 s bound and an accelerated sleeper probe."""
     text = _text(script)
@@ -331,11 +414,38 @@ def _tk_harness(script, disposable) -> dict | None:
     return _profile("tk-proof-stage-zero-harness", "the production Test-Candidate with an accelerated sleeper probe")
 
 
+def _cmd_autorun() -> bool:
+    """Whether cmd.exe runs an AutoRun command at startup (HKCU or HKLM ``Software\\Microsoft\\Command Processor``), which
+    ``/d`` skips. Read-only; an unreadable key is treated as set (fail closed)."""
+    global _autorun
+    if _autorun is None:
+        found = False
+        try:
+            import winreg
+
+            for hive in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+                try:
+                    with winreg.OpenKey(hive, r"Software\Microsoft\Command Processor") as key:
+                        value, _kind = winreg.QueryValueEx(key, "AutoRun")
+                        found = found or bool(str(value).strip())
+                except FileNotFoundError:
+                    continue
+        except (ImportError, OSError):
+            found = True
+        _autorun = found
+    return _autorun
+
+
+_autorun: bool | None = None
+
+
 def _cmd(facts) -> dict | None:
     argv, disposable = facts["argv"], facts["disposable"]
     if facts["name"] != "cmd" or not _same(facts["program"], _system32("cmd.exe")):
         return None
     args = argv[1:]
+    if (not args or args[0].lower() != "/d") and _cmd_autorun():
+        return None  # R3-02: cmd's own startup would run an AutoRun command first
     if args == ["/c", "rem"]:
         return _profile("cmd-rem", "cmd /c rem (an empty console program)")
     if len(args) == 5 and args[:3] == ["/c", "mklink", "/J"] and all(disposable(path) for path in args[3:]):
@@ -359,6 +469,17 @@ def _setup_bat(bat: Path, facts) -> dict | None:
     if stub is None or not SETUP_STUB.match(stub):
         return None
     if (root / "scripts" / "shared" / "bootstrap_host.ps1").exists() or (root / "files").exists():
+        return None
+    # R3-02: cmd searches the working directory (this sandbox) before PATH for every program the launcher names: nothing
+    # runnable may stand there but the launcher itself, and nothing in the sandbox may be a link.
+    runnable = {ext.lower() for ext in os.environ.get("PATHEXT", ".COM;.EXE;.BAT;.CMD").split(";") if ext} | {".ps1"}
+    try:
+        names = os.listdir(root)
+    except OSError:
+        return None
+    if any(os.path.splitext(name)[1].lower() in runnable and name != SETUP_BAT.name for name in names):
+        return None
+    if not all(_unlinked(root, root / name) for name in names):
         return None
     venv = root / ".venv" / "Scripts" / "python.exe"
     if venv.exists():
@@ -559,6 +680,10 @@ def _bash(facts) -> dict | None:
     if not any(_same(facts["program"], path) for path in allowed if os.path.exists(path)):
         return None
     args, disposable = facts["argv"][1:], facts["disposable"]
+    env = facts["env"]
+    if any(env.get(name) for name in ("BASH_ENV", "ENV", "SHELLOPTS", "BASHOPTS", "PS4")) or \
+            any(key.startswith("BASH_FUNC_") for key in env):
+        return None  # R3-02: startup code or exported functions a non-interactive bash runs or imports first
     if args == ["-c", "exit 0"]:
         return _profile("bash-probe", "bash -c 'exit 0'")
     if len(args) == 2 and args[0] == "-n" and _bytes_equal(os.path.join(facts["cwd"], args[1]), MACOS_LAUNCHER):
@@ -570,10 +695,13 @@ def _bash(facts) -> dict | None:
             return None
         if _text(root / "scripts" / "shared" / "bootstrap_host_macos.sh") != BASH_STAGE0:
             return None
-        env = facts["env"]
-        first = env.get("PATH", "").split(":")[0]
+        parts = env.get("PATH", "").split(":")
+        first = parts[0]
         if not first.endswith("/shim-bin") or not env.get("RC_CALLS") or not disposable(env["RC_CALLS"]):
             return None
+        if not disposable(_native(first)) or any(disposable(_native(part)) or not part.startswith("/")
+                                                 for part in parts[1:] if part):
+            return None  # R3-02: helpers resolve to the reviewed shims, then only to system folders
         return _profile("packaged-launcher-shims", "the packaged macOS launcher against the reviewed shims")
     return None
 
@@ -970,11 +1098,53 @@ def _inert_python(facts) -> dict | None:
         return None
     if not tree.body or not all(_inert_statement(statement) for statement in tree.body):
         return None
+    # R3-01: the syntax alone does not establish what an import binds. A module that is not built into the interpreter is
+    # found on the path, whose first entry for -c is the working directory unless -I/-P (or an honoured PYTHONSAFEPATH)
+    # removes it: none of them may be shadowed there. The user site's startup code is judged as for every Python child.
+    imported = {alias.name.split(".")[0] for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names}
+    loaded = sorted(name for name in imported if name not in sys.builtin_module_names)
+    safe = command.safe_path or (not command.ignores_environment and facts["env"].get("PYTHONSAFEPATH"))
+    if loaded and not safe and facts["shadowed"](facts["cwd"], loaded):
+        return None
+    if facts["startup_problem"](facts["env"], command, facts["program"]):
+        return None
     return _leaf("inert-python-stand-in", "an inert Python stand-in (sleeps and writes constants only)")
 
 
+QWEN3_TOOLS = REPO_ROOT / "files" / "dev-tools" / ("qwen3_calm_venv_tools" + _PY)
+QWEN3_INTERPRETER = REPO_ROOT / ".venv" / "engines" / "qwen3" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+QWEN3_MODELS = REPO_ROOT / "files" / "runtime-data" / "models"
+#: The worker environment's cache and scratch destinations (qwen3_runtime.worker_environment): all must be disposable.
+QWEN3_WRITABLE = ("TEMP", "TMP", "TMPDIR", "HF_HOME", "TORCH_HOME", "NUMBA_CACHE_DIR", "XDG_CACHE_HOME")
+
+
+def _qwen3_selfcheck(facts) -> dict | None:
+    """R3-05: the one reviewed engine-interpreter launch -- ``<this checkout's Qwen3 interpreter> -I -B
+    <this checkout's files/dev-tools/qwen3_calm_venv_tools.py> selfcheck <a model folder of this checkout>``, exactly, with
+    the worker environment offline and every cache and scratch destination disposable (verification.json classifies
+    qwen3_calm_venv_tools.py bounded for this selfcheck; the guarded runner's "read-only-calm-library-selfcheck" profile is
+    the same contract). It imports the pinned library and reads the model folder's fixed generation configuration; it
+    loads no model, makes no audio and starts nothing. Every other use of an engine interpreter stays refused."""
+    argv, env, disposable = facts["argv"], facts["env"], facts["disposable"]
+    if len(argv) != 6 or argv[1:3] != ["-I", "-B"] or argv[4] != "selfcheck":
+        return None
+    if not facts["program"] or os.path.normcase(os.path.abspath(facts["program"])) != \
+            os.path.normcase(str(QWEN3_INTERPRETER)):
+        return None
+    script = argv[3] if os.path.isabs(argv[3]) else os.path.join(facts["cwd"], argv[3])
+    if os.path.normcase(os.path.abspath(script)) != os.path.normcase(str(QWEN3_TOOLS)) or not _unlinked(REPO_ROOT, Path(script)):
+        return None
+    model = argv[5] if os.path.isabs(argv[5]) else os.path.join(facts["cwd"], argv[5])
+    if not _unlinked(QWEN3_MODELS, Path(model)) or os.path.normcase(os.path.abspath(model)) == \
+            os.path.normcase(str(QWEN3_MODELS)):
+        return None
+    if env.get("HF_HUB_OFFLINE") != "1" or not all(env.get(name) and disposable(env[name]) for name in QWEN3_WRITABLE):
+        return None
+    return _leaf("qwen3-calm-selfcheck", "the reviewed read-only Qwen3 calm-library selfcheck (no model loads)")
+
+
 FAMILIES = (_tk_proof, _footprint, _powershell, _cmd, _fake_ffmpeg, _git, _media, _windows_tools, _bash, _v3_workers,
-            _omnivoice, _inert_python, _inert)
+            _omnivoice, _qwen3_selfcheck, _inert_python, _inert)
 
 
 def recognize(facts: dict) -> dict | None:

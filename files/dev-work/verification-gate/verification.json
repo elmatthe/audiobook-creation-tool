@@ -1162,7 +1162,7 @@
       "class": "maintained",
       "effects": [],
       "routine": "bounded",
-      "why": "its selfcheck inspects fixed library configuration in the Qwen3 environment without loading a model (the guarded runner's reviewed profile); any other engine-interpreter use is refused by routine_effects"
+      "why": "its selfcheck inspects fixed library configuration in the Qwen3 environment without loading a model (the guarded runner's reviewed profile and, since R3-05, the exact qwen3-calm-selfcheck profile of routine_fixtures.py: offline, every cache and scratch destination disposable); any other engine-interpreter use is refused by routine_effects"
     },
     "files/dev-tools/qwen3_calm_worker.py": {
       "class": "maintained",

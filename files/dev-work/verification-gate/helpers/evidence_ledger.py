@@ -73,11 +73,41 @@ _DYNAMIC_CALLS = frozenset({"import_module", "__import__", "run_path", "run_modu
 
 
 def _git(root: Path, *args: str, stdin: str | None = None) -> str:
+    from helpers import git_changes
+
     done = subprocess.run(["git", "--no-optional-locks", *args], cwd=str(root), capture_output=True, input=stdin, text=True,
                           encoding="utf-8", errors="surrogateescape")
     if done.returncode != 0:
-        raise RuntimeError(f"git {' '.join(args[:3])}: {done.stderr.strip()[:300]}")
+        # Phase 1A-1 R3 (C2): Git's stderr can quote any path, a private one included; only fixed phrases are shown.
+        raise RuntimeError(f"git {' '.join(args[:3])}: {git_changes.safe_diagnostic(done.stderr)}")
     return done.stdout
+
+
+def _blob_ids(root: Path, inventory, paths: list[str]) -> dict[str, str]:
+    """The Git blob id of each admitted path's working bytes, as ``git add`` would store them (clean conversion included).
+
+    Phase 1A-1 R3 (C2): the bytes are read here, through the no-follow inventory, and handed to Git on stdin with
+    ``--path`` naming only which attributes apply -- Git never opens a path itself, so it cannot read through a link. Git's
+    own line-ending conversion (``text``/``eol``/``core.autocrlf``) is internal and kept; an external clean filter
+    (``filter=<driver>``) would run a configured program, so a path that has one is refused rather than hashed."""
+    from helpers import git_changes
+
+    if not paths:
+        return {}
+    fields = _git(root, "check-attr", "-z", "--stdin", "filter", stdin="\0".join(paths) + "\0").split("\0")
+    filtered = sum(1 for index in range(0, len(fields) - 2, 3) if fields[index + 2] not in ("unspecified", "unset"))
+    if filtered:
+        raise RuntimeError(f"{filtered} changed or untracked path(s) carry a Git clean filter (names withheld): their Git "
+                           "identity cannot be established without running it, so nothing is hashed")
+    found = {}
+    for path in paths:
+        data = inventory.read_bytes(path)
+        done = subprocess.run(["git", "--no-optional-locks", "hash-object", "--stdin", f"--path={path}"], cwd=str(root),
+                              input=data, capture_output=True)
+        if done.returncode != 0:
+            raise RuntimeError(f"git hash-object failed ({done.returncode}): {git_changes.safe_diagnostic(done.stderr)}")
+        found[path] = done.stdout.decode("ascii").strip()
+    return found
 
 
 # --------------------------------------------------------------------------- #
@@ -87,40 +117,72 @@ def blob_map(root: Path, *, local_only=(), case_sensitive: bool | None = None) -
     """Every tracked file and every untracked, non-ignored file in SCOPES, by its blob id as the working tree has it now.
 
     Phase 1A-1 R2 (C2): owner-private (local-only) paths are excluded before anything is hashed, and a tracked one stops the
-    map without naming it (git_changes.PrivacyViolation). A path Git's line-based input cannot carry is refused, not split."""
+    map without naming it (git_changes.PrivacyViolation). A path Git's line-based input cannot carry is refused, not split.
+    R3 (C2): an unavailable policy stops it too, and the whole index plus every in-scope untracked path is admitted through
+    the no-follow inventory before Git compares any working file: a link, or a path below one, stops the map
+    (git_changes.LinkedPath) without naming it. The bytes are read here and hashed by Git from stdin (:func:`_blob_ids`)."""
     from helpers import git_changes
 
     root = Path(root)
-    git_changes.require_untracked_private(root, local_only, case_sensitive=case_sensitive)
-    folded = repo_files.Inventory(root, case_sensitive=case_sensitive).case_sensitive
-    private = git_changes.private_predicate(local_only, case_sensitive=folded)
+    inventory = repo_files.Inventory(root, case_sensitive=case_sensitive)
+    git_changes.admit_index(root, local_only, inventory)
+    private = git_changes.private_predicate(local_only, case_sensitive=inventory.case_sensitive)
     found: dict[str, str] = {}
     for line in _git(root, "ls-files", "-s", "-z").split("\0"):
         if line:
             meta, path = line.split("\t", 1)
             found[path] = meta.split()[1]
-    changed = [p for p in _git(root, "diff", "--name-only", "-z").split("\0") if p and not private(p)]
     untracked = [p for p in _git(root, "ls-files", "-z", "--others", "--exclude-standard", "--", *SCOPES).split("\0")
                  if p and not private(p)]
+    linked = git_changes.linked_count(inventory, untracked)
+    if linked:
+        raise git_changes.LinkedPath(f"{linked} untracked in-scope path(s) are links or lie below one (names withheld): "
+                                     "nothing is hashed through them")
+    # Only now, with every tracked path admitted, may Git compare working files with the index (it reads stat-dirty ones).
+    changed = [p for p in _git(root, "diff", "--name-only", "-z", "--no-renames", "--no-ext-diff").split("\0")
+               if p and not private(p)]
     if any("\n" in p or "\r" in p for p in changed + untracked):
         raise RuntimeError("a changed or untracked path holds a line break: it cannot be hashed by path safely")
-    present = [p for p in changed + untracked if (root / p).is_file()]
-    for path in changed:
-        if not (root / path).exists():
-            found[path] = "<deleted>"
-    if present:
-        hashed = _git(root, "hash-object", "--stdin-paths", stdin="\n".join(present) + "\n").split()
-        found.update(zip(present, hashed))
+    present = []
+    for path in dict.fromkeys(changed + untracked):
+        kind = inventory.classify(path)
+        if kind == repo_files.FILE:
+            present.append(path)
+        elif path in changed:
+            found[path] = "<deleted>" if kind == repo_files.MISSING else f"<{kind}>"
+    found.update(_blob_ids(root, inventory, present))
     return {path: blob for path, blob in found.items() if not path.startswith(OUTPUTS_PREFIX)}
 
 
-def blob_map_at(root: Path, sha: str) -> dict[str, str]:
+def admit_names(root: Path, files: dict, *, local_only=(), inventory=None) -> dict[str, str]:
+    """Phase 1A-1 R3 (C2): a file map read from history (a recorded ``evidence-files.json`` or a commit's tree), as it may be
+    consumed now: owner-private names are suppressed, never exported or compared, and so is a name that today lies through a
+    link (with ``inventory``). The saved record itself is never rewritten. Raises PrivacyViolation on an unusable policy."""
+    from helpers import git_changes
+
+    root = Path(root)
+    case_sensitive = inventory.case_sensitive if inventory is not None else repo_files.probe_case_sensitive(root)
+    private = git_changes.private_predicate(local_only, case_sensitive=case_sensitive)
+    admitted = {}
+    for path, blob in files.items():
+        if not isinstance(path, str) or private(path):
+            continue
+        if inventory is not None and inventory.classify(path) in (repo_files.LINK, repo_files.INSIDE_LINK):
+            continue
+        admitted[path] = blob
+    return admitted
+
+
+def blob_map_at(root: Path, sha: str, *, local_only=(), case_sensitive: bool | None = None) -> dict[str, str]:
+    """The blob of every file in commit ``sha``'s tree (tree metadata only; nothing is read from the working tree). Phase
+    1A-1 R3 (C2): private names, and names that today lie through a link, are suppressed (:func:`admit_names`)."""
+    root = Path(root)
     found = {}
     for line in _git(root, "ls-tree", "-r", "-z", sha).split("\0"):
         if line:
             meta, path = line.split("\t", 1)
             found[path] = meta.split()[2]
-    return found
+    return admit_names(root, found, local_only=local_only, inventory=repo_files.Inventory(root, case_sensitive=case_sensitive))
 
 
 def changed_between(before: dict[str, str], after: dict[str, str]) -> list[str]:
@@ -390,7 +452,13 @@ def admissible(folder: Path) -> tuple[bool, str]:
     return bool(outcome.get("valid")), "; ".join(outcome.get("problems", [])[:2]) or outcome.get("status", "")
 
 
-def load_runs(root: Path, folders) -> tuple[list[Run], list[str]]:
+def load_runs(root: Path, folders, *, local_only=()) -> tuple[list[Run], list[str]]:
+    """The admissible runs below ``folders``. Phase 1A-1 R3 (C2): each run's file map is consumed through
+    :func:`admit_names` (private names suppressed), whether it was recorded or rebuilt from its HEAD; the run's own files are
+    read, never rewritten, so its seal stands."""
+    from helpers import git_changes
+
+    git_changes.require_policy(local_only)
     runs, skipped = [], []
     for base in folders:
         for folder in sorted(Path(base).glob("20*_*")) if Path(base).is_dir() else []:
@@ -402,11 +470,13 @@ def load_runs(root: Path, folders) -> tuple[list[Run], list[str]]:
                 continue
             identity = start.get("identity") or {}
             files, source = _read(folder / FILES_NAME), "recorded"
-            if not isinstance(files, dict):
+            if isinstance(files, dict):
+                files = admit_names(root, files, local_only=local_only)
+            else:
                 files, source = None, "unrecoverable"
                 if identity.get("head") and not identity.get("dirty_tracked") and not identity.get("untracked_in_scope"):
                     try:
-                        files, source = blob_map_at(root, identity["head"]), "clean at its HEAD"
+                        files, source = blob_map_at(root, identity["head"], local_only=local_only), "clean at its HEAD"
                     except RuntimeError:
                         files = None
             runs.append(Run(folder, results.get("run_id", folder.name), results.get("started_at", ""), results.get("status", ""),

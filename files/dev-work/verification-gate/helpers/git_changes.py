@@ -80,13 +80,28 @@ class ChangeSet:
                 "problems": list(self.problems), "identity": dict(self.identity)}
 
 
+#: Phrases of Git's own diagnostics that name no repository path. Git's stderr can quote any path it was looking at,
+#: owner-private ones included, so only these fixed phrases are ever shown, never the text itself (Phase 1A-1 R3, C2).
+_SAFE_DIAGNOSTICS = ("not a git repository", "unknown revision", "ambiguous argument", "bad revision", "bad object",
+                     "not a valid object name", "index file corrupt", "unable to read", "permission denied", "timed out")
+
+
+def safe_diagnostic(stderr) -> str:
+    """What of Git's stderr may be shown: the fixed phrases it contains, never its text (R3, C2)."""
+    if isinstance(stderr, bytes):
+        stderr = stderr.decode("utf-8", "replace")
+    lowered = (stderr or "").lower()
+    found = [phrase for phrase in _SAFE_DIAGNOSTICS if phrase in lowered]
+    return ("; ".join(found) if found else "no recognised cause") + " (Git's own text is withheld: it can name paths)"
+
+
 def _git(root: Path, *args: str, ok=(0,)) -> tuple[int, str, str]:
     done = subprocess.run(["git", "--no-optional-locks", "-c", "core.quotepath=off", *args], cwd=str(root),
                           capture_output=True)
     out = done.stdout.decode("utf-8", "surrogateescape")
     err = done.stderr.decode("utf-8", "replace")
     if done.returncode not in ok:
-        raise ChangeError(f"git {' '.join(args[:3])} failed ({done.returncode}): {err.strip()[:300]}")
+        raise ChangeError(f"git {' '.join(args[:3])} failed ({done.returncode}): {safe_diagnostic(err)}")
     return done.returncode, out, err
 
 
@@ -131,13 +146,31 @@ def local_only_entry(path: str, local_only, *, case_sensitive: bool) -> str | No
 
 
 class PrivacyViolation(RuntimeError):
-    """Local-only (owner-private) paths are tracked: nothing is read or recorded until that is fixed; no name is disclosed."""
+    """Local-only (owner-private) paths are tracked, or the owner's local-only policy is unavailable: nothing is read or
+    recorded until that is fixed; no name is disclosed."""
+
+
+class LinkedPath(ChangeError):
+    """Phase 1A-1 R3 (C2): a tracked or in-scope path is a link or lies below one (every ancestor ``lstat``-ed, reparse points
+    included). Git compares and hashes working files by path and would read through it -- possibly into owner-private
+    storage or out of the checkout -- so nothing is compared or hashed. No name is disclosed."""
+
+
+def require_policy(local_only) -> tuple[str, ...]:
+    """The owner-declared local-only entries, or :class:`PrivacyViolation` when they are unavailable or malformed (R3, C2).
+    An absent or unusable declaration is never "no private paths": None, a bare string or a non-string entry is refused."""
+    if local_only is None or isinstance(local_only, (str, bytes)) or not isinstance(local_only, (list, tuple)) \
+            or not all(isinstance(entry, str) and entry.strip() for entry in local_only):
+        raise PrivacyViolation("the owner-declared local-only policy is unavailable or malformed: nothing is read, hashed "
+                               "or recorded until it is usable")
+    return tuple(local_only)
 
 
 def private_predicate(local_only, *, case_sensitive: bool):
     """Phase 1A-1 R2 (C2): the one test of whether a repository path is owner-private, applied before anything is read --
-    selection, the tree fingerprint, the incremental-evidence file map and the candidate identity alike."""
-    entries = tuple(local_only or ())
+    selection, the tree fingerprint, the incremental-evidence file map and the candidate identity alike. An unavailable or
+    malformed policy raises :class:`PrivacyViolation` (R3): it never means "nothing is private"."""
+    entries = require_policy(local_only)
     return lambda path: bool(path) and local_only_entry(path, entries, case_sensitive=case_sensitive) is not None
 
 
@@ -155,6 +188,30 @@ def require_untracked_private(root: Path, local_only, *, case_sensitive: bool | 
                                "files are never tracked, and nothing is read or recorded until they are untracked")
 
 
+def linked_count(inventory, paths) -> int:
+    """How many of ``paths`` are a link or lie below one, by the no-follow inventory (``lstat`` only, nothing read)."""
+    return sum(1 for path in paths if inventory.classify(path) in (repo_files.LINK, repo_files.INSIDE_LINK))
+
+
+def admit_index(root: Path, local_only, inventory) -> list[str]:
+    """Phase 1A-1 R3 (C2): the whole index, admitted before any Git operation that compares or hashes working-tree content.
+
+    Names only (``ls-files -z``; no content). The policy must be usable (:func:`require_policy`); a tracked local-only path
+    raises :class:`PrivacyViolation` and a tracked path that is a link or lies below one raises :class:`LinkedPath`, both
+    without naming it. Returns the index's names."""
+    private = private_predicate(local_only, case_sensitive=inventory.case_sensitive)
+    names = [path for path in _git(Path(root), "ls-files", "-z", "--cached")[1].split("\0") if path]
+    count = sum(1 for path in names if private(path))
+    if count:
+        raise PrivacyViolation(f"{count} tracked path(s) at owner-declared local-only entries (names withheld): local-only "
+                               "files are never tracked, and nothing is read or recorded until they are untracked")
+    linked = linked_count(inventory, names)
+    if linked:
+        raise LinkedPath(f"{linked} tracked path(s) are links or lie below a link or reparse point (names withheld): Git "
+                         "would read through them, so nothing is compared or hashed")
+    return names
+
+
 def resolve_base(root: Path, base: str, head: str) -> dict:
     if not base or base != base.strip() or base.startswith("-"):
         raise ChangeError(f"--base {base!r} is not a revision")
@@ -162,7 +219,7 @@ def resolve_base(root: Path, base: str, head: str) -> dict:
     if code != 0 or not out.strip():
         raise ChangeError(f"--base {base!r} does not name a commit here (nothing is fetched)")
     if "ambiguous" in err.lower():
-        raise ChangeError(f"--base {base!r} is ambiguous: {err.strip()[:200]}")
+        raise ChangeError(f"--base {base!r} is ambiguous: {safe_diagnostic(err)}")
     sha = out.strip()
     code, out, _err = _git(root, "merge-base", "--all", sha, head, ok=(0, 1))
     bases = [line for line in out.split() if line]
@@ -173,10 +230,27 @@ def resolve_base(root: Path, base: str, head: str) -> dict:
     return {"ref": base, "sha": sha, "merge_base": bases[0]}
 
 
+def _streams(root: Path, based: dict | None, head: str, *, renames: bool, working: bool):
+    """The committed, staged and (with ``working``) unstaged name-status streams. ``renames`` turns on Git's similarity
+    detection, which reads the content of both sides; it is asked for only once every side is admitted (R3, C2)."""
+    detect = "--find-renames" if renames else "--no-renames"
+    streams: list[tuple[str, list[tuple[str, str | None, str]]]] = []
+    if based:
+        streams.append(("committed", parse_name_status(_git(root, "diff", "-z", "--name-status", detect, "--no-ext-diff",
+                                                             based["merge_base"], head)[1])))
+    streams.append(("staged", parse_name_status(_git(root, "diff", "-z", "--cached", "--name-status", detect, "--no-ext-diff",
+                                                      head)[1])))
+    if working:
+        streams.append(("unstaged", parse_name_status(_git(root, "diff", "-z", "--name-status", detect, "--no-ext-diff")[1])))
+    return streams
+
+
 def collect(root: Path, *, base: str | None = None, local_only=(), case_sensitive: bool | None = None) -> ChangeSet:
     root = Path(root)
+    require_policy(local_only)
     inventory = repo_files.Inventory(root, case_sensitive=case_sensitive)
     folded = inventory.case_sensitive
+    private = private_predicate(local_only, case_sensitive=folded)
     code, out, _ = _git(root, "rev-parse", "--verify", "--quiet", "HEAD^{commit}", ok=(0, 1, 128))
     if code != 0 or not out.strip():
         raise ChangeError("the repository has no commit to anchor a change set")
@@ -185,19 +259,43 @@ def collect(root: Path, *, base: str | None = None, local_only=(), case_sensitiv
     if conflicts.strip("\0"):
         raise ChangeError("the index holds unresolved conflicts; resolve them before a changed selection")
     based = resolve_base(root, base, head) if base else None
-    streams: list[tuple[str, list[tuple[str, str | None, str]]]] = []
-    if based:
-        streams.append(("committed", parse_name_status(_git(root, "diff", "-z", "--name-status", "--find-renames",
-                                                             "--no-ext-diff", based["merge_base"], head)[1])))
-    streams.append(("staged", parse_name_status(_git(root, "diff", "-z", "--cached", "--name-status", "--find-renames",
-                                                      "--no-ext-diff", head)[1])))
-    streams.append(("unstaged", parse_name_status(_git(root, "diff", "-z", "--name-status", "--find-renames",
-                                                        "--no-ext-diff")[1])))
-    untracked = [path for path in _git(root, "ls-files", "-z", "--others", "--exclude-standard")[1].split("\0") if path]
-    streams.append(("untracked", [("?", None, path) for path in untracked]))
+    # Phase 1A-1 R3 (C2): metadata first. The full index is read as names only; a tracked local-only path is counted (a
+    # violation, never named) and a tracked path through a link stops the change set, before any Git operation that reads
+    # working-tree content (the unstaged comparison refreshes and hashes stat-dirty files by path).
+    index_names = [path for path in _git(root, "ls-files", "-z", "--cached")[1].split("\0") if path]
+    tracked: dict[str, int] = {}
+    for path in index_names:
+        entry = local_only_entry(path, local_only, case_sensitive=folded)
+        if entry is not None:
+            tracked[entry] = tracked.get(entry, 0) + 1
+    linked = linked_count(inventory, index_names)
+    if linked:
+        raise LinkedPath(f"{linked} tracked path(s) are links or lie below a link or reparse point (names withheld): Git "
+                         "would read through them, so no change set is established")
+    # A tracked private file is never compared with its working bytes: the selection is blocked by the violation anyway.
+    working = not tracked
+    # Names without similarity first; rename detection (which reads both sides) only when no side of any record is private.
+    streams = _streams(root, based, head, renames=False, working=working)
+    if working and not any(private(path) or (old is not None and private(old))
+                           for _source, records in streams for _letter, old, path in records):
+        streams = _streams(root, based, head, renames=True, working=working)
+    untracked = []
+    for path in _git(root, "ls-files", "-z", "--others", "--exclude-standard")[1].split("\0"):
+        if not path:
+            continue
+        if not private(path):
+            # Below a link, Git lists what it found through it (possibly another tree's, or private, names): the link itself
+            # is the change, and nothing beneath it is named or read (R3, C2).
+            _spelled, kind, detail = inventory.canonical(path)
+            if kind == repo_files.INSIDE_LINK and detail:
+                path = detail
+        untracked.append(path)
+    streams.append(("untracked", [("?", None, path) for path in dict.fromkeys(untracked)]))
 
     merged: dict[str, dict] = {}
     changes = ChangeSet(head=head, base=based)
+    if not working:
+        changes.notes.append("the working tree was not compared with the index: tracked local-only paths are never read")
     for source, records in streams:
         for letter, old, path in records:
             if path.startswith(OUTPUTS_PREFIX):
@@ -226,12 +324,7 @@ def collect(root: Path, *, base: str | None = None, local_only=(), case_sensitiv
                 row["status"] = letter
             row["sources"].append(source)
     # R1, C2: the index itself, not only today's delta: an already tracked local-only path is a violation (counted by
-    # policy entry; the path is never named).
-    tracked: dict[str, int] = {}
-    for path in _git(root, "ls-files", "-z", "--cached")[1].split("\0"):
-        entry = local_only_entry(path, local_only, case_sensitive=folded) if path else None
-        if entry is not None:
-            tracked[entry] = tracked.get(entry, 0) + 1
+    # policy entry; the path is never named). Counted above, from names alone, before anything was compared (R3).
     for entry, count in sorted(tracked.items()):
         if any(repr(entry) in violation for violation in changes.violations):
             continue  # already named by the delta above: one violation per entry
@@ -245,7 +338,8 @@ def collect(root: Path, *, base: str | None = None, local_only=(), case_sensitiv
             changes.notes.append(f"{change.path}: deleted in the index and present again in the working tree; the working "
                                  "file is the candidate and is routed")
     # A staged change the working tree has reversed: still a change; the working bytes are what a run would see.
-    worktree = {p for p in _git(root, "diff", "-z", "--name-only", "--no-ext-diff", head)[1].split("\0") if p}
+    worktree = {p for p in _git(root, "diff", "-z", "--name-only", "--no-renames", "--no-ext-diff", head)[1].split("\0")
+                if p} if working else set()
     for change in changes.changes:
         if "staged" in change.sources and change.path not in worktree and change.status != "D" and "untracked" not in change.sources:
             changes.notes.append(f"{change.path}: staged, then reversed in the working tree; the working bytes (HEAD's) run")

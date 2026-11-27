@@ -292,14 +292,37 @@ def compare_environment(recorded: dict | None, current: dict | None) -> list[str
     return [f"environment.{key}" for key in COMPARED_ENVIRONMENT if comparable(recorded.get(key)) != comparable(current.get(key))]
 
 
+def privacy_problems(identity: dict | None) -> list[str]:
+    """Phase 1A-1 R3 (C2): why an identity cannot establish anything current on privacy grounds -- tracked owner-private
+    paths, an unavailable privacy policy or fingerprint, or a capture that was withheld (a link on a tracked path). Counts
+    and reasons only, never a name. A historical identity from before these fields existed has none of them: no problem."""
+    if not isinstance(identity, dict):
+        return []
+    problems = []
+    tracked = identity.get("private_tracked")
+    if tracked:
+        problems.append(f"privacy: {tracked if isinstance(tracked, int) else 'some'} tracked local-only path(s)")
+    if identity.get("available") is False:
+        problems.append("privacy: the identity is unavailable")
+    status = identity.get("privacy")
+    if status not in (None, "ok"):
+        problems.append(f"privacy: {status}")
+    return problems
+
+
 def compare_identity(recorded: dict, current: dict, recorded_environment: dict | None = None,
                      current_environment: dict | None = None) -> tuple[str, list[str]]:
     """``exact``, ``docs-only`` (the execution evidence carries, the docs checks must be rerun) or ``stale``.
 
     Evidence carries only where the environment matches as well, so a reader that brings no environment gets ``stale``.
+    Phase 1A-1 R3 (C2): equal digests never make an identity current when either side records a privacy problem
+    (:func:`privacy_problems`): that is ``stale`` with the reasons, whatever the digests say.
     """
     if not recorded or not current:
         return "stale", ["identity unavailable"]
+    withheld = privacy_problems(recorded) + privacy_problems(current)
+    if withheld:
+        return "stale", withheld
     moved = [key for key in EXECUTION_DIGESTS if not recorded.get(key) or recorded.get(key) != current.get(key)]
     moved += compare_environment(recorded_environment, current_environment)
     if moved:

@@ -184,8 +184,42 @@ def test_a_junction_and_stage_zero_are_reviewed_only_on_disposable_paths(tmp_pat
     assert effects.classify_launch(["cmd", "/c", "mklink", "/J", str(REPO_ROOT / "x"), str(b)], cwd=tmp_path) is not None
     assert effects.classify_launch(["cmd", "/c", "mklink", "/J", "a", "b"], cwd=REPO_ROOT) is not None
     stage = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "scripts/shared/bootstrap_host.ps1"]
-    assert effects.classify_launch([*stage, "-OutFile", str(tmp_path / "x"), "-AssumeNo"], cwd=REPO_ROOT) is None
+    # R3-02: the checkout's own stage 0 never runs -- before it asks anything it proves this checkout's real interpreter
+    # (a Tk proof), so a declined, disposable-answer form is still not harmless.
+    assert effects.classify_launch([*stage, "-OutFile", str(tmp_path / "x"), "-AssumeNo"], cwd=REPO_ROOT) is not None
     assert effects.classify_launch([*stage, "-OutFile", "x", "-AssumeNo"], cwd=REPO_ROOT) is not None
+
+
+def test_r3_02_stage_zero_runs_only_as_a_disposable_copy_with_nothing_to_prove_before_consent(tmp_path, monkeypatch):
+    """R3-02: a declined stage 0 is bounded only as a disposable copy whose app folder holds no interpreter stage 0 would
+    run before consent (absent, or a small inert stub), started without a module path a test could have planted."""
+    app = tmp_path / "app"
+    (app / "scripts" / "shared").mkdir(parents=True)
+    copy = app / "scripts" / "shared" / "bootstrap_host.ps1"
+    copy.write_bytes((REPO_ROOT / "scripts" / "shared" / "bootstrap_host.ps1").read_bytes())
+    command = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(copy), "-OutFile",
+               str(tmp_path / "selected.txt"), "-AssumeNo"]
+    assert effects.classify_launch(command, cwd=tmp_path) is None  # GREEN: nothing to prove, nothing downloaded
+    python = app / "files" / "runtime-data" / "python"
+    python.mkdir(parents=True)
+    (python / "python.exe").write_bytes(b"MZ not a python")
+    assert effects.classify_launch(command, cwd=tmp_path) is None  # an inert stub: starting it fails, as the test expects
+    (python / "python.exe").write_bytes(Path(sys.executable).read_bytes())
+    assert effects.classify_launch(command, cwd=tmp_path) is not None  # RED: a real interpreter would be proved first
+    # D-R2-2's stage-0 Tk measurement: a disposable copy of this session's own base interpreter is a proved setup state --
+    # with no startup code but, at most, the pinned BREAK_TK fault; any other sitecustomize is not.
+    base = Path(sys.base_prefix) / "python.exe"
+    if base.is_file():
+        (python / "python.exe").write_bytes(base.read_bytes())
+        assert effects.classify_launch(command, cwd=tmp_path) is None
+        (python / "Lib" / "site-packages").mkdir(parents=True)
+        (python / "Lib" / "site-packages" / "sitecustomize.py").write_text("print('planted')\n", encoding="utf-8")
+        assert effects.classify_launch(command, cwd=tmp_path) is not None
+    (python / "python.exe").unlink()
+    planted = tmp_path / "modules"
+    planted.mkdir()
+    env = {**os.environ, "PSModulePath": str(planted)}
+    assert effects.classify_launch(command, cwd=tmp_path, env=env) is not None  # RED: a planted module path
 
 
 def test_the_classification_ignores_case_as_ntfs_and_apfs_do():
@@ -348,11 +382,21 @@ def test_a_reviewed_synthetic_fixture_lets_only_its_orchestrator_and_reviewed_re
     assert effects.classify_launch([sys.executable, str(tree / context.ORCHESTRATOR), "--mode", "focused", "--test",
                                     "files/tests/test_ordinary.py"], cwd=tmp_path) is None
     assert context.synthetic_stand_in(tree, STAND_IN) is True
-    assert effects.classify_launch([sys.executable, "-u", str(tree / STAND_IN), "--out", str(tmp_path / "o")],
+    assert effects.classify_launch([sys.executable, "-u", str(tree / STAND_IN), "--out", str(tree / "o")],
                                    cwd=tmp_path) is None
+    # R3-02: the same exact recipe writing its output outside its own fixture tree is not bounded.
+    assert effects.classify_launch([sys.executable, "-u", str(tree / STAND_IN), "--out", str(tmp_path / "o")],
+                                   cwd=tmp_path) is not None
     assert context.synthetic_stand_in(tree, GATE + "acceptance_runner.py") is False, "an undeclared runner is no stand-in"
     with effects.expected_refusals("scaling", "native-desktop"):
-        context.check_operation("scaling", "a declared recipe", root=tree, stand_in=STAND_IN)
+        # R3-02: the operation check judges the exact command it will supervise; without it a stand-in is never admitted.
+        context.check_operation("scaling", "a declared recipe", root=tree, stand_in=STAND_IN,
+                                argv=[sys.executable, "-u", str(tree / STAND_IN), "--out", str(tree / "o")])
+        with pytest.raises(PermissionError):
+            context.check_operation("scaling", "a declared recipe", root=tree, stand_in=STAND_IN)
+        with pytest.raises(PermissionError):
+            context.check_operation("scaling", "a declared recipe", root=tree, stand_in=STAND_IN,
+                                    argv=[sys.executable, "-u", str(tree / STAND_IN), "--out", str(tmp_path / "o")])
         with pytest.raises(PermissionError):
             context.check_operation("native-desktop", "an undeclared real runner", root=tree,
                                     stand_in=GATE + "acceptance_runner.py")

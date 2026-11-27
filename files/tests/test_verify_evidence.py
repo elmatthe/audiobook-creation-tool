@@ -63,7 +63,7 @@ POLICY = {
     "required_self_tests": [],
     "skip_policy": {platform: [{"id": "synthetic", "pattern": "^synthetic skip reason$", "max": 1}]
                     for platform in ("win32", "darwin", "linux")},
-    "focused": {"required_guards": []}, "changed": {"always": [], "no_selection": [], "routes": {}, "full_on": []},
+    "focused": {"required_guards": []}, "changed": {"always": [], "no_selection": [], "routes": {}, "full_on": [], "local_only": []},
 }
 
 # Runs the real verify.main in its own process so the test can kill it outright, as a power cut or a task kill would.

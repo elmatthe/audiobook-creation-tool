@@ -876,3 +876,351 @@ def test_m1_a_test_dropped_without_deselection_fails_a_direct_run(tmp_path):
     assert scope.ledgers[str(private)]["problems"] == [], scope.ledgers[str(private)]["problems"]
     assert done.returncode == 1 and "1 passed" in done.stdout and "does not reconcile" in done.stderr, \
         (done.stdout[-1500:], done.stderr[-1500:])
+
+
+# --------------------------------------------------------------------------- #
+#  v0.8.2 Phase 1A-1 R3 (independent R2 review): launch evidence, stop attribution, startup and admission, recipes
+# --------------------------------------------------------------------------- #
+def _completed(tmp_path: Path, *, parent_rows=None, child_end=0) -> Path:
+    """An owner that reserved a child which completed with its own end record; ``parent_rows`` replaces the owner's spawn and
+    observation (default: one spawn, one exited observation agreeing with the child)."""
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    ledger = effects.new_ledger(tmp_path / "l", owner="routine-pytest")
+    _reservation(ledger, LAUNCH, OWNER, 100)
+    middle = parent_rows if parent_rows is not None else [
+        {"kind": "spawned", "launch": LAUNCH, "pid": 200, "executable": "python", "redirector": False, "via": "direct",
+         "created": None},
+        {"kind": "observed", "launch": LAUNCH, "exit": child_end, "how": "exited", "pid": 200}]
+    _write(ledger, OWNER, [_start(OWNER, "routine-pytest"), MARK,
+                           {"kind": "reserve", "launch": LAUNCH, "expect": "routine-child", "ledger": ""}, *middle, _end()])
+    _write(ledger, CHILD, [_start(CHILD, "routine-child", launch=LAUNCH, parent=OWNER, ppid=100), MARK, _end(child_end)])
+    return ledger
+
+
+_SPAWN = {"kind": "spawned", "launch": LAUNCH, "pid": 200, "executable": "python", "redirector": False, "via": "direct",
+          "created": None}
+_EXIT0 = {"kind": "observed", "launch": LAUNCH, "exit": 0, "how": "exited", "pid": 200}
+
+
+@pytest.mark.parametrize("case, rows, needle", [
+    ("missing-parent-spawn", [_EXIT0], "never recorded its spawn"),
+    ("missing-independent-observation", [_SPAWN], "never independently observed"),
+    ("child-only-clean-record", [], "never recorded its spawn"),
+    ("duplicate-observation", [_SPAWN, _EXIT0, dict(_EXIT0)], "observed 2 times"),
+    ("mismatched-observation", [_SPAWN, {**_EXIT0, "pid": 999}], "not the spawned process"),
+    ("running-look-only", [_SPAWN, {**_EXIT0, "how": "running", "exit": None}], "never independently observed"),
+])
+def test_r3_03_a_completed_launch_needs_its_parents_own_spawn_and_one_terminal_observation(tmp_path, case, rows, needle):
+    """R3-03 (independent reproduction: parent spawn and observation removed, read_ledger still PASS): every completed
+    reserved launch needs exactly one spawn and one terminal observation by its reserving parent; the child's own clean
+    record never substitutes for them."""
+    verdict = _judge(_completed(tmp_path, parent_rows=rows))
+    assert verdict["status"] == "FAIL" and any(needle in problem for problem in verdict["problems"]), verdict["problems"]
+
+
+def test_r3_03_the_same_completed_launch_with_its_parent_evidence_passes(tmp_path):
+    verdict = _judge(_completed(tmp_path))
+    assert verdict["status"] == "PASS", verdict["problems"]
+
+
+def _stopped(tmp_path, *, stops=("terminate-process",), codes=(), middle, grandchild_rows=None) -> Path:
+    return _killed_child(tmp_path, stops=stops, parent_middle=middle, grandchild=grandchild_rows)
+
+
+_KILL = {"kind": "stop", "launch": LAUNCH, "mechanism": "terminate-process", "pid": 200, "code": 1, "tree": False, "ok": True}
+_EXIT1 = {"kind": "observed", "launch": LAUNCH, "exit": 1, "how": "exited", "pid": 200}
+
+
+@pytest.mark.parametrize("case, stops, middle", [
+    ("failed-taskkill", ("taskkill",), [{**_KILL, "mechanism": "taskkill", "tree": True, "ok": False}, _EXIT1]),
+    ("intent-without-successful-action", ("terminate-process",), [{**_KILL, "ok": False}, _EXIT1]),
+    ("incorrect-process-identity", ("terminate-process",), [{**_KILL, "pid": 999}, _EXIT1]),
+    ("reused-pid-creation-time", ("terminate-process",), [{**_KILL, "created": 7}, _EXIT1]),
+    ("wrong-stop-chronology", ("terminate-process",), [_EXIT1, _KILL]),
+    ("code-less-close-job-wrong-exit", ("close-job",), [{**_KILL, "mechanism": "close-job", "code": None, "tree": True},
+                                                       {**_EXIT1, "exit": 3}]),
+    ("exit-not-the-stops-code", ("terminate-job",), [{**_KILL, "mechanism": "terminate-job", "code": 9, "tree": True},
+                                                     _EXIT1]),
+])
+def test_r3_03_an_explained_stop_binds_one_successful_action_to_the_owned_process_and_its_exact_outcome(tmp_path, case,
+                                                                                                          stops, middle):
+    """R3-03: a stop explains a missing end record only when ONE successful action, recorded by the reserving parent for this
+    launch's own process (pid and creation time), precedes that parent's observation of exactly the code it leaves."""
+    if case == "reused-pid-creation-time":
+        ledger = _killed_child(tmp_path, stops=stops, parent_middle=middle)
+        rows = [json.loads(line) for line in (ledger / f"p{OWNER}.jsonl").read_text().splitlines()]
+        for row in rows:
+            if row["kind"] == "spawned":
+                row["created"] = 5  # the action reached a process created at 7: another process now holding pid 200
+        _write(ledger, OWNER, rows)
+    else:
+        ledger = _killed_child(tmp_path, stops=stops, parent_middle=middle)
+    verdict = _judge(ledger)
+    assert verdict["status"] == "FAIL" and LAUNCH not in verdict.get("explained_stops", []), verdict
+
+
+@pytest.mark.parametrize("mechanism, code, exit_status", [("close-job", None, 0), ("terminate-job", 9, 9),
+                                                          ("taskkill", 1, 1), ("terminate-process", 1, 1)])
+def test_r3_03_each_stop_mechanism_explains_exactly_the_outcome_it_leaves(tmp_path, mechanism, code, exit_status):
+    """The positive side: a kill-on-close Job's close ends its members with 0 (measured), TerminateJobObject with its code,
+    taskkill /F and Popen.kill with 1."""
+    middle = [{**_KILL, "mechanism": mechanism, "code": code, "tree": mechanism != "terminate-process"},
+              {**_EXIT1, "exit": exit_status}]
+    verdict = _judge(_killed_child(tmp_path, stops=(mechanism,), parent_middle=middle))
+    assert verdict["status"] == "PASS" and verdict["explained_stops"] == [LAUNCH], verdict["problems"]
+
+
+def _gone_row(position_after_stop: bool):
+    return {"kind": "observed", "launch": INNER, "exit": None, "how": "gone", "pid": 300}
+
+
+@pytest.mark.parametrize("case", ["unrelated-tree-flag", "descendant-gone-before-the-stop"])
+def test_r3_03_a_descendant_is_accounted_only_through_the_one_proved_tree_stop_and_after_it(tmp_path, case):
+    """R3-03: the explaining stop's own tree flag (never another record's), and the descendant's disappearance observed by
+    that stop's writer after it."""
+    if case == "unrelated-tree-flag":
+        # A successful tree stop the reservation never expected (another record), then the single-process kill that is
+        # the one expected, explaining action: R2 took the tree flag from the first and the descendant as explained.
+        middle = [{**_KILL, "mechanism": "terminate-job", "code": 1, "tree": True}, _KILL, _EXIT1]
+        stops = ("terminate-process",)
+    else:
+        middle = [_gone_row(False), {**_KILL, "mechanism": "terminate-job", "code": 1, "tree": True}, _EXIT1]
+        stops = ("terminate-job",)
+    ledger = _killed_child(tmp_path, stops=stops, parent_middle=middle, grandchild="kept")
+    if case == "unrelated-tree-flag":
+        with open(ledger / f"p{OWNER}.jsonl", "r+", encoding="utf-8") as handle:
+            lines = handle.read().splitlines(keepends=True)
+            handle.seek(0)
+            handle.write("".join(lines[:-1] + [json.dumps(_gone_row(True)) + "\n", lines[-1]]))
+    verdict = _judge(ledger)
+    assert verdict["status"] == "FAIL" and any("descendant" in problem or INNER in problem
+                                               for problem in verdict["problems"]), verdict["problems"]
+
+
+def test_r3_03_the_tree_stop_that_explains_the_parent_accounts_for_a_descendant_gone_after_it(tmp_path):
+    middle = [{**_KILL, "mechanism": "terminate-job", "code": 1, "tree": True}, _EXIT1, _gone_row(True)]
+    verdict = _judge(_killed_child(tmp_path, stops=("terminate-job",), parent_middle=middle, grandchild="kept"))
+    assert verdict["status"] == "PASS", verdict["problems"]
+
+
+def test_r3_03_a_crash_expectation_reaches_only_the_thread_that_opened_it_and_the_threads_it_starts():
+    """R3-03: a test's lifecycle marker no longer stamps every launch prepared anywhere in the process while it is open."""
+    import threading
+
+    decision = effects.LaunchDecision(effects.BOOTSTRAP, "x", expect="routine-child")
+    seen: dict[str, object] = {}
+    ready, go, done = threading.Event(), threading.Event(), threading.Event()
+
+    def unrelated():
+        ready.set()
+        go.wait(30)
+        seen["unrelated"] = effects._lifecycle_now(decision)
+        done.set()
+
+    bystander = threading.Thread(target=unrelated)
+    bystander.start()  # already running before the expectation opens: an unrelated concurrent launcher
+    ready.wait(30)
+    with effects.expected_termination("native-crash", codes=(3,)):
+        seen["opener"] = effects._lifecycle_now(decision)
+        worker = threading.Thread(target=lambda: seen.__setitem__("worker", effects._lifecycle_now(decision)))
+        worker.start()
+        worker.join(30)
+        go.set()
+        done.wait(30)
+    bystander.join(30)
+    seen["after"] = effects._lifecycle_now(decision)
+    assert seen["opener"] == {"stops": ["native-crash"], "codes": [3]} and seen["worker"] == seen["opener"]
+    assert seen["unrelated"] is None and seen["after"] is None, seen
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows taskkill")
+def test_r3_03_live_a_taskkill_stop_is_recorded_from_its_actual_result_before_the_end_it_explains():
+    """R3-03: no taskkill stop is recorded before the tool ran; once it succeeded, its stop precedes the observed exit and
+    explains it."""
+    ledger = os.environ[effects.LEDGER_ENV]
+    with effects.expected_termination("taskkill"):
+        child = subprocess.Popen([sys.executable, "-c", EFFECT_CAPABLE_SLEEPER])
+        launch = child._act_launch
+        try:
+            _wait_initialized(launch, ledger)
+            killer = [os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "taskkill.exe"), "/PID",
+                      str(child.pid), "/T", "/F"]
+            done = subprocess.run(killer, capture_output=True, text=True, timeout=60)
+        finally:
+            child.wait(timeout=60)
+    assert done.returncode == 0, done.stderr
+    verdict = effects.read_ledger(ledger, open_roles=SESSION_ROLES)
+    assert verdict["launches"][launch]["state"] == "explained-stop", [p for p in verdict["problems"] if launch in p]
+    rows = [json.loads(line) for path in Path(ledger).glob("p*.jsonl")
+            for line in path.read_text(encoding="utf-8").splitlines()]
+    mine = [row for row in rows if row.get("launch") == launch and row["kind"] in ("stop", "observed")]
+    assert [row["kind"] for row in mine][:2] == ["stop", "observed"] and mine[0]["mechanism"] == "taskkill"         and mine[0]["ok"] is True and mine[0]["created"] is not None, mine
+
+
+# --- R3-01: startup before the envelope, the inert profile's import path, and the admitted invocation ---------------------
+def test_r3_01_a_nested_runner_never_starts_with_startup_code_ahead_of_its_bootstrap(tmp_path):
+    """Independent reproduction: a replacement PYTHONPATH holding a sitecustomize ran before routine_effects existed and the
+    inner session still passed. The same startup check now judges a nested runner as every Python child."""
+    startup = tmp_path / "startup"
+    startup.mkdir()
+    (startup / "sitecustomize.py").write_text("print('BEFORE_ENVELOPE')\n", encoding="utf-8")
+    private = effects.new_ledger(tmp_path / "private")
+    args = [sys.executable, "-B", str(TESTS / "routine_pytest.py"), str(tmp_path / "test_ok.py"), "-q"]
+    env = {**os.environ, effects.LEDGER_ENV: str(private), "PYTHONPATH": str(startup)}
+    with effects.expected_refusals("real-app-launch", accounting="report"):
+        decision = effects.decide_launch(args, env=env)
+    assert decision.refused and "sitecustomize" in decision.reason, decision
+    benign = tmp_path / "benign"
+    benign.mkdir()
+    with effects.expected_refusals(accounting="report"):
+        decision = effects.decide_launch(args, env={**env, "PYTHONPATH": str(benign)})
+    assert decision.profile == "nested-verification", decision  # a benign PYTHONPATH still runs, moved past the bootstrap
+
+
+def test_r3_01_a_benign_nested_runner_restores_its_pythonpath_only_after_its_envelope(tmp_path):
+    suite = tmp_path / "suite"
+    suite.mkdir()
+    (suite / "helper_mod.py").write_text("VALUE = 7\n", encoding="utf-8")
+    (suite / "test_uses_path.py").write_text(textwrap.dedent("""
+        import os, sys
+        def test_path_is_restored_after_the_envelope():
+            import helper_mod
+            assert helper_mod.VALUE == 7 and "routine_effects" in sys.modules
+            assert os.environ.get("ACT_ROUTINE_PYTHONPATH") is None
+    """), encoding="utf-8")
+    private = effects.new_ledger(tmp_path / "private")
+    command = [sys.executable, "-B", str(TESTS / "routine_pytest.py"), str(suite / "test_uses_path.py"), "-q",
+               "-p", "no:cacheprovider", f"--basetemp={tmp_path / 'inner'}"]
+    with effects.expected_refusals(accounting="report") as scope:
+        done = subprocess.run(command, cwd=tmp_path, capture_output=True, text=True, timeout=300,
+                              env={**os.environ, effects.LEDGER_ENV: str(private), "PYTHONPATH": str(suite)})
+    assert done.returncode == 0 and "1 passed" in done.stdout, (done.stdout[-1500:], done.stderr[-1500:])
+    assert scope.ledgers[str(private)]["status"] == "PASS", scope.ledgers[str(private)]["problems"]
+
+
+def test_r3_01_an_inert_profile_never_imports_from_a_shadowing_working_directory(tmp_path):
+    """Independent reproduction: ``import signal`` under the unchanged inert profile ran a disposable cwd's signal.py. The
+    profile now needs a trusted import path: -I/-P, or no shadowing module where -c looks first."""
+    code = "import signal, time; time.sleep(0)"
+    clean = tmp_path / "clean"
+    clean.mkdir()
+    assert effects.decide_launch([sys.executable, "-c", code], cwd=clean).profile == "inert-python-stand-in"
+    shadow = tmp_path / "shadow"
+    shadow.mkdir()
+    (shadow / "signal.py").write_text("print('INERT_SIGNAL_IMPORT')\n", encoding="utf-8")
+    decision = effects.decide_launch([sys.executable, "-c", code], cwd=shadow)
+    assert decision.profile != "inert-python-stand-in" and decision.outcome == effects.BOOTSTRAP, decision
+    assert effects.decide_launch([sys.executable, "-I", "-c", code], cwd=shadow).profile == "inert-python-stand-in"
+    assert effects.decide_launch([sys.executable, "-c", "import time; time.sleep(0)"], cwd=shadow).profile == \
+        "inert-python-stand-in"  # time is built in: nothing on the path can stand for it
+
+
+def test_r3_01_an_inert_fast_cancellation_stand_in_keeps_its_unchanged_behaviour(tmp_path):
+    """D-R2-8 retained: the inert sleeper runs unchanged (no bootstrap, no participant) and is stopped and observed."""
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], cwd=tmp_path)
+    try:
+        assert effects._launches[child._act_launch].decision.profile == "inert-python-stand-in"
+    finally:
+        child.kill()
+        child.wait(30)
+
+
+@pytest.mark.parametrize("change", ["executable", "cwd", "environment-value", "arguments"])
+def test_r3_01_the_admitted_process_creation_is_the_prepared_invocation_in_every_fact(tmp_path, change):
+    """R3-01: the final admission compares the program the platform starts, the complete arguments, the working directory
+    and the effective environment's values with what was prepared -- not environment object identity and an argument tail."""
+    env = dict(os.environ)
+    prepared = effects._Prepared(effects.decide_launch([sys.executable, "-c", "import os"], cwd=tmp_path, env=env),
+                                 "x", [sys.executable, "-c", "import os"], None, env, False)
+    prepared.extra["env_view"] = effects._env_view(env)
+    prepared.extra["original"] = (prepared.args, tmp_path, env)
+    assert effects._binding_problem(prepared, None, prepared.args, tmp_path, env) is None
+    other = tmp_path / "other"
+    other.mkdir()
+    args, cwd, executable = list(prepared.args), tmp_path, None
+    if change == "executable":
+        executable = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "cmd.exe") \
+            if os.name == "nt" else "/bin/sh"
+    elif change == "cwd":
+        cwd = other
+    elif change == "environment-value":
+        env["ACT_R3_SENTINEL"] = "changed after preparation"
+    else:
+        args = [*args[:-1], "import sys"]
+    assert effects._binding_problem(prepared, executable, args, cwd, env) is not None
+
+
+# --- R3-02: the recipe's actual destinations and identifiers ---------------------------------------------------------------
+@pytest.mark.parametrize("args, ok", [
+    (["--report", "{tree}/r.json", "--evidence", "{tree}/ev", "--token", "t", "--only", "journey-1"], True),
+    (["--report", "{outside}/r.json", "--evidence", "{tree}/ev", "--only", "journey-1"], False),
+    (["--report", "{tree}/r.json", "--evidence", "{tree}/ev", "--only", "../unexpected"], False),
+    (["--report", "{tree}/r.json", "--evidence", "{tree}/ev", "--only", "a/b"], False),
+    (["--report", "{tree}/../r.json", "--evidence", "{tree}/ev"], False),
+    (["--rep", "{tree}/r.json"], False),  # an argparse abbreviation the recipe would accept: outside the exact contract
+    (["--report", "{tree}/r.json", "--report", "{outside}/r.json"], False),
+    (["--report", "{tree}/linked/r.json"], False),
+])
+def test_r3_02_a_recipe_writes_only_inside_its_fixture_tree_and_names_only_plain_identifiers(tmp_path, args, ok):
+    tree, outside = tmp_path / "tree", tmp_path / "outside"
+    tree.mkdir()
+    outside.mkdir()
+    if any("linked" in arg for arg in args):
+        if os.name != "nt":
+            os.symlink(outside, tree / "linked")
+        else:
+            subprocess.run([os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "cmd.exe"), "/c",
+                            "mklink", "/J", str(tree / "linked"), str(outside)], check=True, capture_output=True)
+    filled = [arg.format(tree=tree, outside=outside) for arg in args]
+    problem = effects.context.stand_in_arguments_problem("scripted-acceptance-runner", filled, tree)
+    assert (problem is None) == ok, problem
+
+
+def test_r3_02_a_gate_operation_admits_a_stand_in_only_for_the_exact_command_it_supervises(tmp_path, monkeypatch):
+    """The operation check is bound to the actual supervised argv: without it, or with a different program or a different
+    interpreter, a declared stand-in is never admitted there."""
+    calls = []
+    monkeypatch.setattr(effects.context, "synthetic_stand_in", lambda tree, rel, environ=None, args=None:
+                        calls.append(args) or args == ["--report", "r"])
+    monkeypatch.setattr(effects.context, "record_refusal", lambda *a, **k: True)
+    target = tmp_path / effects.context.GATE / "acceptance_runner.py"
+    good = [sys.executable, "-I", "-B", "-u", str(target), "--report", "r"]
+    effects.context.check_operation("native-desktop", "x", root=tmp_path, stand_in=effects.context.GATE +
+                                    "acceptance_runner.py", argv=good)
+    for bad in (None, [*good[:-1], "elsewhere"], ["python.exe", *good[1:]],
+                [sys.executable, "-I", str(tmp_path / "other.py"), "--report", "r"]):
+        with pytest.raises(PermissionError):
+            effects.context.check_operation("native-desktop", "x", root=tmp_path, stand_in=effects.context.GATE +
+                                            "acceptance_runner.py", argv=bad)
+
+
+# --- R3-05: the exact bounded Qwen3 selfcheck, with simulated installed-interpreter resolution ---------------------------
+def _qwen3(tmp_path, monkeypatch, **changes):
+    fixtures = effects.fixtures()
+    exe = str(fixtures.QWEN3_INTERPRETER)
+    monkeypatch.setattr(effects, "_search", lambda text, cwd=None, env=None: exe)  # simulated installed interpreter
+    effects.own_disposable(tmp_path)
+    cache = {name: str(tmp_path / name.lower()) for name in fixtures.QWEN3_WRITABLE}
+    env = {**os.environ, **cache, "HF_HUB_OFFLINE": "1", **changes.pop("env", {})}
+    argv = [exe, "-I", "-B", str(fixtures.QWEN3_TOOLS), "selfcheck", str(fixtures.QWEN3_MODELS / "inert-base")]
+    for index, value in changes.pop("argv", {}).items():
+        argv[index] = value
+    return effects.decide_launch(argv, cwd=tmp_path, env=env)
+
+
+def test_r3_05_the_exact_read_only_qwen3_selfcheck_runs_under_its_reviewed_profile(tmp_path, monkeypatch):
+    """R3-05 (independent reproduction: R1 allowed this exact selfcheck, R2 refused it as real-engine, hidden by the
+    environment skip). The launch decision alone is proved here, with the installed interpreter simulated; the installed
+    library's own proof stays an environment obligation."""
+    decision = _qwen3(tmp_path, monkeypatch)
+    assert decision.outcome == effects.PROFILE and decision.profile == "qwen3-calm-selfcheck", decision
+
+
+@pytest.mark.parametrize("change", [
+    {"argv": {4: "generate"}}, {"argv": {1: "-B"}}, {"argv": {5: "C:/elsewhere/model"}},
+    {"argv": {3: "C:/copy/qwen3_calm_venv_tools.py"}}, {"env": {"HF_HUB_OFFLINE": "0"}},
+    {"env": {"HF_HOME": "C:/Users/someone/.cache/huggingface"}},
+])
+def test_r3_05_every_other_engine_interpreter_launch_stays_refused(tmp_path, monkeypatch, change):
+    decision = _qwen3(tmp_path, monkeypatch, **change)
+    assert decision.refused and decision.effect == "real-engine", decision

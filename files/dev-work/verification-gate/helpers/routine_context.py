@@ -33,6 +33,7 @@ import hashlib
 import json
 import io as _io  # the original open: a test patching builtins.open never reaches it
 import os
+import re
 import secrets
 import stat
 import sys
@@ -438,11 +439,14 @@ class ProcessRecord:
         if launch in self.reserved:
             self.reserved[launch]["state"] = "spawned"
 
-    def stop(self, launch: str, *, mechanism: str, pid: int, code: int | None, tree: bool, ok: bool) -> None:
-        """The intent and the action of an intentional termination of an owned launch, written before its effect is
-        observed. Its explanation holds only with the lifecycle the launch was reserved with and the observed outcome."""
+    def stop(self, launch: str, *, mechanism: str, pid: int, code: int | None, tree: bool, ok: bool,
+             created: int | None = None) -> None:
+        """An intentional termination of an owned launch, written once its action's own result is known (``ok``) and
+        before its effect is observed. ``created`` is the creation time of the process the action reached (R3-03: the
+        stop binds to that very process). Its explanation holds only with the lifecycle the launch was reserved with and
+        the observed outcome."""
         self._write({"kind": "stop", "launch": launch, "mechanism": mechanism, "pid": int(pid), "code": code,
-                     "tree": bool(tree), "ok": bool(ok)})
+                     "tree": bool(tree), "ok": bool(ok), "created": created if type(created) is int else None})
 
     def not_spawned(self, launch: str, error: str) -> None:
         self._write({"kind": "not-spawned", "launch": launch, "error": str(error)[:300]})
@@ -614,6 +618,8 @@ def _row_problem(row) -> str | None:
     for key, check in shape.items():
         if key not in row or not check(row[key]):
             return f"a {kind} record whose {key} is missing or of the wrong type"
+    if kind == "stop" and not _opt(_is_int)(row.get("created")):
+        return "a stop record whose created is of the wrong type"
     return None
 
 
@@ -860,8 +866,12 @@ def _reconcile(verdict: dict, header: dict, participants: dict, reservations: di
     adopted = {(key, row["ledger"]): row for key, entry in participants.items() for row in entry["rows"]
                if row["kind"] == "adopted"}
     launches = verdict["launches"]
-    explained: set[str] = set()
+    #: launch -> the binding that explains it: (writer, position, stop row) of the one successful stop matched to it, or
+    #: ("crash", position, ...) for a declared crash exit (R3-03).
+    explained: dict[str, tuple] = {}
     unended: list[tuple[str, dict, dict]] = []
+    #: Completed launches whose reserving parent never observed their end: accounted only through a proved tree stop above.
+    unobserved: list[tuple[str, dict, dict]] = []
     for launch, data in reservations.items():
         state = launches.setdefault(launch, {"expect": data["expect"], "parent": data["parent"], "participants": []})
         parent = participants.get(data["parent"])
@@ -878,6 +888,15 @@ def _reconcile(verdict: dict, header: dict, participants: dict, reservations: di
         state["participants"] = found
         result = outcome.get(launch, {})
         spawn_kind = result.get("kind")
+        parent_open = parent is not None and parent["end"] is None
+        # A linked private ledger (a synthetic control's child) holds the child's records; its reserving parent's spawn and
+        # observation are in the parent's own ledger, and are required there (below, with the linked reservation).
+        linked = parent is None and header["owner"] not in ("gate", "routine-pytest", "guarded-pytest", "raw-pytest")
+        waiting = live or linked or (parent_open and parent["role"] in open_roles)
+        if spawn_kind is not None and result.get("by") != data["parent"]:
+            # R3-03: the launch evidence is its reserving parent's own; nobody else's row stands in for it.
+            problems.append(f"launch {launch}: its spawn outcome was recorded by {result.get('by')}, not by its reserving "
+                            "parent")
         if spawn_kind == "not-spawned":
             state["state"] = "not-spawned"
             if found:
@@ -886,7 +905,6 @@ def _reconcile(verdict: dict, header: dict, participants: dict, reservations: di
         if len(found) > 1:
             problems.append(f"launch {launch}: {len(found)} participants claim one launch (a duplicate)")
         if not found:
-            parent_open = parent is not None and parent["end"] is None
             if live or (parent_open and parent["role"] in open_roles and spawn_kind is None):
                 state["state"] = "pending"
                 continue
@@ -908,44 +926,67 @@ def _reconcile(verdict: dict, header: dict, participants: dict, reservations: di
             problem = _identity_problem(child, spawned)
             if problem:
                 problems.append(f"launch {launch}: {problem}")
+        elif not waiting:
+            problems.append(f"launch {launch}: its reserving parent never recorded its spawn (a child's own records never "
+                            "stand in for its parent's launch evidence)")
         if child["end"] is not None:
+            terminal = _terminal(data, result)
+            if len(terminal) > 1:
+                problems.append(f"launch {launch}: its end was observed {len(terminal)} times by its parent (one launch, "
+                                "one observation)")
+            for _key, _position, row in terminal:
+                if spawned is not None and row.get("pid") is not None and row["pid"] != spawned["pid"]:
+                    problems.append(f"launch {launch}: its parent observed pid {row['pid']}, not the spawned process "
+                                    f"{spawned['pid']}")
             for _key, _position, row in result.get("observed", ()):
                 if row["how"] not in _NO_EXIT and row["exit"] is not None and row["exit"] != child["end"]["exit"] \
                         and not _stop_explains_exit(data, child, result, _key, _position, row):
                     problems.append(f"launch {launch}: observed exit {row['exit']} but its participant reported "
                                     f"{child['end']['exit']}")
+            if not terminal and not waiting and spawn_kind == "spawned":
+                unobserved.append((launch, data, child))
             continue
         if live or child["role"] in open_roles:
             continue
         unended.append((launch, data, child))
     # An ancestor that ended with its own end record and whose reserving parent then made a declared, successful tree stop
-    # of it (the worker exited first; its Job then ended what it left behind) explains its descendants as an explained
-    # stop does; it is itself accounted by its end record, never listed as an explained stop.
-    ended_tree_stopped: set[str] = set()
+    # of it (the worker exited first; its Job then ended what it left behind) explains its descendants through that one
+    # stop; it is itself accounted by its end record, never listed as an explained stop.
+    ended_tree_stopped: dict[str, tuple] = {}
     for launch, data in reservations.items():
         found, result = by_launch.get(launch, []), outcome.get(launch, {})
         if len(found) != 1 or participants[found[0]]["end"] is None or result.get("row") is None:
             continue
         declared = (data.get("lifecycle") or {}).get("stops", ())
-        if any(writer == data["parent"] and stop["tree"] and stop["ok"] and stop["mechanism"] in declared
-               and stop["pid"] in (result["row"]["pid"], participants[found[0]]["pid"])
-               for writer, _position, stop in result.get("stops", ())):
-            ended_tree_stopped.add(launch)
-    # A descendant is explained through its ancestor's tree stop, so settle ancestors first: repeat until nothing changes.
+        for writer, position, stop in result.get("stops", ()):
+            if writer == data["parent"] and stop["tree"] and stop["ok"] and stop["mechanism"] in declared \
+                    and _stop_reaches(stop, result["row"], participants[found[0]]):
+                ended_tree_stopped[launch] = (writer, position, stop)
+                break
+    # A descendant is explained through its ancestor's binding, so settle ancestors first: repeat until nothing changes.
     progressed = True
     while progressed and unended:
         progressed = False
         for item in list(unended):
-            if _explained_stop(item[0], item[1], item[2], outcome, participants, explained | ended_tree_stopped) is None:
-                explained.add(item[0])
+            reason, binding = _explained_stop(item[0], item[1], item[2], outcome, participants,
+                                              {**ended_tree_stopped, **explained})
+            if reason is None:
+                explained[item[0]] = binding
                 launches[item[0]]["state"] = "explained-stop"
                 unended.remove(item)
                 progressed = True
+    bindings = {**ended_tree_stopped, **explained}
     for launch, data, child in unended:
-        reason = _explained_stop(launch, data, child, outcome, participants, explained | ended_tree_stopped)
+        reason, _binding = _explained_stop(launch, data, child, outcome, participants, bindings)
         launches[launch]["state"] = "unexplained-end"
         problems.append(f"launch {launch}: {child['role']} pid {child['pid']} never completed its accounting: it ended "
                         f"without its own end record, and not by an explained stop ({reason})")
+    for launch, data, child in unobserved:
+        if _gone_under_ancestor_stop(launch, child, outcome, participants, bindings):
+            continue
+        launches[launch]["state"] = "unobserved"
+        problems.append(f"launch {launch}: its end was never independently observed by its reserving parent, nor observed "
+                        "gone after a proved stop of an ancestor's tree (a child's own end record never stands in for it)")
     verdict["explained_stops"] = sorted(explained)
     for launch, keys in by_launch.items():
         if launch not in reservations:
@@ -957,6 +998,14 @@ def _reconcile(verdict: dict, header: dict, participants: dict, reservations: di
             result = outcome.get(launch, {})
             if result.get("kind") == "not-spawned":
                 continue
+            # R3-03: the parent-side evidence of a launch whose child records into a linked private ledger is here.
+            if not live and participants[key]["end"] is not None:
+                if result.get("kind") != "spawned" or result.get("by") != key:
+                    problems.append(f"launch {launch}: a launch linked to a private ledger whose spawn its reserving "
+                                    "parent never recorded")
+                elif len(_terminal({"parent": key}, result)) != 1:
+                    problems.append(f"launch {launch}: a launch linked to a private ledger whose end its reserving parent "
+                                    f"observed {len(_terminal({'parent': key}, result))} times (exactly once is required)")
             seen = adopted.get((key, row["ledger"]))
             if seen is None:
                 if not live and participants[key]["end"] is not None:
@@ -983,7 +1032,7 @@ def _reconcile(verdict: dict, header: dict, participants: dict, reservations: di
                 problems.append(f"launch {launch} ({row['profile']}): profiled, but never recorded as spawned or not")
             state["state"] = "unresolved"
         elif not any(observer == key for observer, _p, _r in result.get("observed", ())):
-            if _leaf_gone_after_tree_stop(key, result, participants, outcome, explained):
+            if _leaf_gone_after_tree_stop(key, result, participants, outcome, bindings):
                 state["state"] = "profiled"
                 continue
             parent_open = participants[key]["end"] is None
@@ -1017,32 +1066,64 @@ def _identity_problem(child: dict, spawned: dict) -> str | None:
 
 
 #: The exit an intentional stop leaves when the stop names no code of its own (Popen.kill and taskkill /F end a Windows
-#: process with 1).
-_STOP_DEFAULT_CODE = {"terminate-process": 1, "taskkill": 1}
+#: process with 1; the last handle of a kill-on-close Job closing ends its members with 0, measured on Windows 11). A stop
+#: whose outcome has no known code explains nothing (R3-03: no code-less exit matching).
+_STOP_DEFAULT_CODE = {"terminate-process": 1, "taskkill": 1, "close-job": 0}
+#: A reserving parent's observations that are its terminal observation of its own child's end.
+_TERMINAL = frozenset({"exited", "reaped-by-owner"})
 
 
-def _leaf_gone_after_tree_stop(parent: str, result: dict, participants: dict, outcome: dict, explained: set) -> bool:
-    """A profiled leaf its parent never observed (the parent was stopped, or ended first and left it to its owner's Job) is
-    accounted only when an ancestor of that parent observed this leaf's own process gone after the same ancestor recorded a
-    successful tree stop of the parent's launch or of a launch above it on the same chain (D-R2-1's descendant rule), or --
-    when the parent itself ended by an explained stop, before it could observe the leaf -- after any successful stop that
-    ancestor recorded on the chain."""
-    spawned = result.get("row")
-    if spawned is None:
+def _terminal(data: dict, result: dict) -> list:
+    """The reserving parent's own terminal observations of a launch (a ``running`` look is not one)."""
+    return [(key, position, row) for key, position, row in result.get("observed", ())
+            if key == data["parent"] and row["how"] in _TERMINAL]
+
+
+def _stop_code(stop: dict) -> int | None:
+    return stop["code"] if stop["code"] is not None else _STOP_DEFAULT_CODE.get(stop["mechanism"])
+
+
+def _stop_reaches(stop: dict, spawned: dict, child: dict | None) -> bool:
+    """Whether a stop row names this launch's own process: its spawned pid (or the interpreter behind its recorded venv
+    redirector) and -- where both were read -- the spawned process's creation time."""
+    pids = {spawned["pid"]} | ({child["pid"]} if child is not None else set())
+    if stop["pid"] not in pids:
         return False
-    chain, seen, key = [], set(), parent
+    created = stop.get("created")
+    return created is None or spawned.get("created") is None or created == spawned["created"]
+
+
+def _chain(key, participants: dict) -> list:
+    chain, seen = [], set()
     while key is not None and key in participants and key not in seen:
         seen.add(key)
         chain.append(key)
         key = participants[key]["parent"]
-    stopped_launches = {participants[key]["launch"] for key in chain if participants[key]["launch"]}
+    return chain
+
+
+def _leaf_gone_after_tree_stop(parent: str, result: dict, participants: dict, outcome: dict, bindings: dict) -> bool:
+    """A profiled leaf its parent never observed (the parent was stopped, or ended first and left it to its owner's Job) is
+    accounted only when an ancestor of that parent observed this leaf's own process gone after a proved stop on the chain,
+    written by that same ancestor before the observation (D-R2-1's descendant rule; R3-03): a successful tree stop of the
+    parent's launch or a launch above it, or the one stop that explains the parent's own launch."""
+    spawned = result.get("row")
+    if spawned is None:
+        return False
+    chain = _chain(parent, participants)
     for observer, position, row in result.get("observed", ()):
         if observer not in chain or observer == parent or row["how"] != "gone" or row.get("pid") != spawned["pid"]:
             continue
-        for launch in stopped_launches:
+        for member in chain:
+            launch = participants[member]["launch"]
+            if not launch:
+                continue
+            binding = bindings.get(launch)
+            if binding is not None and binding[0] == observer and binding[1] < position \
+                    and (binding[2].get("tree") or member == parent):
+                return True
             for writer, stop_position, stop in outcome.get(launch, {}).get("stops", ()):
-                if writer == observer and stop["ok"] and stop_position < position \
-                        and (stop["tree"] or participants[parent]["launch"] in explained):
+                if writer == observer and stop["ok"] and stop["tree"] and stop_position < position:
                     return True
     return False
 
@@ -1050,100 +1131,114 @@ def _leaf_gone_after_tree_stop(parent: str, result: dict, participants: dict, ou
 def _stop_explains_exit(data: dict, child: dict, result: dict, observer: str, after: int, row: dict) -> bool:
     """True when an observed exit that differs from the exit a participant reported in its own end record is the code of
     an explained stop (D-R2-1) that landed after that record, before the process ended: its reservation expected the
-    mechanism, its reserving parent recorded the stop for this launch's own process, successfully, before this
-    observation, and the observed exit is the code that stop leaves. Everything the participant did is in its record."""
+    mechanism, its reserving parent recorded the stop for this launch's own process (pid and creation time), successfully,
+    and then made this very observation, and the observed exit is exactly the code that stop leaves."""
     lifecycle = data.get("lifecycle") or {"stops": [], "codes": []}
     spawned = result.get("row")
-    if spawned is None:
+    if spawned is None or observer != data["parent"]:
         return False
     for writer, position, stop in result.get("stops", []):
         if stop["mechanism"] not in lifecycle["stops"] or stop["mechanism"] in _CODE_ENDS or stop["mechanism"] == "self":
             continue
-        if writer != data["parent"] or not stop["ok"] or stop["pid"] not in (spawned["pid"], child["pid"]):
+        if writer != data["parent"] or not stop["ok"] or not _stop_reaches(stop, spawned, child):
             continue
-        if observer == writer and after <= position:
+        if after <= position:
             continue  # observed before the stop was recorded: the stop explains nothing about it
-        expected = stop["code"] if stop["code"] is not None else _STOP_DEFAULT_CODE.get(stop["mechanism"])
-        if expected is None or row["exit"] == expected:
+        expected = _stop_code(stop)
+        if expected is not None and row["exit"] == expected:
             return True
     return False
 
 
-def _explained_stop(launch: str, data: dict, child: dict, outcome: dict, participants: dict, explained: set) -> str | None:
-    """None when a participant that ended without its own end record is accounted by an explained stop (D-R2-1), else why
-    not. All of: its launch was reserved, before it existed, with a lifecycle expecting this mechanism; it initialized its
-    accounting; the stop's intent and action were recorded for this launch's own process, successfully, by its reserving
-    parent (or, for ``self``, by itself), before the outcome was observed; the observed outcome agrees with the mechanism;
-    and every required descendant is itself accounted (ended, explained, or observed gone after this tree's stop). A crash
-    fixture is explained only by an observed exit among the codes its reservation declared. Nothing here waives an
-    unexpected refusal or a failed accounting write: those are judged separately and stay failures."""
+def _gone_under_ancestor_stop(launch: str, child: dict, outcome: dict, participants: dict, bindings: dict) -> bool:
+    """This launch's process observed gone after the one proved stop (the binding) of an ancestor's launch, by that stop's
+    own writer: a tree stop, or the end of an explained participant whose kill-on-close Job holds it (it, or a launch above
+    it, was placed there by that participant)."""
+    gone = [(key, position) for key, position, row in outcome.get(launch, {}).get("observed", ()) if row["how"] == "gone"]
+    if not gone or not child["initialized"]:
+        return False
+    held = _held_by_an_ended_job(child["participant"], outcome, participants, bindings)
+    for member in _chain(child["parent"], participants):
+        ancestor = participants[member]["launch"]
+        binding = bindings.get(ancestor) if ancestor else None
+        if binding is None or binding[0] in ("crash", "descendant"):
+            continue
+        writer, stop_position, stop = binding
+        if (stop["tree"] or held) and any(key == writer and position > stop_position for key, position in gone):
+            return True
+    return False
+
+
+def _explained_stop(launch: str, data: dict, child: dict, outcome: dict, participants: dict,
+                    explained: dict) -> tuple[str | None, tuple | None]:
+    """``(None, binding)`` when a participant that ended without its own end record is accounted by an explained stop
+    (D-R2-1), else ``(why not, None)``. All of: its launch was reserved, before it existed, with a lifecycle expecting this
+    mechanism; it initialized its accounting; ONE stop action was recorded for this launch's own process (pid and creation
+    time), successfully, by its reserving parent (or, for ``self``, by itself), before that parent observed the outcome;
+    the observed exit is exactly the code that action leaves; and every required descendant is itself accounted (ended,
+    explained, or observed gone after that same stop by its writer). A crash fixture is explained only by its reserving
+    parent's observed exit among the codes its reservation declared. A descendant of a proved stop is explained when that
+    stop's writer observed it gone afterwards. Nothing here waives an unexpected refusal or a failed accounting write."""
     lifecycle = data.get("lifecycle") or {"stops": [], "codes": []}
-    ancestor = participants.get(child["parent"]) if child["parent"] else None
-    if ancestor is not None and ancestor.get("launch") in explained and child["initialized"]:
-        # A descendant of an explained stop: accounted when it was then observed gone (its pid and creation time no longer
-        # name a live process) and that stop ended it -- a tree stop of its ancestor, or the end of an explained participant
-        # whose kill-on-close Job holds it (it, or a launch above it, was placed there by that participant).
-        ancestor_stops = outcome.get(ancestor["launch"], {}).get("stops", [])
-        if (any(stop["tree"] and stop["ok"] for _w, _p, stop in ancestor_stops)
-                or _held_by_an_ended_job(child["participant"], outcome, participants, explained)) and \
-                any(row["how"] == "gone" for _k, _p, row in outcome.get(launch, {}).get("observed", ())):
-            return None
+    if _gone_under_ancestor_stop(launch, child, outcome, participants, explained):
+        return None, ("descendant", -1, {"tree": False, "ok": True, "mechanism": "descendant"})
     if not lifecycle["stops"]:
-        return "its reservation expected a normal end"
+        return "its reservation expected a normal end", None
     if not child["initialized"]:
-        return "it never initialized its accounting"
+        return "it never initialized its accounting", None
     result = outcome.get(launch, {})
     spawned = result.get("row")
-    if spawned is None:
-        return "its spawn was never recorded"
-    observed = result.get("observed", [])
+    if spawned is None or result.get("by") != data["parent"]:
+        return "its spawn was never recorded by its reserving parent", None
+    observed = [(key, position, row) for key, position, row in result.get("observed", []) if key == data["parent"]
+                and row["how"] == "exited" and (row.get("pid") is None or row["pid"] == spawned["pid"])]
     stops = result.get("stops", [])
-    how = None
-    if _CODE_ENDS & set(lifecycle["stops"]) and any(row["how"] == "exited" and row["exit"] in lifecycle["codes"]
-                                                    for _k, _p, row in observed):
-        how = "crash"
-    for writer, position, stop in stops:
+    binding = None
+    if _CODE_ENDS & set(lifecycle["stops"]):
+        crash = next(((key, position, row) for key, position, row in observed if row["exit"] in lifecycle["codes"]), None)
+        if crash is not None:
+            binding = ("crash", crash[1], {"tree": False, "ok": True, "mechanism": "native-crash"})
+    for writer, position, stop in (stops if binding is None else ()):
         if stop["mechanism"] not in lifecycle["stops"] or stop["mechanism"] in _CODE_ENDS:
             continue
         owner = child["participant"] if stop["mechanism"] == "self" else data["parent"]
-        if writer != owner or not stop["ok"] or stop["pid"] not in (spawned["pid"], child["pid"]):
+        if writer != owner or not stop["ok"] or not _stop_reaches(stop, spawned, child):
             continue
-        expected = stop["code"] if stop["code"] is not None else _STOP_DEFAULT_CODE.get(stop["mechanism"])
+        expected = _stop_code(stop)
+        if expected is None:
+            continue  # an outcome with no known code explains nothing
         for observer, after, row in observed:
             if observer == writer and after <= position:
                 continue  # written before the stop: it explains nothing (post hoc)
-            if row["how"] == "exited" and (expected is None or row["exit"] == expected):
-                how = "stop"
+            if row["exit"] == expected:
+                binding = (writer, position, stop)
                 break
-        if how:
+        if binding is not None:
             break
-    if how is None:
+    if binding is None:
         if stops:
             return ("a stop was recorded, but not one its reservation expected, by its owner, for its process, successful, "
-                    "and then observed with the outcome its mechanism leaves")
-        return "no expected stop intent and action was recorded for it before its end was observed"
-    tree = any(stop["tree"] for _w, _p, stop in stops)
+                    "and then observed with exactly the outcome its mechanism leaves"), None
+        return "no expected stop intent and action was recorded for it before its end was observed", None
+    writer, position, stop = binding
     for key, entry in participants.items():
         if entry["parent"] != child["participant"] or entry["end"] is not None or entry["launch"] is None:
             continue
         if entry["launch"] in explained:
             continue
-        gone = any(row["how"] == "gone" for _k, _p, row in outcome.get(entry["launch"], {}).get("observed", ()))
         held = child["participant"] in outcome.get(entry["launch"], {}).get("contained", ())
-        if not ((tree or held) and gone and entry["initialized"]):
-            return f"its descendant {key} is not accounted"
-    return None
+        gone = any(row["how"] == "gone" and (writer == "crash" or (observer == writer and after > position))
+                   for observer, after, row in outcome.get(entry["launch"], {}).get("observed", ()))
+        if not ((stop["tree"] or held) and gone and entry["initialized"]):
+            return f"its descendant {key} is not accounted (not observed gone after the proved stop)", None
+    return None, binding
 
 
-def _held_by_an_ended_job(key: str, outcome: dict, participants: dict, explained: set) -> bool:
+def _held_by_an_ended_job(key: str, outcome: dict, participants: dict, explained) -> bool:
     """True when this participant, or a participant above it, was placed by one of its own ancestors in that ancestor's
     kill-on-close Job (a ``contained`` row) and that ancestor ended by an explained stop: the kernel ended the Job's
     members, and children inherit membership, with it."""
-    chain, seen = [], set()
-    while key is not None and key in participants and key not in seen:
-        seen.add(key)
-        chain.append(key)
-        key = participants[key]["parent"]
+    chain = _chain(key, participants)
     for index, member in enumerate(chain):
         for holder in outcome.get(participants[member]["launch"], {}).get("contained", ()):
             if holder in chain[index + 1:] and participants[holder]["launch"] in explained:
@@ -1224,7 +1319,7 @@ def _valid_scenario(data, tree: Path) -> bool:
 
     def inside(value) -> bool:
         return type(value) is str and os.path.isabs(value) and _within(value, tree) and not _within(tree / ".git", value) \
-            and not _within(value, tree / ".git")
+            and not _within(value, tree / ".git") and unlinked_within(value, tree)
 
     for operation in data["before"]:
         if type(operation) is not list or not operation or type(operation[0]) is not str:
@@ -1284,9 +1379,83 @@ def synthetic_fixture(root, environ=None) -> dict | None:
     return data
 
 
-def synthetic_stand_in(root, relative: str, environ=None) -> bool:
+def unlinked_within(path, root) -> bool:
+    """``path`` lies inside ``root`` -- lexically, after normalization (no ``..`` escapes) -- and no component from ``root``
+    down, ``root`` included, is a link or a junction (lstat; the Windows reparse attribute): nothing is followed. A part
+    that does not exist yet (an output to be created) ends the check."""
+    try:
+        base = Path(os.path.abspath(os.fspath(root)))
+        relative = Path(os.path.abspath(os.fspath(path))).relative_to(base)
+    except (ValueError, TypeError):
+        return False
+    current = base
+    for part in ("", *relative.parts):
+        current = current / part if part else current
+        try:
+            info = os.lstat(current)
+        except FileNotFoundError:
+            return True
+        except OSError:
+            return False
+        if stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400:
+            return False
+    return True
+
+
+#: A journey or scenario identifier a stand-in turns into a folder name: one plain name, never a path.
+_IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,95}")
+#: Each recipe's command-line contract: option -> whether it names a writable destination (it must then lie in the tree).
+_RECIPE_OPTIONS = {"scripted-acceptance-runner": {"--report": True, "--evidence": True, "--token": False,
+                                                  "--scratch": False, "--only": False},
+                   "scenario-runner": {"--out": True, "--network": False}}
+
+
+def stand_in_arguments_problem(recipe: str, args, tree) -> str | None:
+    """Why the arguments a reviewed recipe is started with are not inside its contract (R3-02), or None. Every option is
+    one the recipe's own parser reads, spelled exactly (no abbreviation an argparse prefix match would accept); every
+    destination it writes is an absolute path inside the fixture tree with no link on the way; every identifier it turns
+    into a folder name is one plain name. Anything else could make an otherwise exact recipe write outside its fixture."""
+    options = _RECIPE_OPTIONS.get(recipe)
+    if options is None:
+        return None
+    args, seen, index = [os.fspath(arg) for arg in args], {}, 0
+    while index < len(args):
+        token = args[index]
+        name, _, inline = token.partition("=") if token.startswith("--") else (token, "", "")
+        if name not in options:
+            return f"an argument outside the {recipe} recipe's contract ({token[:60]!r})"
+        if inline or "=" in token:
+            value = inline
+            index += 1
+        elif index + 1 < len(args):
+            value = args[index + 1]
+            index += 2
+        else:
+            return f"the {recipe} option {name} without a value"
+        if name in seen and name != "--only":
+            return f"the {recipe} option {name} given twice"
+        seen[name] = value
+        if options[name] and not (os.path.isabs(value) and unlinked_within(value, tree)):
+            return f"the {recipe} destination {name} lies outside its fixture tree or behind a link"
+        if name == "--only" and (not _IDENTIFIER.fullmatch(value) or set(value) <= {"."}):
+            return f"the {recipe} identifier {value[:60]!r} is not one plain name"
+    if recipe == "scenario-runner" and "--out" not in seen:
+        return "the scenario-runner recipe without its --out folder"
+    return None
+
+
+def synthetic_recipe(root, relative: str, environ=None) -> str | None:
+    """The reviewed recipe a valid synthetic fixture tree declares at ``relative`` (whatever its bytes), or None."""
+    data = synthetic_fixture(root, environ)
+    if data is None:
+        return None
+    return {k.replace("\\", "/"): v for k, v in data["recipes"].items()}.get(relative.replace("\\", "/"))
+
+
+def synthetic_stand_in(root, relative: str, environ=None, args=None) -> bool:
     """Whether ``relative`` in a valid synthetic fixture tree is a declared stand-in: declared there as a reviewed recipe that
-    may stand at that place, byte-identical to the recipe's source in the marked checkout, with a valid data file."""
+    may stand at that place, byte-identical to the recipe's source in the marked checkout, with a valid data file -- and,
+    given the arguments it is started with (R3-02: the actual command, wherever it is judged), within its contract."""
     environ = os.environ if environ is None else environ
     data = synthetic_fixture(root, environ)
     if data is None:
@@ -1306,6 +1475,8 @@ def synthetic_stand_in(root, relative: str, environ=None) -> bool:
             return False
         if not _RECIPE_DATA[known["data"]](values, Path(root)):
             return False
+    if args is not None and stand_in_arguments_problem(recipe, args, Path(root)) is not None:
+        return False
     return True
 
 
@@ -1328,6 +1499,37 @@ def recipe_role(path, environ=None) -> str | None:
 # --------------------------------------------------------------------------- #
 #  The child side: refusing roots and operation checks
 # --------------------------------------------------------------------------- #
+def _supervised_stand_in(tree: Path, stand_in: str, argv: list) -> bool:
+    """The command a gate operation will supervise starts exactly the declared stand-in: the same interpreter as this process,
+    the stand-in by its path in this tree, nothing beside it on its import path that could stand for a standard-library
+    module the recipe imports (unless -I/-P keeps that folder off the path), and arguments inside the recipe's contract."""
+    if len(argv) < 2 or os.path.normcase(os.path.abspath(argv[0])) != os.path.normcase(os.path.abspath(sys.executable)):
+        return False
+    command = parse_python(argv[1:])
+    if command.mode != "script":
+        return False
+    target = Path(command.target if os.path.isabs(command.target) else os.path.join(os.getcwd(), command.target))
+    if os.path.normcase(os.path.abspath(target)) != os.path.normcase(os.path.abspath(tree / stand_in)):
+        return False
+    if not command.safe_path and shadows_stdlib(target.parent):
+        return False
+    return synthetic_stand_in(tree, stand_in, args=list(command.rest))
+
+
+def shadows_stdlib(folder) -> str | None:
+    """The first standard-library module (or startup customization module) a file or package in ``folder`` would stand for
+    when that folder is first on a Python child's path, or None. Case-folded, so it never under-reports."""
+    try:
+        entries = {entry.lower() for entry in os.listdir(folder)}
+    except (OSError, TypeError, ValueError):
+        return None
+    for name in sorted(sys.stdlib_module_names) + ["sitecustomize", "usercustomize"]:
+        low = name.lower()
+        if low in entries or any(low + suffix in entries for suffix in (".py", ".pyc", ".pyw")) or                 any(entry.startswith(low + ".") and entry.endswith((".pyd", ".so")) for entry in entries):
+            return name
+    return None
+
+
 def _own_root() -> Path:
     return Path(__file__).resolve().parents[4]
 
@@ -1388,21 +1590,23 @@ def refuse_under_routine(entry: str, effect: str, argv=None, *, data_only=frozen
             relative = None
         if relative == ORCHESTRATOR and synthetic_fixture(tree) is not None:
             return
-        if relative and synthetic_stand_in(tree, relative):
+        if relative and synthetic_stand_in(tree, relative, args=argv):
             return
     _refuse(entry, effect, "a heavyweight verification entrypoint does not start")
 
 
-def check_operation(effect: str, detail: str, *, root=None, stand_in: str | None = None) -> None:
+def check_operation(effect: str, detail: str, *, root=None, stand_in: str | None = None, argv=None) -> None:
     """At a heavyweight operation inside an imported callable (not only a ``__main__`` block): refuse inside routine
     verification, recording the refusal and raising PermissionError. ``stand_in`` names the file (relative to the checkout)
-    whose declared synthetic stand-in, in a reviewed synthetic fixture tree, the operation would start instead of real work."""
+    whose declared synthetic stand-in, in a reviewed synthetic fixture tree, the operation would start instead of real work;
+    ``argv`` (R3-02) is the exact command the operation will supervise -- the interpreter, its options, that file and its
+    arguments -- judged as the launch boundary judges it: without it a stand-in is never admitted here."""
     if effect not in EFFECTS:
         raise ValueError(f"unknown effect {effect!r}")
     if not in_routine():
         return
     tree = Path(root) if root is not None else _own_root()
-    if stand_in and synthetic_stand_in(tree, stand_in):
+    if stand_in and argv is not None and _supervised_stand_in(tree, stand_in, [os.fspath(arg) for arg in argv]):
         return
     recorded = record_refusal(effect, detail, origin="operation")
     raise PermissionError(f"refused in routine verification: {effect}: {detail}"

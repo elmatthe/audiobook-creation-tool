@@ -26629,11 +26629,20 @@
       "selection": [
         "files/tests/test_execution_plan.py",
         "files/tests/test_verification_gate_contract.py",
-        "files/tests/test_verify_evidence.py"
+        "files/tests/test_verify_evidence.py",
+        "files/tests/test_r3_privacy.py"
       ],
       "journeys": [],
       "verification": {
         "all_of": [
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_r3_privacy.py::test_r3_an_unavailable_policy_stops_before_git_or_any_read_with_a_controlled_outcome"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_r3_privacy.py::test_r3_equal_digests_never_make_an_identity_current_over_a_privacy_problem"
+          },
           {
             "kind": "behavior",
             "test": "files/tests/test_verify_evidence.py::test_a_test_selector_is_an_identity_never_a_command_fragment[files/tests/test_a.py; rm x]"
@@ -26762,7 +26771,10 @@
         "every launch gets one decision (refuse, bootstrap through the marked checkout's routine_child.py, or an exact reviewed profile) and every accounted launch is reserved before it exists and reconciled exactly once (ledger format 3)",
         "a participant ends without its own end record only by an explained stop its reservation expected (D-R2-1); a kill request alone, a post-hoc explanation or a child that never initialized is never explained",
         "a synthetic stand-in is exactly a reviewed recipe's bytes in this checkout with valid data; a modified, historical or real runner never is",
-        "a stand-in that can reach no effect runs unchanged under the exact inert profile and any other program is bootstrapped (D-R2-8); a stop recorded after its launch ended, the close of a kill-on-close Job, an exit racing an end record and a leaf of a stopped tree are accounted only by explained-stop evidence"
+        "a stand-in that can reach no effect runs unchanged under the exact inert profile and any other program is bootstrapped (D-R2-8); a stop recorded after its launch ended, the close of a kill-on-close Job, an exit racing an end record and a leaf of a stopped tree are accounted only by explained-stop evidence",
+        "R3: every completed reserved launch carries its reserving parent's own spawn and exactly one terminal observation; an explained stop is one successful action bound to the owned process, its chronology and its exact exit code, and a lifecycle expectation reaches only the thread that opened it and the threads it starts",
+        "R3: nothing runs before the envelope (one startup check for every Python launch, nested runners included), the inert profile needs a trusted import path, and the admitted process creation is the prepared invocation in executable, arguments, working directory and environment values",
+        "R3: a synthetic recipe writes only inside its fixture tree and names only plain identifiers, judged on the actual supervised command; stage 0 runs only as a disposable copy with no interpreter to prove before consent; the one reviewed Qwen3 read-only selfcheck is an exact profile"
       ],
       "selection": [
         "files/tests/test_routine_effects.py",
@@ -26799,6 +26811,14 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_routine_accounting.py::test_d_r2_1_every_condition_of_an_explained_stop_is_required"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_routine_accounting.py::test_r3_03_a_completed_launch_needs_its_parents_own_spawn_and_one_terminal_observation"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_routine_accounting.py::test_r3_01_an_inert_profile_never_imports_from_a_shadowing_working_directory"
           },
           {
             "kind": "behavior",

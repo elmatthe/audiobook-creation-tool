@@ -42,13 +42,22 @@ def _load_effects():
 
 
 def main(argv: list[str]) -> int:
-    sys.path[0] = os.getcwd()  # as ``python -m pytest`` would have it
-    effects = _load_effects()
+    # R3-01: before the envelope exists, only the interpreter's own library is importable -- not this folder, not the
+    # working directory and not a PYTHONPATH entry, any of which could shadow a module the envelope imports. The import
+    # environment ``python -m pytest`` gives (the working directory first, then PYTHONPATH) is restored after the bootstrap.
+    pythonpath = [] if sys.flags.ignore_environment else \
+        [part for part in os.environ.get("PYTHONPATH", "").split(os.pathsep) if part]
+    library = [entry for entry in sys.path[1:] if entry not in pythonpath]
+    sys.path[:] = library
     try:
+        effects = _load_effects()
         effects.bootstrap("routine-pytest", argv)
     except OSError as exc:  # the ledger could not be established: nothing may run unaccounted
         sys.stderr.write(f"routine_pytest: the effect ledger could not be established ({exc}); nothing ran\n")
         return 3
+    finally:
+        moved = [entry for entry in sys.path if entry not in library]  # a nested runner's PYTHONPATH, restored after it
+        sys.path[:] = [os.getcwd(), *dict.fromkeys([*moved, *pythonpath]), *library]  # as ``python -m pytest`` has it
     state = {"exit": None}
 
     owned = effects.ledger_owner == "routine-pytest"
