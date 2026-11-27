@@ -790,7 +790,6 @@ def test_the_file_lock_excludes_every_other_holder_and_frees_on_release(tmp_path
     b.release()
 
 
-@pytest.mark.routine_stop("terminate-job")  # the code under test ends its worker's Job on purpose (D-R2-1)
 def test_a_lock_held_by_another_process_blocks_us_and_dies_with_that_process(tmp_path):
     path = tmp_path / "other.lock"
     holder = hold_in_another_process(path)
@@ -895,7 +894,6 @@ def test_per_installation_file_locks_alone_never_contended_across_copies(tmp_pat
 
 
 @windows_only
-@pytest.mark.routine_stop("terminate-job")  # the code under test ends its worker's Job on purpose (D-R2-1)
 def test_two_installations_contend_and_a_normal_release_frees_the_guard(tmp_path, guard_name):
     from tts import qwen3_process as qp
 
@@ -914,7 +912,6 @@ def test_two_installations_contend_and_a_normal_release_frees_the_guard(tmp_path
 
 
 @windows_only
-@pytest.mark.routine_stop("terminate-job")  # the code under test ends its worker's Job on purpose (D-R2-1)
 def test_a_copy_that_dies_holding_the_guard_never_strands_it(tmp_path, guard_name):
     import time
 

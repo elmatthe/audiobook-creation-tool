@@ -488,8 +488,6 @@ def _run_own_root_child(*, boundary=True, variable=True, same_test=False, worker
 
 
 @pytest.mark.parametrize("variable", [False, True], ids=["root-alone", "root-with-a-variable"])
-# The child is a crash fixture: Tcl_AsyncDelete panics and the process ends with STATUS_BREAKPOINT (D-R2-1).
-@pytest.mark.routine_stop("native-crash", codes=(0x80000003,))
 def test_without_the_boundary_a_closed_root_collected_on_a_worker_ends_the_process(variable):
     """The no-fix control of the tests below, and the reason they exist: not a warning, the end of the process."""
     result = _run_own_root_child(boundary=False, variable=variable)
@@ -560,7 +558,7 @@ def test_a_real_ui_module_leaves_nothing_armed(tmp_path):
     plugin.write_text(_CENSUS_PLUGIN, encoding="utf-8")
 
     result = subprocess.run(
-        [sys.executable, str(REPO_ROOT / "files" / "tests" / "routine_pytest.py"), "files/tests/test_ui_theme.py",
+        [sys.executable, "-m", "pytest", "files/tests/test_ui_theme.py",
          "-q", "--no-header", "--tb=no", "-p", "no:randomly",
          "-p", "census_plugin"],
         capture_output=True, text=True, timeout=BOUND * 20, cwd=REPO_ROOT,

@@ -27,7 +27,6 @@ import pytest
 from pydub import AudioSegment
 from pydub.exceptions import CouldntDecodeError, CouldntEncodeError
 
-import routine_effects
 from shared import ffmpeg_utils
 from shared.cancellation import ConversionCancelled
 from tts import batch_convert, disk_assembly, edge_failures, ffmpeg_watch, publication
@@ -1108,12 +1107,7 @@ def _supervised(tmp_path, clip, *, deadline=180, **scenario):
 
     full = dict(name=tmp_path.name, clip=clip, clips_per_file=4, files=3, headroom_mb=0, gate="real", route="direct")
     full.update(scenario)
-    # v0.8.2 Phase 1A-1 R2 (D-R2-1): the probe child ends itself with os._exit and one of its own codes (0, 3 or 4: see
-    # low_memory_probe.main), so it writes no end record; a hung one is ended by the probe's kill-on-close job. Declared
-    # here, before the launch exists, for exactly the probe this helper starts.
-    with routine_effects.expected_termination("abrupt-exit", "terminate-job", codes=(0, 3, 4)):
-        return probe.supervise(full, code_root=Path(__file__).resolve().parents[2], python=sys.executable,
-                               deadline_seconds=deadline, work_dir=tmp_path)
+    return probe.supervise(full, code_root=Path(__file__).resolve().parents[2], python=sys.executable, deadline_seconds=deadline, work_dir=tmp_path)
 
 
 def _assert_ended_cleanly(report, *, statuses=None):

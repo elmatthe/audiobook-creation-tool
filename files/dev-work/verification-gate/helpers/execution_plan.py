@@ -22,10 +22,9 @@ Selection-level status (:attr:`ExecutionPlan.status`), kept apart on purpose:
 
 A plan missing its required guard is not a status: it is a construction defect, refused by :func:`validate`.
 
-Activation (Phase 1A-1): execution stays where the interim policy (GATE.md) already allowed it -- ``focused --test``
-(routine) and ``full`` / ``qualification --scenario`` (owner authorization only). ``quick``, ``changed``, ``regression``,
-``focused --feature`` and ``qualification --journey`` resolve and print their plans only (``executable_now`` False) until
-Phase 1A-3 integrates their execution and evidence; Phase 1A-2 adds admission for heavyweight execution.
+Activation (v0.8.2 simplification, 2026-11-27): the routine modes -- ``quick``, ``focused`` (``--test`` and ``--feature``),
+``changed`` and ``regression`` -- execute. ``full`` and ``qualification --scenario`` execute only with the owner's
+authorization for that run (GATE.md). ``qualification --journey`` resolves its plan only until a heavyweight run needs it.
 """
 
 from __future__ import annotations
@@ -45,9 +44,10 @@ ORDINARY_PARTITION = "files/tests"
 STATIC_CHECKS = ("docnames", "docs", "doc-links", "json-validity", "deps", "config", "import-smoke")
 STATUSES = ("COMPLETE", "INCOMPLETE", "NOT RUN", "BLOCKED")
 _SELECTOR = re.compile(r"^files/tests/test_[A-Za-z0-9_.\-]+\.py(::[^\x00-\x1f;&|<>`$\"']+)?$")
-#: Why a mode or selector family does not execute in this checkpoint. Removal criterion: Phase 1A-3 activation.
-NOT_ACTIVATED = ("resolves its plan only: execution of this scope is activated in Phase 1A-3 once its admission and "
-                 "evidence controls are integrated (GATE.md)")
+#: Why a selector family does not execute: native journeys stay plan-only until an owner-authorized heavyweight run needs
+#: them (GATE.md; the reduced Phase 1A-2).
+NOT_ACTIVATED = ("resolves its plan only: native journeys execute only through an owner-authorized heavyweight run, which "
+                 "is not implemented yet (GATE.md)")
 
 
 class PlanError(ValueError):
@@ -363,7 +363,7 @@ def _quick(request: Request, ctx: Context) -> ExecutionPlan:
     unknown = [check for check in checks if check not in STATIC_CHECKS]
     if unknown or not checks:
         raise PlanError(f"verification.json quick.checks must name known static checks: {unknown or 'none named'}")
-    return ExecutionPlan(**_base(request, ctx, static_checks=checks, executable_now=False, activation=f"quick {NOT_ACTIVATED}",
+    return ExecutionPlan(**_base(request, ctx, static_checks=checks, executable_now=True, activation="",
                                  reasons=tuple((check, "fixed quick check") for check in checks)))
 
 
@@ -417,11 +417,9 @@ def _focused(request: Request, ctx: Context) -> ExecutionPlan:
         selectors += own
         reasons += [(test, f"feature {fid}") for test in own]
         obligations += feature_obligations(features[fid], ctx.known_journeys())
-    activated = not request.features
     return _pytest_plan(request, ctx, selectors, explicit=set(request.tests), reasons=reasons, obligations=obligations,
                         gaps=gaps, owners=owners, guards=ctx.policy.get("focused", {}).get("required_guards", []),
-                        executable_now=activated,
-                        activation="" if activated else f"focused --feature {NOT_ACTIVATED}")
+                        executable_now=True, activation="")
 
 
 def _regression(request: Request, ctx: Context) -> ExecutionPlan:
@@ -450,7 +448,7 @@ def _regression(request: Request, ctx: Context) -> ExecutionPlan:
             reasons.append((test, f"component {component} integration test"))
     return _pytest_plan(request, ctx, selectors, explicit=set(), reasons=reasons, obligations=obligations, gaps=[],
                         owners=owners, guards=ctx.policy.get("focused", {}).get("required_guards", []),
-                        executable_now=False, activation=f"regression {NOT_ACTIVATED}")
+                        executable_now=True, activation="")
 
 
 def _changed(request: Request, ctx: Context) -> ExecutionPlan:
@@ -460,12 +458,13 @@ def _changed(request: Request, ctx: Context) -> ExecutionPlan:
     facts = {"change": routing.record()}
     if not routing.relevant:
         # A true empty selection: no relevant change. Nothing runs, guards included: NOT RUN, never PASS.
-        return ExecutionPlan(**_base(request, ctx, executable_now=False, activation=f"changed {NOT_ACTIVATED}",
+        return ExecutionPlan(**_base(request, ctx, executable_now=False,
+                                     activation="changed: no relevant change, so nothing runs (NOT RUN, never PASS)",
                                      gaps=tuple(routing.gaps), facts={**ctx.facts, **facts}))
     plan = _pytest_plan(request, ctx, list(routing.tests), explicit=set(), reasons=list(routing.reasons),
                         obligations=list(routing.obligations), gaps=list(routing.gaps), owners={},
-                        guards=ctx.policy.get("changed", {}).get("always", []), executable_now=False,
-                        activation=f"changed {NOT_ACTIVATED}", static_checks=tuple(routing.static_checks),
+                        guards=ctx.policy.get("changed", {}).get("always", []), executable_now=True,
+                        activation="", static_checks=tuple(routing.static_checks),
                         withheld_is_gap=True)
     return _replace(plan, facts={**plan.facts, **facts})
 
@@ -627,15 +626,11 @@ _GUARDED_TARGET = re.compile(r"^test_[A-Za-z0-9_.\-]+\.py(::[^\x00-\x1f;&|<>`$\"
 
 
 def activated(plan: ExecutionPlan) -> bool:
-    """Whether this checkpoint executes the plan's mode at all (GATE.md): focused ``--test``, full, qualification
-    ``--scenario``. Every other mode and selector family resolves its plan only (Phase 1A-3 activates them)."""
-    if plan.mode == "full":
-        return True
+    """Whether the plan's mode executes at all (GATE.md): every routine mode, full and qualification ``--scenario`` (those two
+    only with owner authorization). ``qualification --journey`` resolves its plan only."""
     if plan.mode == "qualification":
         return bool(plan.scenario) and not plan.journeys
-    if plan.mode == "focused":
-        return not any(str(item).startswith("feature:") for item in plan.requested)
-    return False
+    return True
 
 
 def _covers(whole: str, selector: str) -> bool:

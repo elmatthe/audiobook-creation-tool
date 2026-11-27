@@ -1,9 +1,8 @@
 """A reviewed synthetic stand-in for a qualification scenario's runner (v0.8.2 Phase 1A-1 R2 positive recipe "scenario-runner").
 
 It stands where scaling/qualify.py stands in a synthetic gate tree. Everything it does beyond the fixed steps of a scenario
-run (progress, identity, runs, verdict, exit) comes from ``scenario.json`` beside it, as data in a closed vocabulary that
-helpers/routine_context.py validates before the gate may start it: no code is formatted into this file, so only these exact
-bytes are the recipe.
+run (progress, identity, runs, verdict, exit) comes from ``scenario.json`` beside it, as data in a closed vocabulary: no
+code is formatted into this file.
 
 ``scenario.json``: {"runs": int, "verdict": null | str | object, "code": int, "before": [operation, ...]}. An operation is
 one of: ["unlink", <file in the scenario's output folder>]; ["write", <file in the output folder>, <text>];

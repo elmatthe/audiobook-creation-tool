@@ -1,8 +1,6 @@
-"""A reviewed synthetic stand-in for pytest (v0.8.2 Phase 1A-1 R2 positive recipe "fake-pytest").
+"""A synthetic stand-in for pytest in the gate's own tests (recipe "fake-pytest").
 
-argv is <junit path> <mode> [extra]; output goes to both streams, as pytest's does. It writes no effect-ledger record
-of its own: started for a gate stage, the verification-owned bootstrap accounts for it in the role its reservation
-expects (a routine pytest session), only because these are the exact recipe bytes.
+argv is <junit path> <mode> [extra]; output goes to both streams, as pytest's does.
 """
 import ctypes, json, os, pathlib, sys, time
 

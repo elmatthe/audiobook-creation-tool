@@ -26,13 +26,12 @@ TESTS = Path(__file__).resolve().parent
 SEEDED_LOGS = 45  # comfortably more than the default retention (30), so pruning has something to delete
 SETTINGS_BYTES = b'{"last_tool": "mp3_tool", "marker": "synthetic-settings-do-not-touch"}'
 
-# A fresh interpreter, with the precondition the audit named stated and checked before pytest starts. The nested session
-# starts through the routine bootstrap (v0.8.2 Phase 1A-1 R1: a nested pytest outside it is refused).
+# A fresh interpreter, with the precondition the audit named stated and checked before pytest starts.
 CHILD = (
-    "import runpy, sys\n"
+    "import sys\n"
     "assert 'shared.paths' not in sys.modules and 'shared.logging_setup' not in sys.modules\n"
-    f"sys.argv = [{str(TESTS / 'routine_pytest.py')!r}, *sys.argv[1:]]\n"
-    "runpy.run_path(sys.argv[0], run_name='__main__')\n"
+    "import pytest\n"
+    "sys.exit(pytest.main(sys.argv[1:]))\n"
 )
 
 
@@ -66,6 +65,10 @@ def _disposable_checkout(root: Path, *, settings: bytes | None) -> Path:
     (copy / "files" / "tests").mkdir(parents=True)
     for name in ("conftest.py", "cache_sandbox.py", "gate_session_probe.py", "tk_gate.py", "test_launcher_smoke.py"):
         shutil.copy2(TESTS / name, copy / "files" / "tests" / name)
+    # conftest.py installs the routine guard first; the guard and the marker contract it loads (v0.8.2 simplification).
+    for relative in ("files/tests/routine_effects.py", "files/dev-work/verification-gate/helpers/routine_context.py"):
+        (copy / relative).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(REPO_ROOT / relative, copy / relative)
     logs = copy / "files" / "runtime-data" / "logs"
     logs.mkdir(parents=True)
     for index in range(SEEDED_LOGS):

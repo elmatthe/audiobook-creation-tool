@@ -50,7 +50,6 @@ PARENT_THEN_CHILD = (
 
 
 @windows_only
-@pytest.mark.routine_stop("terminate-job")  # the code under test ends its worker's Job on purpose (D-R2-1)
 def test_killing_the_tree_takes_a_living_parents_child_too(tmp_path):
     marker = tmp_path / "child.pid"
     proc = qp.spawn([sys.executable, "-c", PARENT_THEN_CHILD.format(tail="time.sleep(120)\n"), str(marker)])
@@ -98,7 +97,6 @@ def test_the_pipe_reaches_eof_once_the_whole_tree_is_killed(tmp_path):
 
 
 @windows_only
-@pytest.mark.routine_stop("close-job")  # closing the kill-on-close Job ends its members on purpose (D-R2-1)
 def test_releasing_the_job_kills_any_straggler(tmp_path):
     marker = tmp_path / "child.pid"
     proc = qp.spawn([sys.executable, "-c", PARENT_THEN_CHILD.format(tail="time.sleep(120)\n"), str(marker)])
@@ -121,7 +119,6 @@ def test_a_spawned_process_runs_normally_and_is_not_left_suspended(tmp_path):
 
 
 @windows_only
-@pytest.mark.routine_stop("taskkill")  # the code under test ends its child's tree with taskkill on purpose (D-R2-1)
 def test_if_the_job_cannot_be_created_the_process_still_runs_and_the_older_kill_route_works(tmp_path, monkeypatch):
     def refuse():
         raise OSError(5, "access denied")

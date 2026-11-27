@@ -1,9 +1,11 @@
 """A reviewed synthetic stand-in for the acceptance runner (v0.8.2 Phase 1A-1 R2 positive recipe "scripted-acceptance-runner").
 
 It stands where acceptance_runner.py stands in a synthetic gate tree and writes what its validated data file
-(``scripted.json`` beside it; helpers/routine_context.py validates it) tells it to. Only these exact bytes are the recipe.
+(``scripted.json`` beside it) tells it to. R3-02 (2026-11-27): every journey folder is created here, exclusively, under
+an evidence folder that is not a link; an identifier is one plain name; a pre-existing or linked destination is refused
+before anything is written.
 """
-import argparse, json, os, sys, time
+import argparse, json, os, re, stat, sys, time
 from pathlib import Path
 parser = argparse.ArgumentParser()
 for name in ("report", "token", "evidence", "scratch"):
@@ -16,10 +18,27 @@ if script.get("hang"):
 if script.get("no_report"):
     sys.exit(script.get("exit", 0))
 evidence = Path(args.evidence)
+
+
+def _linked(path):
+    try:
+        info = os.lstat(path)
+    except FileNotFoundError:
+        return False
+    return stat.S_ISLNK(info.st_mode) or bool(getattr(info, "st_file_attributes", 0) & 0x400)
+
+
+if _linked(evidence) or _linked(evidence.parent) or not evidence.parent.is_dir() or _linked(args.report):
+    sys.exit("scripted acceptance stand-in: a linked or missing destination is refused")
+if not evidence.exists():
+    evidence.mkdir()  # the runner creates its evidence folder, exclusively, as the real one does
 entries = []
 for identifier in args.only:
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,95}", identifier) or identifier in (".", ".."):
+        sys.exit(f"scripted acceptance stand-in: {identifier!r} is not a plain identifier")
     folder = evidence / identifier
-    (folder / "screenshots").mkdir(parents=True)
+    folder.mkdir()  # exclusive: an existing folder, link or junction is refused (FileExistsError)
+    (folder / "screenshots").mkdir()
     (folder / "app-actions.jsonl").write_text("{}", encoding="utf-8")
     (folder / "screenshots" / "done.png").write_bytes(bytes.fromhex("89504e470d0a1a0a") + bytes(32))
     entry = {"id": identifier, "tool": "mp3-tool", "layers": ["native", "media"], "tier": "journey", "status": "PASS", "reason": "", "seconds": 1.0,

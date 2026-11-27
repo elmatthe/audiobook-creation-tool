@@ -26694,7 +26694,7 @@
     {
       "id": "ACT.GATE.ROUTINE-EFFECTS",
       "tool": "verification-gate",
-      "title": "Routine capability classification and heavyweight-effect refusal",
+      "title": "Routine guard and heavyweight-effect refusal",
       "release_required": true,
       "applicability": {
         "platforms": [
@@ -26709,28 +26709,9 @@
             "scrub",
             "admitted",
             "require",
-            "classify_launch",
-            "refuse_under_routine",
+            "refuse",
             "expected_refusals",
-            "bootstrap",
-            "finish",
-            "decide_launch",
-            "observe_children",
-            "child_main"
-          ]
-        },
-        {
-          "path": "files/tests/routine_pytest.py",
-          "symbols": [
-            "main"
-          ]
-        },
-        {
-          "path": "files/tests/routine_fixtures.py",
-          "symbols": [
-            "recognize",
-            "native_launch_reviewed",
-            "native_resolution_reviewed"
+            "refuse_under_routine"
           ]
         },
         {
@@ -26748,37 +26729,21 @@
           "symbols": [
             "refuse_under_routine",
             "check_operation",
-            "synthetic_fixture",
-            "synthetic_stand_in",
-            "recipe_role",
-            "launch_identity",
-            "read_ledger"
-          ]
-        },
-        {
-          "path": "files/dev-work/verification-gate/verify.py",
-          "symbols": [
-            "GateRun.check_routine_effects"
+            "synthetic_fixture"
           ]
         }
       ],
       "contracts": [
-        "every pytest process of this checkout runs inside the routine envelope: real-engine opt-ins and overrides are scrubbed and third-party plugin autoload is off before any test module is imported",
-        "nothing grants a heavyweight effect before a Phase 1A-2 admission: not an environment variable, not running under pytest, not a flag",
-        "a refused effect fails its test and the run even when the test caught it, in any phase, in a child, or after the session ended",
-        "a declared or unclassified heavyweight test is never part of a routine plan (requested: INCOMPLETE; reached: a qualification obligation); markers and file names classify nothing",
-        "every executable verification entrypoint is classified, and the maintained heavyweight roots refuse to start inside routine verification",
-        "every launch gets one decision (refuse, bootstrap through the marked checkout's routine_child.py, or an exact reviewed profile) and every accounted launch is reserved before it exists and reconciled exactly once (ledger format 3)",
-        "a participant ends without its own end record only by an explained stop its reservation expected (D-R2-1); a kill request alone, a post-hoc explanation or a child that never initialized is never explained",
-        "a synthetic stand-in is exactly a reviewed recipe's bytes in this checkout with valid data; a modified, historical or real runner never is",
-        "a stand-in that can reach no effect runs unchanged under the exact inert profile and any other program is bootstrapped (D-R2-8); a stop recorded after its launch ended, the close of a kill-on-close Job, an exit racing an end record and a leaf of a stopped tree are accounted only by explained-stop evidence",
-        "R3: every completed reserved launch carries its reserving parent's own spawn and exactly one terminal observation; an explained stop is one successful action bound to the owned process, its chronology and its exact exit code, and a lifecycle expectation reaches only the thread that opened it and the threads it starts",
-        "R3: nothing runs before the envelope (one startup check for every Python launch, nested runners included), the inert profile needs a trusted import path, and the admitted process creation is the prepared invocation in executable, arguments, working directory and environment values",
-        "R3: a synthetic recipe writes only inside its fixture tree and names only plain identifiers, judged on the actual supervised command; stage 0 runs only as a disposable copy with no interpreter to prove before consent; the one reviewed Qwen3 read-only selfcheck is an exact profile"
+        "every pytest process of this checkout installs the routine guard before any test module is imported: the routine marker that every ordinary child inherits, real-engine opt-ins and overrides scrubbed, third-party plugin autoload off",
+        "nothing grants a heavyweight effect: not an environment variable, not running under pytest, not a flag; heavyweight work needs the owner's authorization for that run (GATE.md)",
+        "a refused effect fails its test and the session even when the test caught it; non-loopback network, real model-weight reads, native input outside the gate's adapter and desktop hand-offs are refused in-process",
+        "a declared or unclassified heavyweight test is never part of a routine plan (requested: INCOMPLETE; reached: a qualification obligation)",
+        "every executable verification entrypoint is classified, and the maintained heavyweight roots refuse to start under the routine marker, wherever they lie (the check is in their own bytes)",
+        "a synthetic gate fixture is only a declared tree inside the session's basetemp: its gate copy may orchestrate and start that tree's stand-ins; a real runner copied there still refuses itself",
+        "v0.8.2 simplification (2026-11-27): no launch interception, child bootstrap, per-child ledger or explained-stop accounting; each gate stage is supervised (deadline, kill-on-close Job or process group, survivors) and judged by its exit, JUnit, session probe and requested scope"
       ],
       "selection": [
-        "files/tests/test_routine_effects.py",
-        "files/tests/test_routine_accounting.py",
+        "files/tests/test_routine_guard.py",
         "files/tests/test_execution_plan.py"
       ],
       "journeys": [],
@@ -26786,75 +26751,23 @@
         "all_of": [
           {
             "kind": "behavior",
-            "test": "files/tests/test_routine_effects.py::test_a_swallowed_refusal_fails_its_test_in_every_phase_and_the_session"
+            "test": "files/tests/test_routine_guard.py::test_the_guard_marks_children_scrubs_opt_ins_and_fails_a_swallowed_refusal"
           },
           {
             "kind": "behavior",
-            "test": "files/tests/test_routine_effects.py::test_a_refusal_at_import_or_after_the_session_still_fails_the_run"
+            "test": "files/tests/test_routine_guard.py::test_network_and_desktop_hand_offs_are_refused_in_process_and_nothing_is_admitted"
           },
           {
             "kind": "behavior",
-            "test": "files/tests/test_routine_effects.py::test_an_inherited_opt_in_is_scrubbed_before_any_test_module_is_imported"
+            "test": "files/tests/test_routine_guard.py::test_check_operation_refuses_under_the_marker_and_the_synthetic_exception_needs_a_declared_disposable_tree"
           },
           {
             "kind": "behavior",
-            "test": "files/tests/test_routine_effects.py::test_a_root_started_through_an_intermediary_refuses_in_the_child_and_accounts_for_it"
+            "test": "files/tests/test_routine_guard.py::test_the_real_gate_refuses_to_execute_a_run_inside_routine_verification_but_plans"
           },
           {
             "kind": "behavior",
-            "test": "files/tests/test_routine_effects.py::test_a_reviewed_synthetic_fixture_lets_only_its_orchestrator_and_reviewed_recipes_run"
-          },
-          {
-            "kind": "behavior",
-            "test": "files/tests/test_routine_effects.py::test_a_modified_historical_or_real_backend_is_never_a_synthetic_stand_in"
-          },
-          {
-            "kind": "behavior",
-            "test": "files/tests/test_routine_accounting.py::test_d_r2_1_every_condition_of_an_explained_stop_is_required"
-          },
-          {
-            "kind": "behavior",
-            "test": "files/tests/test_routine_accounting.py::test_r3_03_a_completed_launch_needs_its_parents_own_spawn_and_one_terminal_observation"
-          },
-          {
-            "kind": "behavior",
-            "test": "files/tests/test_routine_accounting.py::test_r3_01_an_inert_profile_never_imports_from_a_shadowing_working_directory"
-          },
-          {
-            "kind": "behavior",
-            "test": "files/tests/test_routine_accounting.py::test_m2_r1_03_a_required_child_that_never_wrote_its_first_record_keeps_its_obligation"
-          },
-          {
-            "kind": "behavior",
-            "test": "files/tests/test_routine_accounting.py::test_m2_r1_04_a_malformed_row_is_a_controlled_failure_never_an_exception"
-          },
-          {
-            "kind": "behavior",
-            "test": "files/tests/test_routine_accounting.py::test_h2_a_python_child_refuses_what_its_parent_would_refuse"
-          },
-          {
-            "kind": "behavior",
-            "test": "files/tests/test_routine_accounting.py::test_m1_a_test_dropped_without_deselection_fails_a_direct_run"
-          },
-          {
-            "kind": "behavior",
-            "test": "files/tests/test_routine_effects.py::test_an_unexpected_path_or_argument_variation_cannot_inherit_the_synthetic_exception"
-          },
-          {
-            "kind": "behavior",
-            "test": "files/tests/test_routine_effects.py::test_a_replacement_environment_must_keep_the_envelope"
-          },
-          {
-            "kind": "behavior",
-            "test": "files/tests/test_routine_effects.py::test_an_unverified_ledger_is_never_clean"
-          },
-          {
-            "kind": "behavior",
-            "test": "files/tests/test_routine_effects.py::test_the_real_gate_never_executes_a_run_inside_routine_verification"
-          },
-          {
-            "kind": "behavior",
-            "test": "files/tests/test_routine_effects.py::test_every_refused_entrypoint_guards_itself_before_it_does_anything"
+            "test": "files/tests/test_routine_guard.py::test_every_refused_entrypoint_guards_itself_before_it_does_anything"
           },
           {
             "kind": "behavior",
@@ -26867,22 +26780,6 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_execution_plan.py::test_a_mixed_module_selected_whole_runs_only_its_routine_tests"
-          },
-          {
-            "kind": "behavior",
-            "test": "files/tests/test_routine_accounting.py::test_d_r2_8_only_an_inert_stand_in_runs_unchanged"
-          },
-          {
-            "kind": "behavior",
-            "test": "files/tests/test_routine_accounting.py::test_r2_recovery_a_stop_landing_after_the_end_record_explains_only_its_own_code"
-          },
-          {
-            "kind": "behavior",
-            "test": "files/tests/test_routine_accounting.py::test_r2_recovery_a_profiled_leaf_of_a_stopped_tree_is_accounted_only_when_seen_gone_after_the_stop"
-          },
-          {
-            "kind": "behavior",
-            "test": "files/tests/test_routine_accounting.py::test_r2_recovery_live_closing_a_kill_on_close_job_records_its_stop"
           }
         ]
       },

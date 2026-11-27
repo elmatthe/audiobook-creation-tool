@@ -128,22 +128,21 @@ drains active files). Settings are written atomically to `files/runtime-data/set
 nothing else. Private TTS scratch lives in `%TEMP%\act-tts` with dead-owner recovery. There is no Save Job or session restore (owner decision).
 A process killed from outside can leave `.work` residue (documented boundary).
 
-## 8. Verification policy (Implemented; Phase 1A will change it)
+## 8. Verification policy (Implemented; simplified 2026-11-27)
 
 `files/dev-work/verification-gate/GATE.md` is the authoritative policy and command reference; `verify.py` there is the one gate (`scripts/verify.py`
-is gone). Exit code 0 alone never passes: the gate reads JUnit, a session probe, the skip policy and collection coverage; skipped, blocked or
-interrupted work never counts as passing. In Phase 1A-1 only `--mode focused --test <named selectors>` executes (with plan printing and the
-read-only readers); quick, changed, regression, `focused --feature` and `qualification --journey` are plan-only until 1A-3, and owner
-authorization does not activate them. `--mode full`, `qualification --scenario`, native journeys, real engines, installs, downloads and release
-builds run only with the owner's explicit authorization for that named run (GATE.md interim rule). A direct targeted run uses
-`files/tests/routine_pytest.py` for ordinary modules; the guarded groups run only through the gate, never as direct pytest. The 56 native journeys take over mouse and keyboard; a locked desktop is BLOCKED. Scratch is repository-contained
-(`files/run-temp/`) except the approved `%TEMP%\act-gate`. Feature changes are recorded in `files/dev-work/feature-map/` and `coverage.json`, which
-must be restamped after source changes. Test rules that bite: AST guards, not substring guards; Windows tests must skip, never fail, on macOS.
-Inside routine verification (Phase 1A-1 R2) every child gets one launch decision -- bootstrapped through `files/tests/routine_child.py`, an exact
-reviewed profile in `files/tests/routine_fixtures.py` (an inert `-c` stand-in included), or refused -- and a test that stops an effect-capable
-child on purpose declares the mechanism with an exact `@pytest.mark.routine_stop(...)` marker on that test. R3 (2026-11-27): a completed
-launch needs its parent's own spawn and one terminal observation, an explained stop is one proved action with its exact code, nothing runs
-before the envelope, recipes and stage 0 are judged on their actual commands, and privacy fails closed before any read (GATE.md "R3").
+is gone). Exit code 0 alone never passes: a pytest stage passes only when its exit, JUnit, the session probe and the requested scope agree, cleanup
+is clean and the tree did not change; skipped, blocked or interrupted work never counts as passing. Routine modes execute: `quick` (static checks
+and an import smoke), `focused --test`/`--feature`, `changed` (Git plus reverse-import routing; an unresolved path is a gap and nothing runs) and
+`regression --component`. `--mode full`, `qualification --scenario`, native journeys, real engines, installs, downloads and release builds run
+only with the owner's explicit authorization for that named run; `qualification --journey` is plan only. Every pytest process installs a small
+routine guard from `conftest.py` (`files/tests/routine_effects.py`): a routine marker every child inherits (the heavyweight entrypoints refuse
+under it), real-engine opt-ins scrubbed, non-loopback network, real model loads and desktop hand-offs refused in-process. Since the v0.8.2
+simplification there is no launch interception or per-child accounting; each gate stage is supervised (deadline, kill-on-close Job or process
+group, survivors reported). A direct `python -m pytest <module>` from the repository root is a developer check; the gate run is the evidence. The
+guarded groups run only through the gate. The 56 native journeys take over mouse and keyboard; a locked desktop is BLOCKED. Scratch is
+repository-contained (`files/run-temp/`) except the approved `%TEMP%\act-gate`. Feature changes are recorded in `files/dev-work/feature-map/` and
+`coverage.json`. Test rules that bite: AST guards, not substring guards; Windows tests must skip, never fail, on macOS.
 
 ## 9. Documentation and workspace conventions (Implemented)
 

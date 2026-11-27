@@ -125,7 +125,6 @@ def standin(tmp_path: Path) -> tuple[list[str], Path]:
 
 
 @pytest.mark.skipif(os.name != "nt", reason="the identity checks read Windows process creation times")
-@pytest.mark.routine_stop("taskkill")  # the code under test ends its child's tree with taskkill on purpose (D-R2-1)
 def test_a_stop_request_ends_the_running_pip_and_everything_it_started_and_nothing_else(tmp_path, sentinel):
     command, barrier = standin(tmp_path)
     lines: list[str] = []
@@ -212,7 +211,6 @@ def press(window, label: str) -> None:
 
 
 @pytest.mark.skipif(os.name != "nt", reason="the identity checks read Windows process creation times")
-@pytest.mark.routine_stop("taskkill")  # the code under test ends its child's tree with taskkill on purpose (D-R2-1)
 def test_closing_during_the_base_install_asks_and_no_keeps_pip_running_then_yes_stops_it(
         monkeypatch, tk_root, setup_log, native_theme, tmp_path, sentinel):
     command, barrier = standin(tmp_path)

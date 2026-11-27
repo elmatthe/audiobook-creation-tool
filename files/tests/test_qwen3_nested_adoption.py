@@ -641,7 +641,6 @@ def test_repair_first_a_new_install_refuses_and_nothing_is_created_under_the_par
     assert rt.environment_status() == (True, "ok")
 
 
-@pytest.mark.routine_stop("abrupt-exit", codes=(3,))  # the stand-in installer dies with os._exit(3) on purpose (D-R2-1)
 def test_an_installer_that_dies_mid_creation_frees_the_repair_and_its_leftover_is_redone(first_install, env, sandbox):
     keepsake, base = first_install
     with installer_mid_creation(sandbox, base, mode="die") as installer:

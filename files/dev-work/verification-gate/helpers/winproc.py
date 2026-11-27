@@ -343,12 +343,12 @@ def run_supervised(argv, *, log_path: Path, cwd, env, timeout: float, stall: flo
             result.ended = "error"
             return result
     result.pid = proc.pid
-    if on_start is not None:
-        on_start(result)
     watched = [log_path, *progress_paths]
     last_marker, last_change = _progress_marker(watched), time.monotonic()
     try:
         try:
+            if on_start is not None:  # inside the protected block: a failing callback still stops the owned tree
+                on_start(result)
             while True:
                 try:
                     result.returncode = proc.wait(timeout=poll)

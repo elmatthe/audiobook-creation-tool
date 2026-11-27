@@ -1045,23 +1045,9 @@ def tripped(root: Path) -> str:
     return log.read_text(encoding="utf-8") if log.exists() else ""
 
 
-def _unprepared(line: str) -> str:
-    """v0.8.2 Phase 1A-1 R2: routine verification starts an effect-capable Python child through the marked checkout's
-    bootstrap (``<python> [options] <checkout>/files/tests/routine_child.py code|module|script <target> ...``), and the
-    audit event records that prepared line. The command the worker asked for is the same line with exactly that
-    bootstrap and its mode replaced by the option the mode stands for; any other line is returned unchanged."""
-    bootstrap = subprocess.list2cmdline([str(Path(__file__).resolve().parent / "routine_child.py")])
-    for mode, option in (("code", " -c "), ("module", " -m "), ("script", " ")):
-        marker = f" {bootstrap} {mode} "
-        if marker in line:
-            return line.replace(marker, option, 1)
-    return line
-
-
 def started_processes(root: Path, *, clear: bool = True) -> list[list[str]]:
     log = root / ".venv" / "act-processes.log"
-    lines = [_unprepared(json.loads(line)) for line in log.read_text(encoding="utf-8").splitlines()] if log.exists() \
-        else []
+    lines = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()] if log.exists() else []
     if clear and log.exists():
         log.unlink()
     return lines
@@ -1123,7 +1109,6 @@ def test_a_child_cancelled_before_it_starts_reports_cancelled(app):
     assert result["state"] == proto.CANCELLED_STATE and not result["forced"] and run.process.returncode == 3
 
 
-@pytest.mark.routine_stop("terminate-job")  # the code under test ends its worker's Job on purpose (D-R2-1)
 def test_a_hung_child_is_ended_within_its_bound_and_given_one_forced_result(app, tmp_path):
     session = proto.new_token()
     request = proto.new_request(proto.ACTION_PLAN, [K], session=session)
@@ -1788,7 +1773,6 @@ def tree_run(app: Path, tmp_path: Path, then, *, on_event=None,
     return run, wait_for_pid(own), wait_for_pid(grand)
 
 
-@pytest.mark.routine_stop("terminate-job")  # the code under test ends its worker's Job on purpose (D-R2-1)
 def test_a_timed_out_worker_and_its_grandchild_are_ended_and_the_job_is_left_empty(plain_app, tmp_path):
     run, worker_pid, grandchild_pid = tree_run(plain_app, tmp_path, "time.sleep(120)\n")
     started = time.monotonic()
@@ -1800,7 +1784,6 @@ def test_a_timed_out_worker_and_its_grandchild_are_ended_and_the_job_is_left_emp
         assert run.lingering == 0 and run.members_seen >= 3
 
 
-@pytest.mark.routine_stop("terminate-job")  # the code under test ends its worker's Job on purpose (D-R2-1)
 def test_stopping_a_worker_ends_its_grandchild_too(plain_app, tmp_path):
     run, worker_pid, grandchild_pid = tree_run(plain_app, tmp_path, "time.sleep(120)\n")
     result = run.stop(grace_s=1.0)
@@ -1808,7 +1791,6 @@ def test_stopping_a_worker_ends_its_grandchild_too(plain_app, tmp_path):
     assert result["state"] == proto.CANCELLED_STATE and result["forced"] and run.terminated
 
 
-@pytest.mark.routine_stop("terminate-job")  # the run ends its exited worker's Job, and the grandchild in it (D-R2-1)
 def test_a_grandchild_left_behind_by_a_worker_that_exited_is_ended_with_the_run(plain_app, tmp_path):
     run, worker_pid, grandchild_pid = tree_run(plain_app, tmp_path, "")  # the worker exits; its child would live on
     started = time.monotonic()

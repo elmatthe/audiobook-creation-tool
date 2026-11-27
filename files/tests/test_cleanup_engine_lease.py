@@ -262,7 +262,6 @@ def test_a_busy_engine_of_this_copy_leaves_the_item_whole_and_says_why(copy, mod
     assert worker.process_asset(asset_id, root).status == "removed"
 
 
-@pytest.mark.routine_stop("terminate-process")  # the code under test kills its child on purpose (D-R2-1)
 def test_a_worker_that_dies_frees_the_cleanup(copy):
     root, _ = copy
     with held_by_another_process("worker", lock_dir(root), kill=True):
@@ -373,7 +372,6 @@ def test_a_canonical_engine_in_any_state_is_never_removed_and_the_models_still_c
     assert region(root, ".venv/") == venv_before  # the models item never reaches into the environment
 
 
-@pytest.mark.routine_stop("abrupt-exit", codes=(3,))  # the stand-in installer dies with os._exit(3) on purpose (D-R2-1)
 def test_an_engine_left_half_made_by_a_killed_installer_is_never_removed(copy):
     root, base = copy
     with installer_mid_creation(root, base, mode="die") as installer:

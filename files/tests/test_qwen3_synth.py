@@ -572,7 +572,6 @@ def test_exiting_cleanly_without_a_terminal_event_is_still_a_failure(fake):
     assert fake.exported == {}
 
 
-@pytest.mark.routine_stop("terminate-job")  # the code under test ends its worker's Job on purpose (D-R2-1)
 def test_a_malformed_event_is_a_failure_and_stops_the_worker_promptly(fake):
     started = time.monotonic()
     with pytest.raises(qs.Qwen3Failed, match="unreadable message"):
@@ -581,7 +580,6 @@ def test_a_malformed_event_is_a_failure_and_stops_the_worker_promptly(fake):
     assert fake.job_folders() == []
 
 
-@pytest.mark.routine_stop("terminate-job")  # the code under test ends its worker's Job on purpose (D-R2-1)
 def test_two_terminal_events_are_a_failure(fake):
     with pytest.raises(qs.Qwen3Failed, match="more than one result"):
         fake.convert(plan={"behavior": "double_terminal"})
@@ -605,7 +603,6 @@ def test_unusable_chunk_audio_fails_the_file_instead_of_being_repaired(fake, pla
     assert fake.exported == {} and fake.job_folders() == []
 
 
-@pytest.mark.routine_stop("terminate-job")  # the code under test ends its worker's Job on purpose (D-R2-1)
 def test_a_stalled_worker_is_stopped_and_reported(fake):
     started = time.monotonic()
     with pytest.raises(qs.Qwen3Failed, match="stopped responding"):
@@ -638,7 +635,6 @@ def test_cancel_is_honoured_between_chunks_by_a_worker_that_cooperates(fake):
     assert not (fake.tmp / "story.mp3").exists()  # no partial output
 
 
-@pytest.mark.routine_stop("terminate-job")  # the code under test ends its worker's Job on purpose (D-R2-1)
 def test_a_worker_that_ignores_the_flag_is_killed_after_the_grace_period(fake):
     started = time.monotonic()
     first_chunk = lambda: any("Qwen3 chunk 1/" in m for m in fake.logs)  # noqa: E731
@@ -649,7 +645,6 @@ def test_a_worker_that_ignores_the_flag_is_killed_after_the_grace_period(fake):
     assert fake.exported == {} and fake.job_folders() == []
 
 
-@pytest.mark.routine_stop("terminate-job")  # the code under test ends its worker's Job on purpose (D-R2-1)
 def test_a_worker_stuck_inside_one_chunk_is_killed_not_waited_for(fake):
     started = time.monotonic()
     with pytest.raises(ConversionCancelled):
@@ -676,7 +671,6 @@ def test_a_cancel_that_arrives_as_the_worker_finishes_is_still_a_cancel(fake):
 # Process tree and housekeeping
 # --------------------------------------------------------------------------- #
 @pytest.mark.skipif(sys.platform != "win32", reason="the launcher/child arrangement is the Windows venv's")
-@pytest.mark.routine_stop("taskkill")  # the code under test ends its child's tree with taskkill on purpose (D-R2-1)
 def test_killing_a_worker_takes_its_children_too(tmp_path):
     """The Windows venv python.exe is a launcher that starts the real interpreter; both must die."""
     child_pid = tmp_path / "child.pid"
@@ -710,7 +704,6 @@ def test_a_worker_that_reports_success_then_crashes_in_shutdown_publishes_nothin
     assert fake.exported == {} and not (fake.tmp / "story.mp3").exists() and fake.job_folders() == []
 
 
-@pytest.mark.routine_stop("terminate-job")  # the code under test ends its worker's Job on purpose (D-R2-1)
 def test_a_worker_that_reports_success_then_hangs_is_killed_and_distrusted(fake):
     started = time.monotonic()
     with pytest.raises(qs.Qwen3Failed, match="did not exit cleanly"):
@@ -727,7 +720,6 @@ def test_a_leftover_child_holding_the_pipe_is_cleaned_up_and_does_not_hang_the_r
     assert (fake.tmp / "story.mp3").read_bytes() == b"MP3-BYTES"  # the result was complete and the worker exited 0
 
 
-@pytest.mark.routine_stop("terminate-job")  # the code under test ends its worker's Job on purpose (D-R2-1)
 def test_output_flooding_cannot_postpone_the_cancel_deadline(fake):
     started = time.monotonic()
     with pytest.raises(ConversionCancelled):
@@ -736,7 +728,6 @@ def test_output_flooding_cannot_postpone_the_cancel_deadline(fake):
     assert time.monotonic() - started < 15  # 4 chunks x 400 frames x 20 ms would be ~32 s without the kill
 
 
-@pytest.mark.routine_stop("terminate-job")  # the code under test ends its worker's Job on purpose (D-R2-1)
 def test_library_output_does_not_count_as_the_worker_being_alive(fake):
     started = time.monotonic()
     with pytest.raises(qs.Qwen3Failed, match="stopped responding"):
@@ -897,7 +888,6 @@ def test_a_worker_that_cannot_be_contained_is_not_started_and_the_user_is_told_w
     assert fake.exported == {} and fake.job_folders() == []
 
 
-@pytest.mark.routine_stop("taskkill", "close-job")  # the code under test ends its child by its Job and taskkill (D-R2-1)
 def test_the_supervisor_gives_up_waiting_after_a_kill_that_never_closes_the_pipe(fake, tmp_path):
     """Codex finding: once killed, nothing bounded the wait for EOF. The final deadline now does."""
     chunks = qs.plan_chunks("One sentence. Another sentence.")

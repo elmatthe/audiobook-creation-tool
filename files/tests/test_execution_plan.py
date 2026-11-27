@@ -94,10 +94,10 @@ def test_only_the_full_constructor_names_the_release_partition():
 # --------------------------------------------------------------------------- #
 #  The six modes
 # --------------------------------------------------------------------------- #
-def test_quick_is_the_fixed_static_checks_and_resolves_its_plan_only():
+def test_quick_is_the_fixed_static_checks_and_executes():
     plan = resolve("quick")
     assert plan.static_checks == ("docnames", "json-validity") and plan.pytest_selectors() == ()
-    assert plan.status == "COMPLETE" and plan.executable_now is False and "Phase 1A-3" in plan.activation
+    assert plan.status == "COMPLETE" and plan.executable_now is True and plan.activation == ""
     with pytest.raises(ep.PlanError, match="known static checks"):
         resolve("quick", context(policy={"quick": {"checks": [{"id": "rm -rf"}]}}))
 
@@ -123,7 +123,7 @@ def test_a_focused_feature_runs_its_tests_and_lists_its_journeys_and_owner_check
     assert plan.ordinary == (GUARD, "files/tests/test_mp3.py") and plan.journeys == ()
     owed = {(item.subject, item.kind) for item in plan.obligations}
     assert owed == {("journey:mp3.journey", "native"), ("owner:ACT.MP3.ONE", "owner")}
-    assert plan.status == "COMPLETE" and plan.executable_now is False, "focused --feature is plan only until Phase 1A-3"
+    assert plan.status == "COMPLETE" and plan.executable_now is True, "focused --feature executes (v0.8.2 simplification)"
 
 
 def test_a_guard_alone_never_satisfies_requested_work():
@@ -142,7 +142,7 @@ def test_a_guard_alone_never_satisfies_requested_work():
 
 def test_regression_names_its_components_and_never_all():
     plan = resolve("regression", components=("mp3",))
-    assert plan.ordinary == (GUARD, "files/tests/test_mp3.py") and plan.executable_now is False
+    assert plan.ordinary == (GUARD, "files/tests/test_mp3.py") and plan.executable_now is True
     assert {item.subject for item in plan.obligations} >= {"journey:mp3.journey"}
     assert resolve("regression", components=("gate",)).ordinary == ("files/tests/test_gate.py", GUARD)
     for components in ((), ("all",), ("no-such",)):
@@ -944,9 +944,7 @@ def test_r1_m3_the_boundary_refuses_contradictory_scope(change, needle):
         ep.validate(dataclasses.replace(plan, **change(plan)), GROUPS)
 
 
-@pytest.mark.parametrize("mode, selectors", [("focused", {"features": ("ACT.MP3.ONE",)}), ("quick", {}),
-                                             ("regression", {"components": ("gate",)}),
-                                             ("qualification", {"journeys": ("mp3.journey",)})])
+@pytest.mark.parametrize("mode, selectors", [("qualification", {"journeys": ("mp3.journey",)})])
 def test_r1_m3_a_plan_only_mode_marked_executable_is_refused(mode, selectors):
     plan = resolve(mode, **selectors)
     assert plan.executable_now is False

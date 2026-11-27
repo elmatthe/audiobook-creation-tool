@@ -15,14 +15,14 @@ asked for, what would run, the guards it owes, what is withheld and why, the nat
 that stay pending, and the selection gaps that keep a scope incomplete. Nothing is ever selected implicitly: only --mode
 full names the complete release partition. Which plans execute, and who may start them, is GATE.md's policy:
 
-  quick          fixed named static checks and a reviewed import smoke. Plan only until Phase 1A-3.
-  focused        --test selectors (routine: executes) or --feature IDs (plan only until Phase 1A-3), plus the required
+  quick          fixed named static checks and a reviewed import smoke. Routine: executes.
+  focused        --test selectors or --feature IDs (routine: executes), plus the required
                  guard. A feature's journeys are listed as obligations and never run. --journey is not a focused selector.
   changed        HEAD against staged, unstaged and untracked changes, or --base REV's merge base to HEAD plus those
                  (helpers/git_changes.py), routed through the reverse import closure and the reviewed routes
                  (helpers/selection.py). An unresolved path is a selection gap; nothing widens to the whole suite. No
-                 relevant change is NOT RUN. Plan only until Phase 1A-3.
-  regression     repeatable --component IDs from verification.json, expanded through their features. Plan only.
+                 relevant change is NOT RUN. Routine: executes.
+  regression     repeatable --component IDs from verification.json, expanded through their features. Routine: executes.
   qualification  exactly one --scenario (executes; owner authorization required) or a set of --journey IDs (plan only).
                  A scenario that needs the network runs only with the --network policy it declares.
   full           the complete release partition: native journeys first, then the whole ordinary suite, every guarded
@@ -31,9 +31,11 @@ full names the complete release partition. Which plans execute, and who may star
   --evidence     not a run: incremental-verification bookkeeping over the runs already recorded (helpers/evidence_ledger.py).
                  Prints EVIDENCE, never RESULT. Its rerun suggestions are subject to GATE.md like any other command.
 
-Ordinary pytest runs through files/tests/routine_pytest.py, which establishes the routine restrictions before pytest,
-plugins, conftest.py or any test module is imported (files/tests/routine_effects.py: opt-ins scrubbed, heavyweight
-launches and declared boundaries refused, every refusal recorded and failing the stage).
+Ordinary pytest runs as `python -s -m pytest` in a scrubbed environment (no PYTHONPATH, startup or user-site code, opt-ins
+or pytest overrides) under a supervised stage (helpers/winproc.py: deadline, kill-on-close Job or process group, survivors
+reported). conftest.py installs the small routine guard (files/tests/routine_effects.py) before any test module is
+imported: the routine marker every child inherits, opt-ins scrubbed, network and real model loads refused in-process; the
+heavyweight entrypoints refuse themselves under the marker.
 
 The gates of a full run, always in this order and all of them even after a failure:
 
@@ -132,8 +134,10 @@ LEGACY_EVIDENCE_ROOT = REPO_ROOT / "files" / "dev-work" / "act070-remediation"
 FINGERPRINT_UNTRACKED_SCOPES: tuple[str, ...] = (
     "scripts", "files/tests", "files/dev-work/verification-gate", "files/dev-work/feature-map")
 # Which identity a path belongs to, first match wins. Documentation is separate so a docs-only commit can truthfully carry
-# code evidence forward; everything not named is "other", which never carries.
+# code evidence forward; everything not named is "other", which never carries. v0.8.2 (R3 evidence finding): GATE.md and the
+# published review summaries are documentation, so publishing a report never makes executable evidence stale.
 DIGEST_CLASSES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("docs", ("files/dev-work/verification-gate/GATE.md", "files/codex-summary-for-remote-access/")),
     ("policy", ("files/dev-work/verification-gate/", "files/dev-work/feature-map/", "files/tests/guarded_groups.json",
                 "pytest.ini", ".gitignore", ".gitattributes")),
     ("tests", ("files/tests/", "files/test-files/")),
@@ -157,13 +161,11 @@ MODES = execution_plan.MODES
 GATE_ORDER = ("acceptance", "pytest", "guarded", "deps", "docs", "docnames", "config")
 # Never inherited by a stage: each could narrow, extend or redirect what pytest runs without appearing on its command line.
 _SCRUBBED_ENV_PREFIXES = ("PYTEST_", "_PYTEST", "ACT_GATE_")
-# v0.8.2 Phase 1A-1: an ambient effect ledger is never inherited (each stage names its own), and real-engine opt-ins and
-# destination overrides never reach any stage (files/tests/routine_effects.py scrubs them again inside pytest).
-_SCRUBBED_ENV = {"PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP", "PYTHONINSPECT", "PYTHONBREAKPOINT", "ACT_EFFECT_LEDGER",
-                 "ACT_P2_EVIDENCE", "ACT_XHE_PROOF_APPLE_CAF", "ACT_MAC_FFMPEG"}
+# v0.8.2: startup customization, real-engine opt-ins and destination overrides never reach any stage (R3-01: the stage's
+# interpreter starts clean; files/tests/routine_effects.py scrubs the opt-ins again inside pytest).
+_SCRUBBED_ENV = {"PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP", "PYTHONINSPECT", "PYTHONBREAKPOINT", "PYTHONUSERBASE",
+                 "PYTHONEXECUTABLE", "PYTHONPLATLIBDIR", "ACT_P2_EVIDENCE", "ACT_XHE_PROOF_APPLE_CAF", "ACT_MAC_FFMPEG"}
 _SCRUBBED_OPT_IN = re.compile(r"^ACT_[A-Z0-9_]*_REAL(_[A-Z0-9_]+)?$")
-EFFECT_LEDGER_ENV = "ACT_EFFECT_LEDGER"
-ROUTINE_PYTEST = "routine_pytest.py"
 # Tests at this depth have a stack dumped into the log long before the stall limit ends them. The slowest is about 80 s.
 FAULTHANDLER_SECONDS = 600
 SUMMARY_BYTES = 1 << 16
@@ -539,6 +541,49 @@ def _static_gates():
     return [("deps", check_requirements), ("docs", check_docs), ("docnames", check_doc_names), ("config", check_config)]
 
 
+_LINK = re.compile(r"\]\(([^)\s]+)\)")
+
+
+def check_doc_links() -> tuple[str, bool, str]:
+    """Relative links of the permanent documents, GATE.md and the active plan resolve to existing paths (quick, v0.8.2)."""
+    sources = [MD_DIR / name for name in CANONICAL_DOCS] + [GATE_DIR / "GATE.md",
+                                                            REPO_ROOT / PLANS_RELATIVE / "Developer-Experience-Upgrade.md"]
+    broken = []
+    for source in sources:
+        if not source.is_file():
+            continue  # a missing permanent document is docnames' finding; a tree without the plan has nothing to check
+        for match in _LINK.finditer(source.read_text(encoding="utf-8", errors="replace")):
+            target = match.group(1).split("#", 1)[0]
+            if not target or re.match(r"^[a-z][a-z0-9+.-]*:", target, re.IGNORECASE):
+                continue
+            if not (source.parent / target).exists():
+                broken.append(f"{source.relative_to(REPO_ROOT).as_posix()} -> {target}")
+    return ("doc-links", not broken, f"broken relative link(s): {broken[:6]}" if broken else
+            f"every relative link of {len(sources)} document(s) resolves")
+
+
+def check_json_validity() -> tuple[str, bool, str]:
+    """The gate's policy files parse, and the committed config.toml parses (quick, v0.8.2)."""
+    import tomllib
+
+    problems = []
+    for path in (POLICY_FILE, COVERAGE_FILE, TESTS_DIR / "guarded_groups.json"):
+        try:
+            json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            problems.append(f"{path.name}: {exc}")
+    try:
+        tomllib.loads((REPO_ROOT / "config.toml").read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        problems.append(f"config.toml: {exc}")
+    return ("json-validity", not problems, "; ".join(problems) if problems else "policy JSON and config.toml parse")
+
+
+def _quick_gates():
+    """Every static check a plan may name, by its verification.json id (import-smoke runs as a supervised stage)."""
+    return dict(_static_gates() + [("doc-links", check_doc_links), ("json-validity", check_json_validity)])
+
+
 # --------------------------------------------------------------------------- #
 # The identity of what is being tested
 # --------------------------------------------------------------------------- #
@@ -817,65 +862,22 @@ def _ordinary_scope(targets) -> list[str]:
     return targets
 
 
-def _is_stage_runner(argv) -> bool:
-    """Whether a stage command is the gate's own runner (the routine or the guarded pytest runner script)."""
-    command = routine_context.parse_python(list(argv[1:]))
-    return command.mode == "script" and os.path.basename(command.target or "").lower() in (ROUTINE_PYTEST.lower(),
-                                                                                         "guarded_pytest.py")
-
-
-def _is_recipe_session(argv, role) -> bool:
-    """Whether a test-substituted stage command is a free-standing reviewed recipe that accounts as this stage's session
-    (the stand-in for pytest, in its exact bytes, in a disposable root of this routine session): it binds to the stage
-    launch in that role, as the real runner would (routine_context.recipe_role)."""
-    command = routine_context.parse_python(list(argv[1:]))
-    if command.mode != "script" or not command.target or role is None:
-        return False
-    return routine_context.recipe_role(os.path.abspath(command.target)) == role
-
-
-def stage_sessions(verdict: dict, launch: str, role: str | None) -> list[dict] | None:
-    """The participants a stage launch's session may be, from a stage ledger's verdict: the participant bound to the launch
-    itself, or -- only when that participant is a routine child (a test-substituted wrapper inside routine verification) --
-    the ``role`` sessions its own reservations started, transitively through routine children. None when nothing is bound
-    to the launch (judged by the ledger reader itself)."""
-    launches, participants = verdict.get("launches", {}), verdict.get("participants", {})
-    bound = [key for key in launches.get(launch, {}).get("participants", []) if key in participants]
-    if not bound:
-        return None
-    if role is None or participants[bound[0]]["role"] != "routine-child":
-        return [participants[key] for key in bound]
-    found, frontier, seen = [], list(bound), set()
-    while frontier:
-        key = frontier.pop(0)
-        if key in seen or key not in participants:
-            continue
-        seen.add(key)
-        entry = participants[key]
-        if entry["role"] == role:
-            found.append(entry)
-        elif entry["role"] == "routine-child":
-            frontier += [child for data in launches.values() if data.get("parent") == key
-                         for child in data.get("participants", [])]
-    return found
-
-
-def _routine_pytest() -> list[str]:
-    """Ordinary pytest through the routine bootstrap: restrictions first, then pytest (files/tests/routine_pytest.py)."""
-    return [sys.executable, "-u", str(TESTS_DIR / ROUTINE_PYTEST)]
+def _pytest_prefix() -> list[str]:
+    """Ordinary pytest: this interpreter, unbuffered, without the user site directory, in the scrubbed stage environment."""
+    return [sys.executable, "-u", "-s", "-m", "pytest"]
 
 
 def _pytest_command(junit_xml: Path, *, token: str, basetemp: Path, cache: Path, targets) -> list[str]:
     """The plan's ordinary scope plus reporting and this run's own scratch. Nothing narrows it."""
     scope = _ordinary_scope(targets)
-    return [*_routine_pytest(), *scope, "-q", "-ra", f"--junitxml={junit_xml}",
+    return [*_pytest_prefix(), *scope, "-q", "-ra", f"--junitxml={junit_xml}",
             "-o", f"junit_suite_name={token}", f"--basetemp={basetemp}", "-o", f"cache_dir={cache}",
             "-o", f"faulthandler_timeout={FAULTHANDLER_SECONDS}"]
 
 
 def _collect_command(*, token: str, basetemp: Path, cache: Path, targets) -> list[str]:
     scope = _ordinary_scope(targets)
-    return [*_routine_pytest(), *scope, "--collect-only", "-q",
+    return [*_pytest_prefix(), *scope, "--collect-only", "-q",
             f"--basetemp={basetemp}", "-o", f"cache_dir={cache}", "-o", f"junit_suite_name={token}"]
 
 
@@ -925,12 +927,6 @@ class GateRun:
         self.scratch_root: Path | None = None
         self.invocation_error: str | None = None
         self.scope = {"platform": sys.platform, "profile": args.mode, "full_acceptance": False}
-        #: Each pytest stage's effect ledger (files/tests/routine_effects.py), read back when the stage ends.
-        self.effect_ledgers: list[tuple[str, Path, str | None]] = []
-        #: Phase 1A-1 R2: the gate's own participant in each stage ledger (it reserves the stage's runner launch before
-        #: the process exists and records its spawn, any stop it made and its observed end), keyed by the ledger path.
-        self.stage_records: dict[str, dict] = {}
-        self.ledger_failures: list[str] = []
         self.acceptance: acceptance_report.Judgement | None = None
         self.coverage_result: coverage_model.CoverageResult | None = None
         #: Qualification scenarios this run executed, and their verdicts.
@@ -957,15 +953,10 @@ class GateRun:
 
     def supervise(self, stage: str, argv, *, log: Path, env: dict, progress=()) -> winproc.ChildResult:
         budget = self.budget(stage)
-        account = self.bind_stage(argv, env)
 
         def started(result: winproc.ChildResult) -> None:
             self.record.log(f"{log.stem} child started, pid {result.pid}, ownership {result.ownership}, "
                             f"error mode {result.error_mode_at_launch}")
-            if account is not None and result.pid:
-                self.ledger_write(account, "spawned", account["launch"], result.pid,
-                                  executable=os.path.normcase(os.path.abspath(argv[0])),
-                                  redirector=_venv_redirector(argv[0]), created=routine_context.process_created(result.pid))
 
         result = winproc.run_supervised(
             argv, log_path=log, cwd=REPO_ROOT, env=env, timeout=budget.get("timeout_seconds", 600),
@@ -973,105 +964,16 @@ class GateRun:
             kill_wait=budget.get("kill_wait_seconds", 20), on_start=started)
         self.record.log(f"{log.stem} child pid {result.pid} ended: {result.ended}, exit {result.returncode}, "
                         f"{result.seconds:.1f}s, remaining {result.remaining}, survivors {result.survivors}")
-        if account is not None:
-            self.settle_stage(account, result, env)
         return result
 
-    def bind_stage(self, argv, env: dict) -> dict | None:
-        """Phase 1A-1 R2: the accounting obligation of a stage's process, established before it exists. The gate's own
-        participant in the stage ledger reserves the launch the stage's runner must bind to (its identity is the runner's
-        command line), and the launch identity travels in the stage's environment. A pytest stage's runner must be the
-        routine (or guarded) session; inside routine verification (a gate driven by a test) any stage child is a bootstrapped
-        routine child. Outside routine verification a stage without a session role (acceptance, qualification) owes nothing."""
-        ledger = env.get(EFFECT_LEDGER_ENV)
-        account = self.stage_records.get(os.path.normcase(str(ledger))) if ledger else None
-        if account is None:
-            return None
-        expect = account["role"]
-        if routine_context.in_routine() and (expect is None or not (_is_stage_runner(argv)
-                                                                    or _is_recipe_session(argv, expect))):
-            # A gate driven by a test whose stage command a test substituted (a wrapper around the runner): the stage child
-            # is a bootstrapped routine child, and the session it starts is reserved in its own record (stage_sessions).
-            expect = "routine-child"
-        if expect is None:
-            return None
-        if account.get("launch"):
-            self.ledger_failures.append(f"{account['stage']}: a second process for one stage ledger")
-            return None
-        launch = routine_context.new_launch()
-        effects = sys.modules.get("routine_effects") if routine_context.in_routine() else None
-        # The stage's runner takes its disposable roots from its reservation: the temporary folder this gate made for the
-        # stage (stage_env), and -- for a bootstrapped routine child -- those of the session driving the gate, as for any
-        # launch that session's envelope reserves itself.
-        roots = [env["TEMP"]] if env.get("TEMP") else []
-        if expect == "routine-child" and hasattr(effects, "disposable_roots"):
-            roots += effects.disposable_roots()
-        try:
-            account["record"].reserve(launch, expect=expect, identity=routine_context.launch_identity(list(argv[1:])),
-                                      roots=roots, stage=account["stage"], note="the stage's runner")
-        except (routine_context.LedgerError, OSError) as exc:
-            self.ledger_failures.append(f"{account['stage']}: the stage launch could not be reserved ({exc})")
-            raise winproc.JobUnavailable(f"the stage's accounting obligation could not be established: {exc}") from exc
-        account["launch"] = launch
-        env[routine_context.LAUNCH_ENV] = launch
-        if effects is not None and hasattr(effects, "bind_stage_launch"):
-            effects.bind_stage_launch(launch, ledger)  # a gate driven in-process: its envelope delegates this launch
-        return account
-
-    def ledger_write(self, account: dict, kind: str, *args, **kwargs) -> None:
-        try:
-            getattr(account["record"], kind.replace("-", "_"))(*args, **kwargs)
-        except (routine_context.LedgerError, OSError) as exc:
-            self.ledger_failures.append(f"{account['stage']}: {kind}: {exc}")
-
-    def settle_stage(self, account: dict, result: winproc.ChildResult, env: dict) -> None:
-        """The stage's outcome in its ledger: never spawned, or spawned, stopped by the gate if it was (a stage runner's
-        reservation expects no stop, so a timeout or stall kill stays an accounting failure as well as a stage failure), and
-        its observed end. The probe session's own pid is kept to bind the runner participant to the session."""
-        launch = account["launch"]
-        if not result.pid:
-            self.ledger_write(account, "not-spawned", launch, result.start_error or result.ended)
-            return
-        if result.ended in ("timeout", "stall", "interrupted"):
-            self.ledger_write(account, "stop", launch, mechanism="terminate-job", pid=result.pid, code=None, tree=True,
-                              ok=True)
-        how = "exited" if result.returncode is not None else "unobservable"
-        self.ledger_write(account, "observed", launch, exit_status=result.returncode, how=how, pid=result.pid)
-        probe = env.get("ACT_GATE_PROBE")
-        if probe:
-            parsed = pytest_reports.read_probe(Path(probe), env.get("ACT_GATE_TOKEN"), require_finish=False)
-            account["probe_pid"] = (parsed.session or {}).get("pid")
-
-    def stage_env(self, temp: Path, *, probe: Path | None = None, token: str = "", ledger: Path | None = None) -> dict:
+    def stage_env(self, temp: Path, *, probe: Path | None = None, token: str = "") -> dict:
         env = {key: value for key, value in os.environ.items()
                if key.upper() not in _SCRUBBED_ENV and not key.upper().startswith(_SCRUBBED_ENV_PREFIXES)
                and not _SCRUBBED_OPT_IN.match(key.upper())}
         env.update(TEMP=str(temp), TMP=str(temp), TMPDIR=str(temp))
         if probe is not None:
             env.update(ACT_GATE_PROBE=str(probe), ACT_GATE_TOKEN=token)
-        if ledger is not None:
-            env[EFFECT_LEDGER_ENV] = str(ledger)
-        elif routine_context.in_routine() and os.environ.get(EFFECT_LEDGER_ENV):
-            # A gate driven by a test: a stage child without a stage ledger (the preflight interpreter) is accounted in the
-            # driving session's own ledger, like any other launch of this process (files/tests/routine_effects.py).
-            env[EFFECT_LEDGER_ENV] = os.environ[EFFECT_LEDGER_ENV]
         return env
-
-    def ledger(self, stage: str, folder: Path | None = None, *, role: str | None = "routine-pytest") -> Path:
-        """This stage's effect ledger (helpers/routine_context.py), created and initialized here, before the stage's process
-        exists: a directory with this run's header, one record file per cooperating process. ``role`` names the session that
-        must have recorded a completed accounting in it (a pytest stage's runner); None for a stage whose child is not a
-        routine session (acceptance, qualification), where only a refusal or a malformed record can appear. Guarded stages
-        write in their own work folder (their write guard protects this run's evidence folder); every ledger is copied into the
-        evidence afterwards."""
-        path = (folder or self.reports()) / f"{stage}-effects"
-        routine_context.init_ledger(path, owner="gate", stage=stage, token=f"{self.record.run_id}-{stage}")
-        self.effect_ledgers.append((stage, path, role))
-        record = routine_context.ProcessRecord(path, "gate")
-        account = {"stage": stage, "role": role, "record": record, "launch": None, "probe_pid": None}
-        self.stage_records[os.path.normcase(str(path))] = account
-        self.ledger_write(account, "start")
-        return path
 
     def scratch(self, name: str) -> Path:
         """A disposable folder of this run. Short on purpose: see SCRATCH_ROOT."""
@@ -1148,6 +1050,8 @@ class GateRun:
         self.run_guarded(plan)
         if plan.release_partition:
             self.run_static()
+        elif plan.static_checks:
+            self.run_named_static(plan.static_checks)
 
     def admitted_plan(self) -> execution_plan.ExecutionPlan | None:
         """The plan this run executes, validated again at the execution boundary, and recorded as selection.json. A plan that
@@ -1308,7 +1212,7 @@ class GateRun:
             return
         try:
             result = self.supervise("qualification", command,
-                                    log=log, env=self.stage_env(scratch / "t", ledger=self.ledger("qualification", role=None)),
+                                    log=log, env=self.stage_env(scratch / "t"),
                                     progress=(folder / "progress.log",))
         except winproc.JobUnavailable as exc:
             self.check("process-ownership", "BLOCKED", f"no owned process tree can be established: {exc}")
@@ -1360,7 +1264,7 @@ class GateRun:
             log = self.directory / "logs" / "collect-pytest.log"
             command = _collect_command(token=token, basetemp=scratch / "b", cache=scratch / "c", targets=plan.ordinary)
             result = self.supervise("collect", command, log=log, progress=(probe,), env=self.stage_env(
-                scratch / "t", probe=probe, token=token, ledger=self.ledger("collect-pytest")))
+                scratch / "t", probe=probe, token=token))
             parsed = pytest_reports.read_probe(probe, token)
             self.stages.append({"name": "collect-pytest", "log": self.relative(log), "probe": self.relative(probe), **result.record()})
             vanished = parsed.vanished() if parsed.valid and parsed.collected is not None else None
@@ -1399,8 +1303,7 @@ class GateRun:
         token = f"{self.record.run_id}-collect-{name}"
         basetemp = self.guarded_root() / f"{prefix}c{stamp}{index}"
         log = self.directory / "logs" / f"collect-guarded-{name}.log"
-        env = self.stage_env(self.scratch(f"cg{index}") / "t", probe=probe, token=token,
-                             ledger=self.ledger(f"collect-guarded-{name}", work, role="guarded-pytest"))
+        env = self.stage_env(self.scratch(f"cg{index}") / "t", probe=probe, token=token)
         result = self.supervise("collect", _guarded_command(config, report, basetemp, targets, extra=("--collect-only",)),
                                 log=log, env=env, progress=(probe,))
         parsed = pytest_reports.read_probe(probe, token)
@@ -1457,7 +1360,7 @@ class GateRun:
                                   targets=plan.ordinary)
         self.record.log(f"pytest command: {command}")
         result = self.supervise("pytest", command, log=log, progress=(probe,),
-                                env=self.stage_env(scratch / "t", probe=probe, token=token, ledger=self.ledger("pytest")))
+                                env=self.stage_env(scratch / "t", probe=probe, token=token))
         report = pytest_reports.read_junit(junit, token)
         parsed = pytest_reports.read_probe(probe, token)
         verdict = pytest_reports.judge_stage(result.returncode, result.ended, report, parsed, _tail(log), child_pid=result.pid)
@@ -1496,7 +1399,7 @@ class GateRun:
         except PermissionError as exc:
             self.check("acceptance", "BLOCKED", f"{exc}: native journeys never start inside routine verification")
             return
-        env = self.stage_env(scratch / "t", ledger=self.ledger("acceptance", role=None))
+        env = self.stage_env(scratch / "t")
         result = self.supervise("acceptance", argv, log=log, env=env, progress=(report,))
         self.judge_cleanup("acceptance", result)
         if sys.platform == "darwin":
@@ -1616,8 +1519,7 @@ class GateRun:
         log = self.directory / "logs" / f"guarded-{name}.log"
         command = _guarded_command(config, report, basetemp, targets,
                                    extra=(f"--junitxml={junit}", "-o", f"junit_suite_name={token}"))
-        env = self.stage_env(self.scratch(f"g{index}") / "t", probe=probe, token=token,
-                             ledger=self.ledger(f"guarded-{name}", work, role="guarded-pytest"))
+        env = self.stage_env(self.scratch(f"g{index}") / "t", probe=probe, token=token)
         result = self.supervise("guarded", command, log=log, env=env, progress=(probe,))
         guard = _read_guard_report(report)
         parsed = pytest_reports.read_probe(probe, token)
@@ -1653,6 +1555,37 @@ class GateRun:
             self.check(name, "PASS" if ok else "FAIL", detail, exit_status=None, seconds=round(time.monotonic() - began, 3))
         self.current_gate = None
 
+    def run_named_static(self, names) -> None:
+        """A routine plan's named static checks (quick, and what a changed plan routes to them; v0.8.2)."""
+        gates = _quick_gates()
+        for name in names:
+            self.current_gate = name
+            self.mark()
+            began = time.monotonic()
+            if name == "import-smoke":
+                self.run_import_smoke()
+                continue
+            _, ok, detail = gates[name]()
+            self.check(name, "PASS" if ok else "FAIL", detail, exit_status=None, seconds=round(time.monotonic() - began, 3))
+        self.current_gate = None
+
+    def run_import_smoke(self) -> None:
+        """An isolated child (-I: no PYTHONPATH, user site or script folder) imports the reviewed side-effect-free modules."""
+        modules = list(self.policy.get("quick", {}).get("import_smoke", []))
+        if not modules or not all(re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.]*", name) for name in modules):
+            self.check("import-smoke", "FAIL", f"verification.json quick.import_smoke is not a list of module names: {modules}")
+            return
+        scratch = self.scratch("i")
+        code = f"import sys; sys.path.insert(0, {str(SCRIPTS_DIR)!r}); " + "; ".join(f"import {name}" for name in modules)
+        log = self.directory / "logs" / "import-smoke.log"
+        result = self.supervise("preflight", [sys.executable, "-I", "-B", "-c", code], log=log,
+                                env=self.stage_env(scratch / "t"))
+        self.judge_cleanup("import-smoke", result)
+        ok = result.returncode == 0 and result.ended == "exited"
+        self.check("import-smoke", "PASS" if ok else "FAIL",
+                   f"imported {', '.join(modules)}" if ok else f"{result.ended}, exit {result.returncode}: {_tail(log)}",
+                   exit_status=result.returncode)
+
     def judge_cleanup(self, stage: str, result: winproc.ChildResult) -> None:
         if result.remaining or result.survivors:
             self.cleanup_violations.append({"stage": stage, "remaining": result.remaining, "survivors": result.survivors})
@@ -1665,11 +1598,6 @@ class GateRun:
         if self.lifecycle_reached_tests():
             self.check("cleanup", "FAIL" if cleanup else "PASS",
                        f"owned processes left behind: {cleanup}" if cleanup else "no owned process remained after any stage")
-        if self.effect_ledgers or self.ledger_failures:
-            try:
-                self.check_routine_effects()
-            except Exception as exc:  # noqa: BLE001 - an unreadable accounting is a FAIL, sealed with the run
-                self.check("routine-effects", "FAIL", f"the stage ledgers could not be judged: {type(exc).__name__}: {exc}")
         self.check_requested_scope()
         if ran_tests:
             self.check_error_mode()
@@ -1722,43 +1650,6 @@ class GateRun:
         self.record.log(f"complete: RESULT {status}")
         self.record.close()
         return self.record.finalize(results)
-
-    def check_routine_effects(self) -> None:
-        """Every stage's effect ledger (helpers/routine_context.py read_ledger). PASS only for initialized, complete,
-        well-formed ledgers in which each pytest stage's own session recorded a completed accounting and nothing unexpected
-        was refused. A refusal fails the run even when the test that caused it caught the exception, whichever process (a
-        test, a child, an atexit callback) caused it; a missing, empty, unreadable, incomplete or malformed ledger is never
-        clean."""
-        refused, problems = [], list(self.ledger_failures)
-        for stage, path, role in self.effect_ledgers:
-            account = self.stage_records.get(os.path.normcase(str(path)))
-            if account is not None and not account["record"].ended:
-                self.ledger_write(account, "end", exit_status=0, refusals=0, unexpected=0)
-                problems += [item for item in self.ledger_failures if item not in problems]
-            verdict = routine_context.read_ledger(path, token=f"{self.record.run_id}-{stage}", require_role=role)
-            refused += [f"{stage}: {row.get('effect')}: {str(row.get('detail'))[:160]}" for row in verdict["unexpected"]]
-            problems += [f"{stage}: {item}" for item in verdict["problems"]]
-            if account is not None and account.get("launch"):
-                sessions = stage_sessions(verdict, account["launch"], role)
-                if account.get("probe_pid") is not None and sessions is not None and \
-                        account["probe_pid"] not in {entry["pid"] for entry in sessions}:
-                    problems.append(f"{stage}: the session that recorded the probe (pid {account['probe_pid']}) is not the "
-                                    f"participant bound to the stage launch "
-                                    f"({', '.join(str(entry['pid']) for entry in sessions) or 'none'})")
-            stored = None
-            if path.is_dir():
-                stored = path if path.parent == self.reports() else self.reports() / path.name
-                if stored != path:
-                    try:
-                        _copy_plain_tree(path, stored)
-                    except OSError as exc:
-                        problems.append(f"{stage}: the ledger could not be kept as evidence ({exc})")
-            self.record.log(f"effect ledger {stage}: {self.relative(stored) if stored else path} ({verdict['status']}, "
-                            f"{verdict['processes']} process record(s), {verdict['complete']} complete)")
-        status = "FAIL" if refused or problems else "PASS"
-        detail = "; ".join((refused + problems)[:6]) if status == "FAIL" else \
-            f"{len(self.effect_ledgers)} stage ledger(s) complete and clean: no heavyweight effect was refused"
-        self.check("routine-effects", status, detail, refused=len(refused), accounting_problems=len(problems))
 
     def check_requested_scope(self) -> None:
         """Phase 1A-1 R1 (M1): every item of the admitted plan's reported scope executed. A requested node that static
@@ -1835,8 +1726,8 @@ class GateRun:
 
         ``coverage-inventory`` is the inventory itself: reviewed, every discovered surface mapped, every application source file reviewed
         as it is now and named by a feature, no dangling id, test, scenario, symbol or document. A full run also holds every test id to
-        this run's exact collection. It is required in full and changed runs when the policy requires a reviewed inventory, so a source
-        change cannot pass without its mapping being looked at again.
+        this run's exact collection. It is required in full runs when the policy requires a reviewed inventory; routine runs report
+        it without being stopped by it (v0.8.2 simplification: volatile inventory checking is off the routine path).
 
         ``coverage`` is what this run satisfied. Only a full run can be held to every required routine verification; a narrower run
         reports its own satisfaction and says so. Release-pending evidence (qualification, owner, planned) is reported, never satisfied.
@@ -1874,7 +1765,7 @@ class GateRun:
                        if problems else f"reviewed; {result.inventoried} features, {result.surfaces.get('static', 0)} static and "
                                         f"{result.surfaces.get('live', 0)} live surfaces indexed, every application source file reviewed "
                                         "as it is now; the live index is judged by inventory.live-surfaces",
-                       required=self.args.mode in ("full", "changed"))
+                       required=self.args.mode == "full")
         else:
             self.check("coverage-inventory", "NOT APPLICABLE", "this policy does not require a reviewed inventory", required=False)
         if not full:
@@ -1917,7 +1808,10 @@ class GateRun:
             return "NOT RUN", runstore.EXIT_INVALID
         status = _worst(c["status"] for c in self.checks if c.get("required", True))
         counts = self.counts()
-        if status == "PASS" and self.args.mode != "qualification" and not (counts["executed"] or counts["journeys_passed"]):
+        static_only = bool(self.plan and self.plan.static_checks and not self.plan.ordinary and not self.plan.guarded
+                               and not self.plan.journeys)
+        if status == "PASS" and self.args.mode != "qualification" and not (counts["executed"] or counts["journeys_passed"]
+                                                                            or static_only):
             status = "NOT RUN"
         return status, runstore.EXIT_FOR_STATUS[status]
 
@@ -2151,28 +2045,6 @@ def _pinned_pytest() -> str | None:
         return None
     found = re.search(r"^pytest==(\S+)", text, re.MULTILINE)
     return found.group(1) if found else None
-
-
-def _venv_redirector(program) -> bool:
-    """A Windows venv ``python.exe``: a launcher whose interpreter is its direct child (``pyvenv.cfg`` one folder up)."""
-    path = Path(program)
-    return os.name == "nt" and path.name.lower() in ("python.exe", "pythonw.exe") and \
-        (path.parent.parent / "pyvenv.cfg").is_file()
-
-
-def _copy_plain_tree(source: Path, target: Path) -> None:
-    """Copy a ledger directory as evidence, never following a link: only plain files and plain directories are copied."""
-    target.mkdir(parents=False, exist_ok=False)
-    with os.scandir(source) as entries:
-        for entry in entries:
-            info = entry.stat(follow_symlinks=False)
-            reparse = getattr(info, "st_file_attributes", 0) & 0x400
-            if entry.is_symlink() or reparse:
-                raise OSError(f"{entry.name} is a link; it is never followed")
-            if entry.is_dir(follow_symlinks=False):
-                _copy_plain_tree(Path(entry.path), target / entry.name)
-            elif entry.is_file(follow_symlinks=False):
-                shutil.copyfile(entry.path, target / entry.name, follow_symlinks=False)
 
 
 def _report_lines(results: dict, directory: Path) -> list[str]:
@@ -2491,9 +2363,9 @@ modes: quick (no selector); focused needs --test or --feature; changed takes an 
 the working tree); regression needs --component; qualification needs exactly one --scenario or one or more --journey; full
 takes no selector. --plan resolves and prints the execution plan of any of them and runs nothing.
 
-execution (GATE.md, v0.8.2 Phase 1A-1): focused --test executes and is routine. full and qualification --scenario execute only
-with the owner's authorization for that run. quick, changed, regression, focused --feature and qualification --journey print
-their plan only (exit 3) until Phase 1A-3. focused never runs a journey: --journey is a qualification selector.
+execution (GATE.md, v0.8.2): quick, focused, changed and regression execute and are routine. full and qualification
+--scenario execute only with the owner's authorization for that run. qualification --journey prints its plan only (exit 3).
+focused never runs a journey: --journey is a qualification selector.
 
 --preflight-only and --collect-only leave evidence and never establish acceptance; they go only with an executable plan.
 
@@ -2516,12 +2388,12 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--test", action="append", metavar="ID",
                         help="focused: a test module or node id under files/tests (repeatable)")
     parser.add_argument("--feature", action="append", metavar="ID",
-                        help="focused: a stable feature id from coverage.json, such as ACT.TTS.CANCEL (repeatable; plan only)")
+                        help="focused: a stable feature id from coverage.json, such as ACT.TTS.CANCEL (repeatable)")
     parser.add_argument("--component", action="append", metavar="ID",
-                        help="regression: a reviewed component of verification.json, such as tts (repeatable; plan only)")
+                        help="regression: a reviewed component of verification.json, such as tts (repeatable)")
     parser.add_argument("--journey", action="append", metavar="ID",
                         help="qualification: a native and real-media journey registered in verification.json (repeatable; plan "
-                             "only until Phase 1A-3); never a focused selector")
+                             "only); never a focused selector")
     parser.add_argument("--base", action=_OnceOnly, metavar="REF",
                         help="changed: also include the committed candidate side since the merge base of REF and HEAD")
     parser.add_argument("--platform", action=_OnceOnly, choices=("windows", "macos"), help="refuse to run (BLOCKED) on any other platform")
@@ -2652,9 +2524,8 @@ def main(argv: list[str] | None = None) -> int:
 # The execution plan (v0.8.2 Phase 1A-1)
 # --------------------------------------------------------------------------- #
 def _activated(args) -> bool:
-    """Whether this request's mode may execute in this checkpoint (GATE.md): focused --test, full, qualification --scenario."""
-    return (args.mode == "focused" and not args.feature) or args.mode == "full" or \
-        (args.mode == "qualification" and bool(args.scenario))
+    """Whether this request's mode may execute (GATE.md): every routine mode, full, qualification --scenario."""
+    return args.mode != "qualification" or bool(args.scenario)
 
 
 def guarded_group_map() -> dict[str, list[str]]:

@@ -22,11 +22,9 @@ import pytest
 
 import routine_effects
 
-# v0.8.2 Phase 1A-1 (R1): every pytest process of this repository is a routine verification process. The supported
-# invocations (routine_pytest.py, guarded_pytest.py) installed the envelope and opened this session's accounting before
-# pytest itself was imported; a raw ``python -m pytest`` gets the restrictions here, after its plugins loaded, and is not
-# verification evidence (GATE.md). Nothing grants a heavyweight effect before Phase 1A-2 admission (routine_effects.py).
-RAW_INVOCATION = routine_effects._bootstrapped is None
+# v0.8.2 (simplified 2026-11-27): every pytest process of this repository is a routine verification process. The guard
+# sets the routine marker that ordinary children inherit, scrubs real-engine opt-ins and refuses network, real model loads
+# and desktop hand-offs in this process (routine_effects.py, GATE.md). Nothing grants a heavyweight effect.
 routine_effects.install()
 
 import cache_sandbox  # noqa: E402
@@ -41,25 +39,8 @@ if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
 
 
-_LEDGER_CACHE: dict = {}
-
-
-def _child_problems() -> tuple[list[dict], list[str]]:
-    """Refusals other processes recorded in this session's ledger, and ledger problems, read live (a record or a launch still
-    open mid-session is normal; whether every obligation was met is judged by the ledger's owner once everything has ended:
-    the gate, or a direct run's bootstrap). Participant files already parsed are not parsed again (``_LEDGER_CACHE``)."""
-    path = os.environ.get(routine_effects.LEDGER_ENV)
-    if not path:
-        return [], ["this session has no effect ledger"]
-    verdict = routine_effects.read_ledger(path, live=True, cache=_LEDGER_CACHE)
-    rows = [row for row in verdict["refusals"] if row.get("pid") != os.getpid() and not row.get("expected")]
-    return rows, list(verdict["problems"])
-
-
 def _unexpected_effects() -> list[str]:
-    rows, problems = _child_problems()
-    found = [f"{row.get('effect')}: {row.get('detail')}" for row in [*routine_effects.unexpected(), *rows]]
-    return found + [f"accounting: {item}" for item in [*routine_effects.accounting_failures(), *problems]]
+    return [f"{row.get('effect')}: {row.get('detail')}" for row in routine_effects.unexpected()]
 
 
 #: Phase 1A-1 R2 (M1), for a direct run as for a gate stage: every collected item, what was deselected, what the session kept.
@@ -88,9 +69,8 @@ def pytest_collection_finish(session):
 
 
 def pytest_sessionfinish(session, exitstatus):
-    """A refused heavyweight effect, or accounting that cannot be verified, is never a pass -- even when the test that caused
-    it caught the refusal, and even when it happened during collection or outside any test. Neither is a collection that does
-    not reconcile."""
+    """A refused heavyweight effect is never a pass -- even when the test that caused it caught the refusal, and even when it
+    happened during collection or outside any test. Neither is a collection that does not reconcile."""
     if _INVENTORY["problem"]:
         sys.stderr.write(f"conftest: {_INVENTORY['problem']}\n")
         if session.exitstatus == 0:
@@ -100,52 +80,21 @@ def pytest_sessionfinish(session, exitstatus):
 
 
 @pytest.fixture(autouse=True)
-def _no_refused_heavyweight_effect(request):
-    """Fail the test that caused a refused heavyweight effect or an accounting failure, whether or not it caught the refusal
-    (routine_effects.py). A test (or module) marked ``routine_stop`` reserves the launches it makes with that expected
-    termination lifecycle (D-R2-1); the marker explains nothing by itself."""
+def _no_refused_heavyweight_effect():
+    """Fail the test that caused a refused heavyweight effect, whether or not it caught the refusal (routine_effects.py)."""
     before = len(_unexpected_effects())
-    marker = request.node.get_closest_marker("routine_stop")
-    if marker is None:
-        yield
-    else:
-        with routine_effects.expected_termination(*marker.args, codes=marker.kwargs.get("codes", ())):
-            yield
-    routine_effects.observe_children()
-    routine_effects.check_reports()
+    yield
     new = _unexpected_effects()[before:]
     if new:
         pytest.fail("refused heavyweight effect(s) in routine verification: " + "; ".join(new[:3]), pytrace=False)
 
 
-def pytest_report_header(config):
-    if RAW_INVOCATION:
-        return ("routine envelope: raw pytest invocation -- restrictions apply, but accounting starts after plugin load; not "
-                "verification evidence (use files/tests/routine_pytest.py or the gate; GATE.md)")
-    return f"routine envelope: {routine_effects._bootstrapped}, ledger {os.environ.get(routine_effects.LEDGER_ENV)}"
-
-
-def _routine_session(config) -> None:
-    """Before collection: this session's owned disposable root (its basetemp) and, for a raw invocation, an effect ledger
-    beside it (a raw run is still not verification evidence; GATE.md)."""
-    factory = getattr(config, "_tmp_path_factory", None)
-    if factory is None:
-        return
-    basetemp = factory.getbasetemp()
-    routine_effects.own_disposable(basetemp)
-    if not os.environ.get(routine_effects.LEDGER_ENV):
-        ledger = basetemp.parent / f"{basetemp.name}-effects"
-        if ledger.exists():
-            import shutil
-
-            shutil.rmtree(ledger)
-        routine_effects.attach_ledger(routine_effects.new_ledger(ledger, owner="raw-pytest"))
-
-
 @pytest.hookimpl(tryfirst=True)
 def pytest_sessionstart(session):
-    """Before collection, after every plugin's configure (the basetemp factory exists): the routine session's scope."""
-    _routine_session(session.config)
+    """Before collection: this session's basetemp is its disposable root (fixture model files, synthetic gate trees)."""
+    factory = getattr(session.config, "_tmp_path_factory", None)
+    if factory is not None:
+        routine_effects.own_disposable(factory.getbasetemp())
 
 
 def pytest_configure(config):
@@ -156,8 +105,6 @@ def pytest_configure(config):
     it does not pay for the walk.
     """
     gate_session_probe.register(config)
-    config.addinivalue_line("markers", "routine_stop(*mechanisms, codes=()): the launches this test makes are reserved to "
-                            "expect these intentional stops (files/tests/routine_effects.py expected_termination)")
     if not config.getoption("collectonly", False):
         _SESSION_BASELINE.update(_session_snapshot())
 

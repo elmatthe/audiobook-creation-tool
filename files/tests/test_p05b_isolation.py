@@ -115,13 +115,6 @@ def test_process_lifetime_guard_catches_collection_setup_body_teardown_import_an
     tests.mkdir(parents=True)
     for name in ("guarded_pytest.py", "write_tripwire.py"):
         shutil.copyfile(Path(__file__).with_name(name), tests / name)
-    # v0.8.2 Phase 1A-1 R2: the copied runner's routine envelope, byte-identical to the marked checkout's (a nested runner
-    # is genuine only then): the envelope's own list of its files.
-    import routine_effects
-
-    for relative in routine_effects.RUNNER_SUPPORT:
-        (app / relative).parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(routine_effects.REPO_ROOT / relative, app / relative)
     output = app / "files/dev-work/p05b-stage4c"
     output.mkdir(parents=True)
     protected = app / "files/runtime-data"

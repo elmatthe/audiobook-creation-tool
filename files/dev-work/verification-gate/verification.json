@@ -179,8 +179,7 @@
     "files/tests/test_native_acceptance.py",
     "files/tests/test_real_media_acceptance.py",
     "files/tests/test_repository_contract.py",
-    "files/tests/test_routine_accounting.py",
-    "files/tests/test_routine_effects.py",
+    "files/tests/test_routine_guard.py",
     "files/tests/test_surface_discovery.py",
     "files/tests/test_verification_coverage.py",
     "files/tests/test_verification_gate_contract.py",
@@ -440,10 +439,12 @@
       "AGENTS.md",
       "CLAUDE.md",
       ".claude/",
+      ".codex/",
       "scripts/project-status.py",
       "files/run-temp/"
     ],
     "no_selection": [
+      "files/codex-summary-for-remote-access/",
       "files/plans/",
       "files/release-history/",
       "md-instructions/",
@@ -595,89 +596,68 @@
     "suite_wide": {
       "files/tests/conftest.py": [
         "files/tests/test_suite_isolation.py",
-        "files/tests/test_routine_effects.py",
+        "files/tests/test_routine_guard.py",
         "files/tests/test_verify_guarded.py",
         "files/tests/test_application_source_boundary.py"
       ],
       "files/tests/routine_effects.py": [
         "files/tests/test_suite_isolation.py",
-        "files/tests/test_routine_effects.py",
-        "files/tests/test_routine_accounting.py",
-        "files/tests/test_verify_guarded.py",
-        "files/tests/test_application_source_boundary.py"
-      ],
-      "files/tests/routine_child.py": [
-        "files/tests/test_suite_isolation.py",
-        "files/tests/test_routine_effects.py",
-        "files/tests/test_routine_accounting.py",
-        "files/tests/test_verify_guarded.py",
-        "files/tests/test_application_source_boundary.py"
-      ],
-      "files/tests/routine_fixtures.py": [
-        "files/tests/test_suite_isolation.py",
-        "files/tests/test_routine_effects.py",
-        "files/tests/test_routine_accounting.py",
+        "files/tests/test_routine_guard.py",
         "files/tests/test_verify_guarded.py",
         "files/tests/test_application_source_boundary.py"
       ],
       "files/tests/routine_recipes/scripted_acceptance_runner.py": [
-        "files/tests/test_routine_effects.py",
+        "files/tests/test_routine_guard.py",
         "files/tests/test_verification_gate_contract.py",
         "files/tests/test_verify_evidence.py"
       ],
       "files/tests/routine_recipes/scenario_runner.py": [
-        "files/tests/test_routine_effects.py",
+        "files/tests/test_routine_guard.py",
         "files/tests/test_verification_gate_contract.py"
       ],
       "files/tests/routine_recipes/fake_pytest.py": [
-        "files/tests/test_routine_effects.py",
+        "files/tests/test_routine_guard.py",
         "files/tests/test_verify_evidence.py"
-      ],
-      "files/tests/routine_pytest.py": [
-        "files/tests/test_suite_isolation.py",
-        "files/tests/test_routine_effects.py",
-        "files/tests/test_verify_guarded.py",
-        "files/tests/test_application_source_boundary.py"
       ],
       "files/tests/guarded_pytest.py": [
         "files/tests/test_suite_isolation.py",
-        "files/tests/test_routine_effects.py",
+        "files/tests/test_routine_guard.py",
         "files/tests/test_verify_guarded.py",
         "files/tests/test_application_source_boundary.py"
       ],
       "files/tests/write_tripwire.py": [
         "files/tests/test_suite_isolation.py",
-        "files/tests/test_routine_effects.py",
+        "files/tests/test_routine_guard.py",
         "files/tests/test_verify_guarded.py",
         "files/tests/test_application_source_boundary.py"
       ],
       "files/tests/gate_session_probe.py": [
         "files/tests/test_suite_isolation.py",
-        "files/tests/test_routine_effects.py",
+        "files/tests/test_routine_guard.py",
         "files/tests/test_verify_guarded.py",
         "files/tests/test_application_source_boundary.py"
       ],
       "files/tests/cache_sandbox.py": [
         "files/tests/test_suite_isolation.py",
-        "files/tests/test_routine_effects.py",
+        "files/tests/test_routine_guard.py",
         "files/tests/test_verify_guarded.py",
         "files/tests/test_application_source_boundary.py"
       ],
       "files/tests/tk_gate.py": [
         "files/tests/test_suite_isolation.py",
-        "files/tests/test_routine_effects.py",
+        "files/tests/test_routine_guard.py",
         "files/tests/test_verify_guarded.py",
         "files/tests/test_application_source_boundary.py"
       ],
       "files/tests/source_probe.py": [
         "files/tests/test_suite_isolation.py",
-        "files/tests/test_routine_effects.py",
+        "files/tests/test_routine_guard.py",
         "files/tests/test_verify_guarded.py",
         "files/tests/test_application_source_boundary.py"
       ],
       "files/tests/guarded_groups.json": [
         "files/tests/test_suite_isolation.py",
-        "files/tests/test_routine_effects.py",
+        "files/tests/test_routine_guard.py",
         "files/tests/test_verify_guarded.py",
         "files/tests/test_application_source_boundary.py"
       ]
@@ -685,7 +665,7 @@
     "max_routed_modules": 40
   },
   "quick": {
-    "about": "v0.8.2 Phase 1A-1: the fixed, named static checks and the small reviewed import smoke of --mode quick. No selector narrows or widens it, it collects no pytest inventory and runs no journey. Plan only until Phase 1A-3 activates its execution; a future quick PASS names exactly these checks.",
+    "about": "v0.8.2: the fixed, named static checks and the small reviewed import smoke of --mode quick. No selector narrows or widens it, it collects no pytest inventory and runs no journey. Routine: executes; a quick PASS names exactly these checks.",
     "checks": [
       {
         "id": "docnames",
@@ -723,7 +703,7 @@
     ]
   },
   "regression": {
-    "about": "v0.8.2 Phase 1A-1: the reviewed, bounded component scopes of --mode regression (repeatable --component). A component expands through the coverage.json features of its tools (each feature's selection and behavioural tests) plus any integration tests named here; the plan publishes the actual expansion. There is no unnamed default and no 'all'. Plan only until Phase 1A-3.",
+    "about": "v0.8.2 Phase 1A-1: the reviewed, bounded component scopes of --mode regression (repeatable --component). A component expands through the coverage.json features of its tools (each feature's selection and behavioural tests) plus any integration tests named here; the plan publishes the actual expansion. There is no unnamed default and no 'all'. Routine: executes.",
     "components": {
       "gate": {
         "tools": [
@@ -731,8 +711,7 @@
         ],
         "tests": [
           "files/tests/test_execution_plan.py",
-          "files/tests/test_routine_accounting.py",
-          "files/tests/test_routine_effects.py"
+          "files/tests/test_routine_guard.py"
         ]
       },
       "setup": {
@@ -793,7 +772,6 @@
     "about": "v0.8.2 Phase 1A-1 (helpers/effects.py): the effect vocabulary is native-desktop, real-app-launch, real-engine, external-network, install, scaling and release-build. Tests declare effects sparsely, at the real boundary (ACT_EFFECTS in the module). reviewed_bounded lists test modules whose source shows a live-boundary indicator but which were reviewed as bounded for routine verification; any other module with an indicator and no declaration is an unclassified boundary (withheld as a gap, and a contract test fails).",
     "reviewed_bounded": {
       "files/tests/test_book_workspace_ui.py": "imports the Plan 6 harness in-process and builds it under a withdrawn window",
-      "files/tests/test_routine_accounting.py": "the Phase 1A-1 R2 regression matrix: drives the routine envelope's own refusals of native process creation (containment.spawn_low with an unreviewed command line) and checks launch decisions; every operation is refused or a reviewed fixture",
       "files/tests/test_dialog_containment.py": "drives the acceptance runner and Windows containment in-process with refusing stand-ins: in-process with stand-ins, or source text only: no real window, input, engine, install or network",
       "files/tests/test_job_ui.py": "reads and imports the Plan 3 harness for static boundary checks; starts no window",
       "files/tests/test_m4b_metadata_editor_ui.py": "reads the UI prototype fixture's source text only",
@@ -802,12 +780,11 @@
       "files/tests/test_macos_p5_platform_exception.py": "imports the acceptance runner's registry: in-process with stand-ins, or source text only: no real window, input, engine, install or network",
       "files/tests/test_native_acceptance.py": "judges synthetic acceptance reports; lists the runner's registry with --list (data-only): in-process with stand-ins, or source text only: no real window, input, engine, install or network",
       "files/tests/test_plan3_boundaries.py": "names the Plan 3 harness in static boundary checks",
-      "files/tests/test_plan6_boundaries.py": "names the Plan 6 harness in static boundary checks",
-      "files/tests/test_routine_effects.py": "the routine envelope's own negative controls (R1 included): real opt-in names appear only to prove they are scrubbed; every refused launch names an engine interpreter that does not exist, a program's --version or a root that refuses itself before doing anything; refused network targets are .invalid names or documentation addresses refused before any socket call; a refused weight read names a file that does not exist; SendInput is only resolved, never called; each refusing child gets a private ledger adopted by expected_refusals"
+      "files/tests/test_plan6_boundaries.py": "names the Plan 6 harness in static boundary checks"
     }
   },
   "entrypoints": {
-    "about": "v0.8.2 Phase 1A-1, decision ENTRY: every executable verification entrypoint (a __main__ block under the gate, files/dev-tools or the test helpers), classified. class: active (verification infrastructure, integrated with the controls), maintained (developer qualification tools: integrated or disabled until admitted in Phase 1A-2), obsolete (experiments kept for history: retirement is Phase 2), bounded (a reviewed short disposable fixture), support. routine: what a routine verification process may do with it -- refused (only --help), data-only (only --help and the listed data_only flags), bounded (permitted). files/tests/routine_effects.py enforces this table at launch; the contract test of helpers/effects.py keeps it equal to the tree.",
+    "about": "v0.8.2 Phase 1A-1, decision ENTRY: every executable verification entrypoint (a __main__ block under the gate, files/dev-tools or the test helpers), classified. class: active (verification infrastructure, integrated with the controls), maintained (developer qualification tools: integrated or disabled until admitted in Phase 1A-2), obsolete (experiments kept for history: retirement is Phase 2), bounded (a reviewed short disposable fixture), support. routine: what a routine verification process may do with it -- refused (only --help), data-only (only --help and the listed data_only flags), bounded (permitted). Each refusing entrypoint checks the routine marker itself (helpers/routine_context.py; there is no launch interception since the v0.8.2 simplification); the contract test of helpers/effects.py keeps it equal to the tree.",
     "files/dev-work/verification-gate/verify.py": {
       "class": "active",
       "effects": [
@@ -1132,7 +1109,7 @@
       "class": "obsolete",
       "effects": [],
       "routine": "bounded",
-      "why": "v0.8.0 Phase 1 worker; a routine test runs it under the base interpreter with a refused job (it cannot load the model there); an engine-environment interpreter is refused by routine_effects"
+      "why": "v0.8.0 Phase 1 worker; a routine test runs it under the base interpreter with a refused job (it cannot load the model there); an engine-environment interpreter needs owner authorization (GATE.md)"
     },
     "files/dev-tools/omnivoice_p2_smoke.py": {
       "class": "obsolete",
@@ -1162,7 +1139,7 @@
       "class": "maintained",
       "effects": [],
       "routine": "bounded",
-      "why": "its selfcheck inspects fixed library configuration in the Qwen3 environment without loading a model (the guarded runner's reviewed profile and, since R3-05, the exact qwen3-calm-selfcheck profile of routine_fixtures.py: offline, every cache and scratch destination disposable); any other engine-interpreter use is refused by routine_effects"
+      "why": "its selfcheck inspects fixed library configuration in the Qwen3 environment without loading a model (the guarded runner's reviewed profile). v0.8.2 simplification: the R3-05 routine selfcheck exception is retired; the installed-library proof (test_qwen3_calm_harness) is a named environment obligation run only where the pinned Qwen3 environment exists, offline, with every cache and config destination (HF_HUB_CACHE, XDG_CONFIG_HOME included) disposable"
     },
     "files/dev-tools/qwen3_calm_worker.py": {
       "class": "maintained",
@@ -1286,18 +1263,6 @@
       ],
       "routine": "refused",
       "why": "developer visual fixture (v0.6.0 UI prototype)"
-    },
-    "files/tests/routine_pytest.py": {
-      "class": "support",
-      "effects": [],
-      "routine": "bounded",
-      "why": "the routine pytest bootstrap the gate starts ordinary pytest through"
-    },
-    "files/tests/routine_child.py": {
-      "class": "support",
-      "effects": [],
-      "routine": "bounded",
-      "why": "the verification-owned child bootstrap (Phase 1A-1 R2): binds a prepared launch to its reservation, installs the routine envelope, then runs the program the unprepared command named, in the same process"
     }
   },
   "acceptance": {

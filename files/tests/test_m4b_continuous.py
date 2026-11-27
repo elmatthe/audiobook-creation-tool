@@ -386,7 +386,6 @@ def _python_child(code: str, python: str | None = None):
 SINGLE_PROCESS_PYTHON = getattr(sys, "_base_executable", "") or sys.executable
 
 
-@pytest.mark.routine_stop("terminate-process")  # the code under test kills its child on purpose (D-R2-1)
 def test_a_cancelled_packet_scan_stops_its_child_at_once():
     endless = ("import sys,time\npts=0\nwhile True:\n    sys.stdout.write(f'{pts},1024,K__\\n'); sys.stdout.flush()\n"
                "    pts += 1024\n    time.sleep(0.01)\n")
@@ -511,7 +510,6 @@ def test_a_feed_the_book_cannot_honour_fails_loudly(tmp_path, name, kwargs, feed
         decoder.close()
 
 
-@pytest.mark.routine_stop("terminate-process")  # the code under test kills its child on purpose (D-R2-1)
 def test_a_killed_decoder_fails_the_next_chapter_never_ends_the_book(tmp_path):
     decoder = make_decoder(tmp_path, 100_000, linger=True)
     try:
@@ -523,7 +521,6 @@ def test_a_killed_decoder_fails_the_next_chapter_never_ends_the_book(tmp_path):
         decoder.close()
 
 
-@pytest.mark.routine_stop("terminate-process")  # the code under test kills its child on purpose (D-R2-1)
 def test_close_stops_a_running_decoder_and_reaps_it(tmp_path):
     decoder = make_decoder(tmp_path, 1000, linger=True)
     # Ready first (D-R2-8 class B): its first samples show the decoder running; what is timed is the close of a running one.
@@ -537,7 +534,6 @@ def test_close_stops_a_running_decoder_and_reaps_it(tmp_path):
         collect(decoder, 0, 10)
 
 
-@pytest.mark.routine_stop("terminate-process")  # the code under test kills its child on purpose (D-R2-1)
 def test_owned_decoders_closes_whatever_the_body_left_running(tmp_path):
     with pytest.raises(RuntimeError, match="unexpected"):
         with m4b_continuous.owned_decoders():

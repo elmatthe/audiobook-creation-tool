@@ -36,17 +36,11 @@ GATE_ORDER = ["pytest", "guarded", "deps", "docs", "docnames", "config"]
 EVIDENCE_FILES = {"logs/verify.log", "logs/pytest.log", "reports/pytest.xml", "reports/pytest-probe.jsonl", "start.json",
                   "results.json", "selection.json", "summary.md", "coverage-report.md",
                   # v0.8.x P1B closeout: every file the run saw, as a git blob, for incremental evidence (helpers/evidence_ledger.py)
-                  "evidence-files.json",
-                  # v0.8.2 Phase 1A-1 R1/R2: the pytest stage's effect ledger: its header, the gate's own record and the
-                  # stage session's (one participant file each), and the reservation of the stage's launch
-                  "reports/pytest-effects/ledger.json", "reports/pytest-effects/<process>.jsonl",
-                  "reports/pytest-effects/<reservation>.json"}
+                  "evidence-files.json"}
 
 pytestmark = pytest.mark.skipif(shutil.which("git") is None, reason="the tree fingerprint needs git")
 
-# Stands in for pytest: argv is <junit path> <mode> [extra]. Phase 1A-1 R2: the reviewed recipe
-# files/tests/routine_recipes/fake_pytest.py, in its exact bytes (helpers/routine_context.py SYNTHETIC_RECIPES): the
-# verification-owned bootstrap accounts for it as the stage's routine pytest session; it writes no record itself.
+# Stands in for pytest: argv is <junit path> <mode> [extra] (files/tests/routine_recipes/fake_pytest.py).
 FAKE_PYTEST = (GATE_DIR.parents[2] / "files" / "tests" / "routine_recipes" / "fake_pytest.py").read_bytes()
 
 POLICY = {
@@ -140,10 +134,8 @@ def policy_files(tmp_path) -> tuple[Path, Path]:
 
 @pytest.fixture
 def verify(monkeypatch, fake_repo, policy_files):
-    """The real gate module, in this process, against the synthetic repository. Its stages' ledgers are its own to judge;
-    any refusal recorded in them still counts against this test (routine_effects.adopting_ledgers)."""
-    with routine_effects.adopting_ledgers():
-        yield _verify_module(monkeypatch, fake_repo, policy_files)
+    """The real gate module, in this process, against the synthetic repository."""
+    yield _verify_module(monkeypatch, fake_repo, policy_files)
 
 
 def _verify_module(monkeypatch, fake_repo, policy_files):
@@ -284,24 +276,24 @@ def test_the_real_gate_lists_the_static_gates_in_order():
 
 
 def test_the_evidence_pytest_command_adds_only_reporting_to_the_ordinary_scope(tmp_path):
-    """v0.8.2 Phase 1A-1: pytest starts through the routine bootstrap (files/tests/routine_pytest.py), and only the full plan's
+    """v0.8.2: pytest starts as ``python -u -s -m pytest`` in the scrubbed stage environment, and only the full plan's
     release partition stands for the whole ordinary suite; an explicit plan passes its selectors, and nothing is implicit."""
     module = load_gate("act_verify_evidence_command")
     junit = tmp_path / "pytest.xml"
     partition = module.execution_plan.ORDINARY_PARTITION
     command = module._pytest_command(junit, token="run-pytest", basetemp=tmp_path / "b", cache=tmp_path / "c",
                                      targets=[partition])
-    assert command[:4] == [sys.executable, "-u", str(module.TESTS_DIR / "routine_pytest.py"), str(module.TESTS_DIR)]
-    assert command[4:4 + len(module._ignore_arguments())] == module._ignore_arguments()
-    rest = command[4 + len(module._ignore_arguments()):]
+    assert command[:6] == [sys.executable, "-u", "-s", "-m", "pytest", str(module.TESTS_DIR)]
+    assert command[6:6 + len(module._ignore_arguments())] == module._ignore_arguments()
+    rest = command[6 + len(module._ignore_arguments()):]
     assert rest == ["-q", "-ra", f"--junitxml={junit}", "-o", "junit_suite_name=run-pytest", f"--basetemp={tmp_path / 'b'}",
                     "-o", f"cache_dir={tmp_path / 'c'}", "-o", f"faulthandler_timeout={module.FAULTHANDLER_SECONDS}"]
-    pytest_arguments = command[3:]
+    pytest_arguments = command[5:]
     for narrowing in ("-x", "-k", "-m", "--lf", "--deselect", "--maxfail", "-p"):
         assert narrowing not in pytest_arguments
     chosen = module._pytest_command(junit, token="t", basetemp=tmp_path / "b", cache=tmp_path / "c",
                                     targets=["files/tests/test_a.py", "files/tests/test_b.py::test_x"])
-    assert chosen[3:5] == ["files/tests/test_a.py", "files/tests/test_b.py::test_x"] and str(module.TESTS_DIR) not in chosen
+    assert chosen[5:7] == ["files/tests/test_a.py", "files/tests/test_b.py::test_x"] and str(module.TESTS_DIR) not in chosen
     for targets in ([], [partition, "files/tests/test_a.py"]):
         with pytest.raises(ValueError):
             module._pytest_command(junit, token="t", basetemp=tmp_path / "b", cache=tmp_path / "c", targets=targets)
@@ -703,8 +695,7 @@ def test_the_real_non_pytest_gates_are_recorded_exactly_as_they_report(monkeypat
     names = {name: getattr(real, name) for name in dir(real) if not name.startswith("__")}
     names["refuse_under_routine"] = lambda *args, **kwargs: None
     monkeypatch.setattr(module, "routine_context", types.SimpleNamespace(**names))
-    with routine_effects.adopting_ledgers():
-        module.main(["--mode", "full"])
+    module.main(["--mode", "full"])
     target = next((tmp_path / "outputs").iterdir())
     recorded = {item["name"]: item for item in load(target, "results.json")["checks"]}
     for function, name in (("check_requirements", "deps"), ("check_docs", "docs"),
@@ -813,7 +804,6 @@ def test_an_unexpected_error_keeps_its_traceback_and_leaves_the_run_incomplete(v
     assert "check pytest: PASS" in verify_log
 
 
-@pytest.mark.routine_stop("terminate-process")  # the gate's process is killed outright on purpose (D-R2-1)
 def test_a_run_killed_outright_reads_incomplete(fake_repo, fake_pytest, policy_files, tmp_path):
     wrapper = tmp_path / "killable_run.py"
     wrapper.write_text(KILLABLE_RUN, encoding="utf-8")

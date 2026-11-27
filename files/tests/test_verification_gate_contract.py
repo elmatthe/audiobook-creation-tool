@@ -60,9 +60,7 @@ class Tree:
         self.outputs = self.gate / "outputs"
         self.tests.mkdir(parents=True)
         shutil.copytree(GATE_DIR, self.gate, ignore=shutil.ignore_patterns("outputs", "__pycache__"))
-        # routine_pytest.py and routine_effects.py: the gate's ordinary stages start pytest through them (v0.8.2 Phase 1A-1).
-        for name in ("gate_session_probe.py", "guarded_pytest.py", "write_tripwire.py", "routine_effects.py", "routine_pytest.py",
-                     "routine_child.py", "routine_fixtures.py"):
+        for name in ("gate_session_probe.py", "guarded_pytest.py", "write_tripwire.py", "routine_effects.py"):
             shutil.copyfile(TESTS_SOURCE / name, self.tests / name)
         self.write("files/tests/conftest.py", "import gate_session_probe\n\n\ndef pytest_configure(config):\n"
                                               "    gate_session_probe.register(config)\n")
@@ -74,10 +72,9 @@ class Tree:
         self.write("pytest.ini", "[pytest]\ntestpaths = files/tests\nnorecursedirs = dev-work\n")
         self.write(".gitignore", "__pycache__/\n*.pyc\nfiles/dev-work/*\n!files/dev-work/verification-gate/\n"
                                  "files/dev-work/verification-gate/outputs/\n" + routine_effects.context.SYNTHETIC_DECLARATION + "\n")
-        # v0.8.2 Phase 1A-1 R1/R2: this tree is a reviewed synthetic gate fixture (helpers/routine_context.py, format 2). Its gate
-        # copy may run inside routine verification only because this declaration names the tree, the tree lies in this
-        # session's own disposable root, its orchestrator, runners and envelope are the checkout's own bytes, and its runners
-        # start only reviewed recipes (declare); a real, modified or historical runner copied here still refuses.
+        # A synthetic gate fixture (helpers/routine_context.py): its gate copy may orchestrate inside routine verification
+        # because this declaration names the tree inside this session's basetemp; a real runner copied here still refuses
+        # itself (its own __main__ check), and the gate starts only this tree's stand-ins.
         declare_fixture(root, {})
         # The real static gates judge this tree, so they read the real rules and the real pinned files.
         shutil.copytree(REPO_ROOT / "scripts" / "shared", root / "scripts" / "shared",
@@ -296,8 +293,7 @@ def test_later_phase_requirements_are_reported_as_not_run_and_never_as_satisfied
 
 def test_an_unreviewed_inventory_stops_a_full_run(tree):
     """The real policy's requirement, turned on in this tree: its one-feature seed is schema 1 and unreviewed, so a full run may not
-    pass. A changed request only resolves its plan in Phase 1A-1 (nothing runs, so nothing passes); a focused run reports the
-    inventory without being stopped by it."""
+    pass. Routine changed and focused runs report the inventory without being stopped by it (v0.8.2 simplification)."""
     policy = tree.policy()
     policy["coverage"] = {"require_reviewed_inventory": True}
     tree.write_policy(policy)
@@ -309,7 +305,7 @@ def test_an_unreviewed_inventory_stops_a_full_run(tree):
     assert full.check("pytest")["status"] == "PASS", "the suite passed; only the inventory check stops it"
     tree.write("files/tests/test_ordinary.py", PASSING + "\n# touched\n")
     changed = tree.run("--mode", "changed", "--base", "HEAD")
-    assert changed.code == 3 and changed.directory is None and "PLAN:" in changed.stdout, changed
+    assert changed.code == 0 and changed.check("coverage-inventory")["required"] is False, "a routine changed run reports it"
     focused = tree.focused("files/tests/test_ordinary.py")
     assert focused.code == 0 and focused.check("coverage-inventory")["required"] is False, "a focused run reports it without being stopped"
 
@@ -403,13 +399,13 @@ def test_an_unknown_feature_is_an_invalid_invocation_before_anything_runs(tree):
 
 
 def test_a_known_feature_selects_its_tests_and_nothing_else(tree):
-    """focused --feature resolves its plan (the feature's tests, nothing else) and prints it: it executes from Phase 1A-3."""
-    outcome = tree.run("--mode", "focused", "--feature", "ACT.TEST.ONE")
-    assert outcome.code == 3 and outcome.directory is None, outcome
-    plan = outcome.plan
+    """focused --feature runs the feature's tests and nothing else (v0.8.2: routine modes execute)."""
+    plan = tree.plan("--mode", "focused", "--feature", "ACT.TEST.ONE").plan
     assert plan["ordinary"] == ["files/tests/test_ordinary.py"] and plan["guarded"] == {} and plan["journeys"] == []
-    assert plan["status"] == "COMPLETE" and plan["executable_now"] is False and "Phase 1A-3" in plan["activation"]
-    assert plan["release_partition"] is False and "never a PASS" in outcome.stdout
+    assert plan["status"] == "COMPLETE" and plan["executable_now"] is True and plan["release_partition"] is False
+    outcome = tree.run("--mode", "focused", "--feature", "ACT.TEST.ONE")
+    assert outcome.code == 0 and outcome.check("pytest")["status"] == "PASS", outcome
+    assert outcome.check("requested-scope")["status"] == "PASS"
 
 
 def test_a_focused_journey_is_refused_with_the_way_forward(tree):
@@ -437,10 +433,13 @@ def test_an_invalid_mode_and_selector_combination_is_refused_before_anything_run
     assert needle in outcome.stderr, outcome
 
 
-def test_quick_and_regression_resolve_their_plans_and_run_nothing(tree):
+def test_quick_runs_its_static_checks_and_regression_resolves_a_bounded_plan(tree):
+    """v0.8.2: quick executes its named static checks (no pytest) and passes on this well-formed tree."""
     quick = tree.run("--mode", "quick")
-    assert quick.code == 3 and quick.directory is None, quick
-    assert quick.plan["static_checks"] and quick.plan["ordinary"] == [] and quick.plan["executable_now"] is False
+    assert quick.code == 0 and quick.results["status"] == "PASS", quick
+    for check in tree.policy()["quick"]["checks"]:
+        assert quick.check(check["id"])["status"] == "PASS", quick.check(check["id"])
+    assert quick.check("pytest")["status"] == "NOT APPLICABLE"
     regression = tree.plan("--mode", "regression", "--component", "gate")
     assert regression.code == 3 and regression.plan["requested"] == ["component:gate"], regression
     assert regression.plan["release_partition"] is False and "files/tests" not in regression.plan["ordinary"]
@@ -534,126 +533,33 @@ def test_the_m4b_scaling_scenario_runs_its_runner_and_is_blocked_without_the_app
     assert outcome.results["qualification"]["satisfied"] == [] and "m4b-scaling" in outcome.results["qualification"]["pending"]
 
 
-@pytest.mark.parametrize("scenario, effect", [("m4b-scaling", "scaling"), ("edge-low-memory", "external-network"),
-                                              ("fresh-windows", "install")])
-def test_a_real_runner_copied_into_a_synthetic_tree_never_starts_inside_routine_verification(tree, tmp_path, scenario, effect):
-    """v0.8.2 Phase 1A-1 R1 (H1): the tree's runner is a byte copy of the real one. Inside routine verification the gate's own
-    operation boundary refuses it before it starts -- it is not a declared stand-in -- and records the refusal, which this
-    control adopts from a private ledger."""
-    ledger = routine_effects.new_ledger(tmp_path / "gl")
-    with routine_effects.expected_refusals(effect) as scope:
-        outcome = tree.run("--mode", "qualification", "--scenario", scenario, env={routine_effects.LEDGER_ENV: str(ledger)})
-    assert outcome.code == 2, outcome
-    gate = outcome.check(f"scenario:{scenario}")
-    assert gate["status"] == "BLOCKED" and "refused in routine verification" in gate["detail"], gate
-    assert not (outcome.directory / "qualification").exists(), "the real runner must not have started"
-    verdict = scope.ledgers[str(ledger)]
-    assert verdict["problems"] == [] and [row["effect"] for row in verdict["refusals"]] == [effect], verdict
+def _stage_log(outcome, name: str) -> str:
+    log = outcome.directory / "logs" / name
+    return log.read_text(encoding="utf-8", errors="replace") if log.is_file() else ""
 
 
-def test_the_real_acceptance_runner_in_a_synthetic_tree_never_starts_and_a_changed_stand_in_is_no_stand_in(tree, tmp_path):
-    """H1: the declared stand-in is replaced by the real runner's bytes after it was declared. The declaration no longer
-    matches, so the gate's operation boundary refuses: native journeys never start inside routine verification."""
+@pytest.mark.parametrize("scenario", ["m4b-scaling", "edge-low-memory", "fresh-windows"])
+def test_a_real_runner_copied_into_a_synthetic_tree_never_starts_inside_routine_verification(tree, scenario):
+    """The tree's runner is a byte copy of the real one. The real runner checks the routine marker itself, wherever it lies,
+    so it refuses before it does anything: the scenario is never a pass and leaves no verdict (v0.8.2 simplification)."""
+    outcome = tree.run("--mode", "qualification", "--scenario", scenario)
+    assert outcome.code != 0 and outcome.results["status"] != "PASS", outcome
+    assert outcome.check(f"scenario:{scenario}")["status"] != "PASS"
+    assert "refused" in _stage_log(outcome, f"qualification-{scenario}.log")
+    assert not (outcome.directory / "qualification" / "verdict.json").exists(), "the real runner must not have run"
+
+
+def test_the_real_acceptance_runner_in_a_synthetic_tree_never_starts_and_a_changed_stand_in_is_no_stand_in(tree):
+    """The declared stand-in is replaced by the real runner's bytes. The real runner refuses itself under the routine marker:
+    native journeys never start inside routine verification, and the stage is never a pass."""
     _with_runner(tree)
     shutil.copyfile(GATE_DIR / "acceptance_runner.py", tree.gate / "acceptance_runner.py")
     tree.commit("the real runner where the stand-in was")
-    ledger = routine_effects.new_ledger(tmp_path / "gl")
-    with routine_effects.expected_refusals("native-desktop") as scope:
-        outcome = _journey(tree, "mp3.journey", env={routine_effects.LEDGER_ENV: str(ledger)})
-    acceptance = outcome.check("acceptance")
-    assert acceptance["status"] == "BLOCKED" and "refused in routine verification" in acceptance["detail"], acceptance
-    assert outcome.results["status"] != "PASS" and not (outcome.directory / "acceptance").exists()
-    assert [row["effect"] for row in scope.ledgers[str(ledger)]["refusals"]] == ["native-desktop"]
-
-
-#: Damages the ordinary stage's effect ledger after the stage really ran (directly, so the gate's own child-identity checks hold)
-#: and before the gate reads it; or starts pytest without the routine bootstrap (v0.8.2 Phase 1A-1 R1, M2).
-LEDGER_DAMAGE = """\
-    import json, shutil
-    action = {action!r}
-    if action == "bypass-bootstrap":
-        gate._routine_pytest = lambda: [sys.executable, "-m", "pytest"]
-    real_check = gate.GateRun.check_routine_effects
-
-    def damaged(self):
-        for stage, ledger, role in self.effect_ledgers:
-            if stage != "pytest":
-                continue
-            if action == "delete-ledger":
-                shutil.rmtree(ledger)
-            elif action == "malformed":
-                (ledger / "p1-0000.jsonl").write_text("not json\\n", encoding="utf-8")
-            elif action == "wrong-shape":
-                (ledger / "p1-0001.jsonl").write_text("[1, 2]\\n", encoding="utf-8")
-            elif action == "interrupted":
-                # The stage's own session, as if killed after its last test: its end record is gone.
-                for record in sorted(ledger.glob("p*.jsonl")):
-                    rows = record.read_text(encoding="utf-8").splitlines(keepends=True)
-                    if rows and json.loads(rows[0]).get("role") == "routine-pytest" and \\
-                            json.loads(rows[-1]).get("kind") == "end":
-                        record.write_text("".join(rows[:-1]), encoding="utf-8")
-            elif action == "no-session":
-                # No record of the stage's own runner at all (R1's bypass-bootstrap shape, made without a raw launch).
-                for record in sorted(ledger.glob("p*.jsonl")):
-                    rows = record.read_text(encoding="utf-8").splitlines()
-                    if rows and json.loads(rows[0]).get("role") == "routine-pytest":
-                        record.unlink()
-        return real_check(self)
-
-    gate.GateRun.check_routine_effects = damaged
-    """
-
-
-@pytest.mark.parametrize("action, needle", [
-    ("nothing", None),
-    ("delete-ledger", "missing"),
-    ("malformed", "not JSON"),
-    ("wrong-shape", "wrong shape"),
-    ("interrupted", "never completed"),
-    ("no-session", "no completed routine-pytest session"),
-])
-def test_the_gate_never_passes_a_stage_whose_effect_accounting_cannot_be_verified(tree, action, needle):
-    """M2 at the gate: every test passes, and the focused run is still FAIL when its stage ledger is missing, malformed, of
-    the wrong shape, holds a process that never completed, or holds no completed session of the stage's own runner. The
-    no-change control passes. (A stage pytest started without the routine bootstrap is refused at its launch since R2,
-    D-R2-6: see the test below.)"""
-    launcher = _patched_gate(tree, LEDGER_DAMAGE.format(action=action))
-    outcome = tree.run("--mode", "focused", "--test=files/tests/test_ordinary.py", script=launcher)
-    effects_check = outcome.check("routine-effects")
-    log = outcome.directory / "logs" / "pytest.log"
-    assert outcome.check("pytest")["status"] == "PASS", (outcome.check("pytest")["detail"],
-                                                         log.read_text(encoding="utf-8")[-3000:] if log.is_file() else "no log")
-    if needle is None:
-        assert outcome.code == 0 and effects_check["status"] == "PASS", (outcome, effects_check)
-    else:
-        assert outcome.code == 1 and effects_check["status"] == "FAIL" and needle in effects_check["detail"], effects_check
-
-
-def test_a_stage_pytest_started_without_the_routine_bootstrap_is_refused_before_it_runs(tree, tmp_path):
-    """M2/H2 at the gate (R2, D-R2-6; replaces R1's ``bypass-bootstrap`` case, which let raw ``python -m pytest`` run and
-    failed the stage afterwards for its missing session). The same test module, holding a harmless execution sentinel:
-    through the supported routine bootstrap the stage runs it (the sentinel is written, the run passes); started as raw
-    ``python -m pytest`` the launch is refused before anything runs: the sentinel stays untouched, the stage and the run are
-    not a pass, and the refusal is the launch's own, recorded in the gate's ledger."""
-    sentinel = tmp_path / "executed.txt"
-    tree.write("files/tests/test_ordinary.py",
-               PASSING + f"\nimport pathlib\npathlib.Path({str(sentinel)!r}).write_text('ran', encoding='utf-8')\n")
-    supported = tree.run("--mode", "focused", "--test=files/tests/test_ordinary.py")
-    assert supported.code == 0 and supported.check("pytest")["status"] == "PASS", supported
-    assert sentinel.read_text(encoding="utf-8") == "ran", "the positive control: the bootstrap runs the module"
-    sentinel.unlink()
-    launcher = _patched_gate(tree, LEDGER_DAMAGE.format(action="bypass-bootstrap"))
-    ledger = routine_effects.new_ledger(tmp_path / "gl")
-    with routine_effects.expected_refusals("real-app-launch") as scope:
-        outcome = tree.run("--mode", "focused", "--test=files/tests/test_ordinary.py", script=launcher,
-                           env={routine_effects.LEDGER_ENV: str(ledger)})
-    stage = outcome.check("pytest")
-    assert not sentinel.exists(), "a refused launch must run nothing"
-    assert outcome.code != 0 and outcome.results["status"] != "PASS", outcome
-    assert stage["status"] in ("BLOCKED", "FAIL", "NOT RUN") and "could not be started" in stage["detail"], stage
-    refusals = scope.ledgers[str(ledger)]["refusals"]
-    assert [row["effect"] for row in refusals] == ["real-app-launch"], refusals
-    assert "outside the routine bootstrap" in refusals[0]["detail"], refusals
+    outcome = _journey(tree, "mp3.journey")
+    assert outcome.check("acceptance")["status"] != "PASS" and outcome.results["status"] != "PASS", outcome
+    assert "refused" in _stage_log(outcome, "acceptance.log")
+    evidence = outcome.directory / "acceptance"
+    assert not evidence.exists() or not list(evidence.rglob("*.png")), "no journey ran"
 
 
 def test_a_scenario_runner_that_reports_pass_without_exiting_zero_is_not_a_pass(tree):
@@ -1262,7 +1168,6 @@ def _wait_gone(pid: int, seconds: float = 15) -> bool:
     return not _pid_alive(pid)
 
 
-@pytest.mark.routine_stop("terminate-process")  # the stranger is killed on purpose at the end (D-R2-1)
 def test_a_grandchild_left_behind_is_a_failed_cleanup_and_an_unrelated_process_survives(tree):
     """Pytest passes and exits, its grandchild does not. The run fails for that, the tree dies, a stranger does not."""
     pid_file = tree.root / "grandchild.pid"
@@ -1344,7 +1249,6 @@ def test_output_too_large_for_a_pipe_cannot_block_the_gate(tree):
 
 
 @pytest.mark.parametrize("stage", ["pytest"])
-@pytest.mark.routine_stop("terminate-process")  # the gate is killed outright on purpose; its own kill-on-close Job ends its tree
 def test_killing_the_gate_kills_its_tree_and_leaves_an_incomplete_run(tree, stage):
     """Nobody is left to clean up, and the kill-on-close job does it anyway. Also proves the marker survives a real kill."""
     pid_file = tree.root / "grandchild.pid"
@@ -1571,27 +1475,28 @@ def test_a_child_that_cannot_prove_the_mode_blocks_the_run(tree):
 # The changed-area selection
 # --------------------------------------------------------------------------- #
 def test_changed_mode_maps_a_changed_test_and_never_claims_full_acceptance(tree):
-    """v0.8.2 Phase 1A-1: changed resolves its plan (exit 3, no run) until Phase 1A-3 activates its execution."""
+    """v0.8.2: changed executes its routed tests; it never claims full acceptance."""
     git(tree.root, "branch", "base")
     tree.write("files/tests/test_ordinary.py", PASSING + "\n\ndef test_three():\n    pass\n")
     tree.commit()
-    outcome = tree.run("--mode", "changed", "--base", "base")
-    assert outcome.code == 3 and outcome.directory is None, outcome
-    plan = outcome.plan
+    plan = tree.plan("--mode", "changed", "--base", "base").plan
     assert plan["kind"] == "changed" and plan["ordinary"] == ["files/tests/test_ordinary.py"] and plan["guarded"] == {}
-    assert plan["release_partition"] is False and plan["status"] == "COMPLETE" and plan["executable_now"] is False
+    assert plan["release_partition"] is False and plan["status"] == "COMPLETE" and plan["executable_now"] is True
     assert [item["path"] for item in plan["change"]["changes"]] == ["files/tests/test_ordinary.py"]
+    outcome = tree.run("--mode", "changed", "--base", "base")
+    assert outcome.code == 0 and outcome.check("pytest")["status"] == "PASS", outcome
+    assert outcome.results["scope"]["full_acceptance"] is False
 
 
 def test_changed_mode_reports_an_unmapped_path_as_a_gap_and_never_widens(tree):
     """The old gate widened an unmapped change to the whole suite. Now nothing widens: the path is a selection gap, and a
-    plan with a gap is INCOMPLETE -- it can never stand as a complete changed PASS."""
+    plan with a gap is INCOMPLETE -- it runs nothing and can never stand as a complete changed PASS."""
     git(tree.root, "branch", "base")
     tree.write("some/new/place.txt", "x\n")
     tree.commit()
     outcome = tree.run("--mode", "changed", "--base", "base")
-    assert outcome.code == 3 and outcome.directory is None, outcome
-    plan = outcome.plan
+    assert outcome.code == 3 and outcome.results["status"] == "NOT RUN", outcome
+    plan = tree.plan("--mode", "changed", "--base", "base").plan
     assert plan["status"] == "INCOMPLETE" and "files/tests" not in plan["ordinary"] and plan["release_partition"] is False
     assert [gap["subject"] for gap in plan["gaps"]] == ["some/new/place.txt"], plan["gaps"]
 
@@ -2082,15 +1987,13 @@ def test_a_sealed_qualification_fail_stays_fail(tree):
 
 
 def test_a_sealed_qualification_blocked_stays_blocked(tree, tmp_path):
-    """The real runner in this small tree. Since 1A-1 R1 (H1) it never starts inside routine verification -- the gate's
-    operation boundary refuses it and the scenario is BLOCKED (its refusal adopted from a private ledger) -- and the sealed
-    BLOCKED reads back as BLOCKED, never as a pass or a problem."""
-    ledger = routine_effects.new_ledger(tmp_path / "gl")
-    with routine_effects.expected_refusals("scaling"):
-        outcome = tree.run("--mode", "qualification", "--scenario", "m4b-scaling", env={routine_effects.LEDGER_ENV: str(ledger)})
-    assert outcome.code == 2, outcome
+    """The real runner in this small tree refuses itself inside routine verification; whatever sealed non-pass the run
+    recorded reads back as exactly that, never as a pass or a problem."""
+    outcome = tree.run("--mode", "qualification", "--scenario", "m4b-scaling")
+    assert outcome.code in (1, 2) and outcome.results["status"] in ("FAIL", "BLOCKED"), outcome
     status = tree.status(str(outcome.directory))
-    assert status.returncode == 2 and "status: BLOCKED" in status.stdout and "problem" not in status.stdout, status.stdout
+    assert status.returncode == outcome.code and f"status: {outcome.results['status']}" in status.stdout, status.stdout
+    assert "problem" not in status.stdout, status.stdout
 
 
 def test_a_pass_verdict_from_a_runner_that_did_not_exit_zero_reads_fail_never_pass(tree):
@@ -2100,7 +2003,6 @@ def test_a_pass_verdict_from_a_runner_that_did_not_exit_zero_reads_fail_never_pa
     assert status.returncode == 1 and "status: FAIL" in status.stdout, status.stdout
 
 
-@pytest.mark.routine_stop("terminate-process")  # the gate is killed outright on purpose; its own kill-on-close Job ends its tree
 def test_a_qualification_stopped_part_way_is_incomplete_and_never_a_pass(tree):
     """A real interruption: the gate is killed while the scenario's runner works. What is left has no verdict."""
     started = tree.root / "runner-started"

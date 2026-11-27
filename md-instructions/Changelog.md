@@ -29,6 +29,12 @@ Nothing below is moved or rewritten. Find a section with its heading text.
 
 ## [0.8.2] - unreleased (development branch `0.8.2`; nothing is tagged, merged or published)
 
+**Changed (verification gate simplified, 2026-11-27; tests and tooling only, the app is unchanged)**
+- The verification gate is simpler: tests run as standard pytest under a supervised stage, with a small guard that keeps real engines, network
+  downloads, installers and desktop automation out of routine runs. The per-process launch interception and accounting of Phase 1A-1 is removed
+  (about 5,200 lines of verification code and 2,300 lines of its own tests). `--mode quick`, `--mode changed`, `--mode regression` and
+  `--mode focused --feature` now run instead of only printing their plans. Documentation and review reports no longer make earlier test evidence stale.
+
 **Changed (documentation and development process; the app is unchanged)**
 - `md-instructions/` now holds exactly five permanent documents (`Briefing.md`, `Handoff.md`, `Feature-Map.md`, `Decisions.md`, `Changelog.md`); active
   plans live in `files/plans/`. The Feature-Map is an index of the maps under `files/dev-work/feature-map/`.
