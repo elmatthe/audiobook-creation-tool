@@ -6,22 +6,22 @@ why: `Decisions.md` index; what shipped: `Changelog.md` index.
 
 ## Execution Snapshot
 
-- **Date:** 2026-11-25
-- **Last agent:** Claude Code (Opus 5.5), v0.8.2 Phase 1A-1 R1 remediation
+- **Date:** 2026-11-26
+- **Last agent:** Claude Code (Opus 5.5), local AI workspace alignment and v0.8.2 Phase 1A-1 R2 recovery
 - **Machine:** HOME-PC (Windows 11)
 - **Branch:** `0.8.2` (long-running, from published v0.8.1), developed in the permanent short-path clone `C:\ACT-Dev` (owner decision D-1, 2026-11-25) with its own real root `.venv/`; the old nested worktree `files/dev-work/wt082` and the owner's primary checkout (`0.8.1`, uncommitted owner work) are preserved as found and were not modified
-- **Status:** Phase 1A-1 FAILED independent review (eleven confirmed findings H1-H4, M1-M3, C1-C4); the R1 remediation checkpoint is committed and pushed to origin/0.8.2 and awaits independent Codex R1 re-verification. Gate and test infrastructure only: no application, launcher, dependency or packaging change (VERSION stays 0.8.1)
+- **Status:** Phase 1A-1 failed independent review twice (8d7226d, then the R1 re-verification of 9b5eb0a). The R2 remediation is UNCOMMITTED in `C:\ACT-Dev` (nothing of it is on GitHub): its first attempt stopped BLOCKED as a compatibility discovery and planning stop; the implemented R2 then stopped BLOCKED in self-verification (the bounded compatibility campaign exhausted its budget at 16 of 19 batches with routine-effects failures, and the real v3-planning and v3-supervisor guarded stages failed because their scrubbed worker environments drop the routine marker). The owner then decided D-R2-6 to D-R2-10 and the R2 recovery is in progress. Gate and test infrastructure only (VERSION stays 0.8.1)
 - **Active plan:** `files/plans/Developer-Experience-Upgrade.md` (Revision 5, amendment R1)
 - **Current phase:** v0.8.2 Developer Experience Upgrade, Phase 1A-1 R1 remediated (agent-verified, not independent); Phase 1A-2 (heavyweight admission) on HOLD, NOT started
-- **Recommended next execution tier:** independent Codex R1 re-verification of Phase 1A-1; Phase 1A-2 only after it passes and on its own prompt
+- **Recommended next execution tier:** finish the R2 recovery (D-R2-9 guarded worker delegation first), its pilot and the bounded campaign (D-R2-10: at most 120 minutes, three segments, at least 10 GiB free before each), then one R2 commit and independent Codex R2 review; Phase 1A-2 only after that passes and on its own prompt
 - **Last verification:** Phase 1A-1 R1, agent-reported, not independent: focused gate runs on the frozen R1 tree, each with `routine-effects` and `requested-scope` PASS -- the R1 infrastructure and collateral modules `2026-11-25_231539_focused_b69f` (896 passed, 0 skipped, 18 modules), the gate contract (explicit routine nodes) and evidence modules `2026-11-25_230754_focused_595d` (449 passed, 0 skipped: 170 routine contract functions and the evidence module), and the mandatory guarded run of v3-planning and v3-supervisor `2026-11-25_231843_focused_d8c3`; defect reproduction 20/20 RED on 8d7226d and GREEN on R1. No full run: the last full gate, on 87dd2bf (2026-11-22), is FAIL/BLOCKED and does not describe this candidate
 - **Manual gate:** owner listening to four regenerated Shadow Slave MP3s; owner decisions D-1 to D-4, D-6, D-8; plus the owner-acceptance items below
 - **Relevant evidence:** the old worktree `files/dev-work/wt082` still holds the protected local evidence (see Development Checkout and Evidence Locations); the new gate runs are in `C:\ACT-Dev\files\dev-work\verification-gate\outputs\`; `files/release-history/ACT-v0.8.1-Windows-MacOS-Release-Acceptance.md`
-- **Next exact action:** stop for independent Codex R1 re-verification. Do not begin Phase 1A-2. The interim heavyweight restrictions (GATE.md) stay in force. Do not merge, tag or release
+- **Next exact action:** continue the Phase 1A-1 R2 recovery in `C:\ACT-Dev` (the uncommitted WIP is the R2 candidate's base; a local recovery record exists). Commit R2 only after satisfactory bounded verification, then stop for independent Codex R2 review. Do not begin Phase 1A-2. The interim heavyweight restrictions (GATE.md) stay in force. Do not merge, tag or release
 
 ## In Progress
 
-Nothing is mid-implementation. **Phase 1A-1 R1 (this checkpoint)** remediated the independent review's FAIL of 8d7226d without restarting 1A-1
+**Phase 1A-1 R2 is mid-implementation, uncommitted, in `C:\ACT-Dev`** (gate and test infrastructure: the ledger v3 accounting, the launch decision and child bootstrap, reviewed fixture profiles, explained termination; plan amendment R2 and its Decisions entry are drafted there, not committed). Earlier, **Phase 1A-1 R1** remediated
 (plan amendment R1; Decisions 2026-11-25 R1; GATE.md "Routine envelope"): H1 location is never evidence of a synthetic run (maintained roots refuse
 themselves wherever they lie; one reviewed synthetic gate fixture, `act-synthetic-fixture.json`); H2 the launch contract judges the program actually
 started, its form, working directory and environment (reviewed bounded shapes: stage 0, the setup launchers' stand-in sandboxes, `sh -n`); H3 one
@@ -43,11 +43,11 @@ review. Items marked (?) could not be proven closed from the record and are kept
 **Phase 0A carry-forward and workspace**
 - RESOLVED (Pre-Phase 1A): the tree-building tests of `test_verification_gate_contract.py` (including the edited `docnames` fixture) and the rest of
   `test_verify_evidence.py` ran through the gate in `C:\ACT-Dev`: preflight PASS, 411 passed, 0 skipped (details under Verification and Evidence).
-- Canonical AI Workspace adoption is PARTIAL: the owner's canonical `AI-WORKSPACE.md` is still not on this machine (every local copy, including the
-  history folders, is the older `bd91c654e279` template or an earlier version; none names `VERIFICATION.md`, `WORKFLOWS.md` or `LAYOUT.md`). Adopted local-only
-  in `C:\ACT-Dev` (never staged): ACT-specific `AGENTS.md` (updated for D-1) and thin root `CLAUDE.md`. Missing, to be supplied by the owner into the `C:\ACT-Dev`
-  root and its `.ai/` folder: `AI-WORKSPACE.md` and the `.ai/` guides (`VERIFICATION.md`, `WORKFLOWS.md`, `LAYOUT.md`, `AGENT-ROUTING.md`, `BOOTSTRAP.md`, `ENVIRONMENT.md`,
-  `MCP.md`). None is needed before the Phase 1A spike; `GATE.md` stays authoritative. Never install an old template or fabricate the canonical files.
+- AI Workspace alignment DONE locally (2026-11-26, local-only, never staged): the owner's 2026-11-04 workspace snapshot is installed unchanged in `C:\ACT-Dev` (`AI-WORKSPACE.md` and the seven `.ai/` guides; its master and template `AI-WORKSPACE.md` are identical; no install
+  record). The ACT-specific `AGENTS.md` keeps every ACT rule and gains an override section for the shared text's conflicts: `main` (ACT uses `master`), tracked `AGENTS.md`/`.ai/ENVIRONMENT.md` (D-5 keeps them local), plans in `md-instructions/`
+  (ACT: `files/plans/`), the `src/`/`tests/` layout and `unittest` (ACT: `scripts/`, `files/tests/`, pytest through `routine_pytest.py` or the gate), the "legacy" template gate (ACT's `GATE.md` is authoritative), commit-and-push autonomy, scratch
+  locations. Thin `CLAUDE.md` imports `AGENTS.md` and `AI-WORKSPACE.md`; `.ai/ENVIRONMENT.local.md` holds machine facts. Not adopted: the template `.claude/settings.json` (its `git add`/`git commit` allow rules conflict with reviewed staging), the scaffolder, installer,
+  `Replace_AI-WORKSPACE.bat`, launchers and the template gate. Open: the shared text assumes `files/run-temp/` is gitignored; in ACT it is untracked and unignored (below; a tracked `.gitignore` correction is the owner's call).
 - The primary checkout's `.claude/CLAUDE.md` is stale (retired gate path `scripts/verify.py`, old document spellings, a `files/dev/qwen_worker.py` delegation rule
   although `files/dev/` does not exist, `scripts/Universal`) and Claude Code loads it as a parent-directory file in sessions started below the primary checkout (`wt082`).
   `C:\ACT-Dev` has no competing parent instruction file (its parent is the drive root); the stale file remains for the owner to retire or replace and was not modified.
@@ -56,7 +56,7 @@ review. Items marked (?) could not be proven closed from the record and are kept
   reassessed for release relevance at the final independent review; `files/run-temp/` is untracked AND unignored (owner decision), so a careless `git add` stages review bundles
   and ledgers: Phase 2 decides its treatment.
 - Owner-local tooling stale (?): `scripts/project-status.py` (untracked, primary checkout) also reads `files/runtime/verify-state.json`, which the gate no
-  longer writes; `.ai/ENVIRONMENT.md` pool table unfilled; `files/dev-work/local-model-worker.py` absent. `scripts/requirements.txt` line ~106 still names the
+  longer writes; `files/dev-work/local-model-worker.py` and `capability-discovery.py` are absent (not adopted). `scripts/requirements.txt` line ~106 still names the
   retired `scripts/verify.py` (its bytes are hashed into the locks; leave until a lock regeneration).
 
 **Verification and gate**
