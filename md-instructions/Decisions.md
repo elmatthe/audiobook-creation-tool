@@ -35,6 +35,7 @@ not listed is history, recoverable here and through Git.
 - 2026-11-22 — v0.8.2: Windows excuses the `files/dev-work/` "no colliding test basename" skip, and only that one.
 
 **Setup, environment and packaging**
+- 2026-11-27 — v0.8.2 Phase 3A (Windows uv feasibility): uv 0.13.10 and an ACT-owned CPython 3.12.15+20261009 download pin reproduce today's interpreter and every locked artifact; A1 (siblings recommended), A2, A4/D-8 (copy) proposed to the owner.
 - 2026-11-13 — v0.8.0 unified `.venv` layout: OmniVoice at `.venv/engines/omnivoice`; an earlier `.venv-omnivoice` is never used.
 - 2026-11-13 — v0.8.0 Phase 3: OmniVoice is the fifth component of the optional installer, used only with the installer's receipt.
 - 2026-11-18 — Windows starts the app on the venv's `python.exe` with a hidden console; `pythonw.exe` is never started (Smart App Control).
@@ -80,6 +81,37 @@ entries moved unchanged, byte for byte and in their original order, to two per-e
 12 November 2026, with the eight late-appended entries at its end) and [v0.5.0 to v0.6.6](../files/documentation-history/decisions/Decisions-v0.5.0-to-v0.6.6.md)
 (July to September 2026). The ordering breaks above are in those files. The whole file before the split:
 `git show dabb02d:md-instructions/Decisions.md`.
+
+## 2026-11-27 — v0.8.2 Phase 3A: uv is feasible on Windows with exact parity; A1, A2, A4/D-8 and the uv pin are proposed to the owner
+
+**Decision (evidence recorded; the proposals below are NOT approved until the owner says so).** Phase 3A of the Developer
+Experience Upgrade ran on HOME-PC (Smart App Control enforcing) entirely inside the ignored `files/dev-work/uv-3a/`. Report:
+`files/plans/ACT-v0.8.2-Phase3A-Windows-uv-Feasibility.md`; examples: `files/plans/phase3a-uv-examples/`.
+
+- **Established.** uv 0.13.10 (`uv-x86_64-pc-windows-msvc.zip`, SHA-256 `297b3881fe1adfb922becc2c1613202abb41dc83ea5ff43d472aa087ca1f8683`)
+  installs CPython 3.12.15 + PBS 20261009 byte-identical to today's `files/runtime-data/python` when ACT supplies its own download
+  pin (`--python-downloads-json-url`); uv's built-in catalog would choose a different build. No registry, PATH, bin or
+  user-directory writes. Independent uv projects reproduce today's pins exactly: base 170/170 (Windows) and 169/169 (macOS) in one
+  lock, Qwen3 89/89, OmniVoice 88/88 and 86/86, Kokoro 99/99, Chatterbox 113/113, versions and artifact hashes, no index fallback
+  and no uncontrolled builds. Every executable ran from a MOTW-tagged extraction under SAC.
+- **Superseded.** The 2026-10-31 entry listed "pip-tools or uv for the lock" as not chosen; the owner-approved v0.8.2
+  requirements adopt uv, and this evidence shows uv keeps that entry's contract (a complete hash lock, a verified source, offline
+  installation). That part of the 2026-10-31 entry is superseded for v0.8.2; the rest stands. macOS evidence is Phase 3B.
+- **Proposed to the owner (pending).** (1) Pin uv 0.13.10. (2) A2 outcome A with the ACT-owned interpreter pin. (3) A1:
+  independent sibling engine environments `.venv-engines/<engine>/`, because uv deletes the whole `.venv` when it recreates the
+  base, nested engines included; this would supersede the engine part of the 2026-11-13 unified-layout entry. The base stays
+  `.venv/` in the application root (fixed). (4) A4/D-8: Windows `copy` link mode (hardlinks share in-place damage with the cache),
+  base cache kept for offline repair (about 2 GiB), GPU engines installed with `--no-cache`. (5) Bytecode compiled at install.
+- **Requirements carried to Phase 4.** Receipts only after a csv RECORD check that counts a dist-info without RECORD as damage,
+  plus real imports (uv's own checks missed two broken packages after an interrupted sync); a per-operation Python archive cache;
+  `--project` on every call; validated environment paths; the deepest path rises to 175 characters (uv cache).
+
+**Not changed.** Application code and behaviour, VERSION 0.8.1, the root `.venv/`, installed engine environments, the owner's
+primary checkout, the production setup route, Windows security and long-path settings.
+
+— Implemented by Claude Code under the owner's Phase 3A prompt; the owner decides the proposals.
+
+---
 
 ## 2026-11-27 — v0.8.2 Phase 2: classified repository cleanup; DOC-1 archives the pre-v0.8.0 Decisions and Changelog unchanged; retention stays simple and manual
 
