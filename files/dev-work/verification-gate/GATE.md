@@ -149,8 +149,16 @@ source changed. Count results from pytest's own summary or JUnit XML, never from
 - A changed plan that touches suite-wide test infrastructure (`changed.suite_wide`: `conftest.py`, the guard, the runners)
   selects representative controls and records a gap: it is INCOMPLETE by design and owes a component regression or named
   focused runs.
-- Native macOS verification of the simplified routine path (marker inheritance, stage process groups, case-sensitive
-  routing) is pending.
+- Native macOS verification of the simplified routine path ran in Phase 3B (2026-11-27, HOME-MacOS): marker inheritance,
+  stall and total-timeout supervision of the stage's process group, canonical routing on case-insensitive APFS and stage/JUnit
+  reporting pass. **D1 (open):** when a stage's leader has exited and left a grandchild, Darwin answers `killpg` with EPERM
+  while the killed group is exiting, so `helpers/winproc.py` reports a false survivor (`cleanup` FAIL) or `_stop_tree` raises
+  before `results.json` exists. Smallest correction: treat `PermissionError` like `ProcessLookupError` around both `killpg`
+  calls, and poll `_group_alive` up to `kill_wait` before recording POSIX survivors. Until it is fixed, a macOS `cleanup`
+  FAIL that names only a "process group" needs a manual check. **D2:** the exit-code verdict contract test assumes the
+  Windows-only `m4b-scaling` scenario (test portability). **D3 (open):** `helpers/scratch.py` has no POSIX process
+  creation time, so on macOS `--audit-scratch` reports every child, an active run's included, as abandoned; do not clean
+  macOS gate scratch by that label alone. Phase 3B report §7.
 
 ## Approved scratch exception
 
@@ -191,6 +199,6 @@ Consumers of the five-document contract: `verify.py` `CANONICAL_DOCS` and `check
 
 ## Next
 
-Phase 3A (Windows uv feasibility, owner-authorized downloads), then 3B (macOS). The reduced Phase 1A-2 admission is
+Phase 3A (Windows) and 3B (macOS) uv feasibility are done; next is Phase 4, opened with the D1 correction above. The reduced Phase 1A-2 admission is
 built only when the first genuinely needed heavyweight run requires it. See the plan's "Verification simplification"
 amendment for the consolidated checkpoint dispositions.

@@ -35,8 +35,9 @@ not listed is history, recoverable here and through Git.
 - 2026-11-22 — v0.8.2: Windows excuses the `files/dev-work/` "no colliding test basename" skip, and only that one.
 
 **Setup, environment and packaging**
+- 2026-11-27 — v0.8.2 Phase 3B (macOS uv feasibility) and the owner's approvals: uv 0.13.10, A2 exact pinned build, A1 sibling engine environments `.venv-engines/<engine>/` (supersedes the engine part of 2026-11-13), A4/D-8 Windows copy and macOS clone, base repair cache kept, no GPU-engine cache by default, bytecode at install.
 - 2026-11-27 — v0.8.2 Phase 3A (Windows uv feasibility): uv 0.13.10 and an ACT-owned CPython 3.12.15+20261009 download pin reproduce today's interpreter and every locked artifact; A1 (siblings recommended), A2, A4/D-8 (copy) proposed to the owner.
-- 2026-11-13 — v0.8.0 unified `.venv` layout: OmniVoice at `.venv/engines/omnivoice`; an earlier `.venv-omnivoice` is never used.
+- 2026-11-13 — v0.8.0 unified `.venv` layout: OmniVoice at `.venv/engines/omnivoice`; an earlier `.venv-omnivoice` is never used. Engine placement superseded by 2026-11-27 Phase 3B (A1 siblings) as each engine migrates to uv.
 - 2026-11-13 — v0.8.0 Phase 3: OmniVoice is the fifth component of the optional installer, used only with the installer's receipt.
 - 2026-11-18 — Windows starts the app on the venv's `python.exe` with a hidden console; `pythonw.exe` is never started (Smart App Control).
 - 2026-10-31 — The app environment installs only from a complete hash lock through a verified local store.
@@ -81,6 +82,50 @@ entries moved unchanged, byte for byte and in their original order, to two per-e
 12 November 2026, with the eight late-appended entries at its end) and [v0.5.0 to v0.6.6](../files/documentation-history/decisions/Decisions-v0.5.0-to-v0.6.6.md)
 (July to September 2026). The ordering breaks above are in those files. The whole file before the split:
 `git show dabb02d:md-instructions/Decisions.md`.
+
+## 2026-11-27 — v0.8.2 Phase 3B: native macOS uv feasibility PASS; the owner approves the Phase 3A proposals (uv 0.13.10, A2, A1 siblings, A4/D-8, bytecode); Phase 4 may start
+
+**Owner decisions (recorded by Claude Code from the owner's Phase 3B prompt).** (1) uv **0.13.10**, subject to native macOS
+compatibility (proved). (2) **A2:** preserve the exact existing pinned CPython 3.12.15 + PBS 20261009 build through ACT-owned
+download metadata. (3) **A1:** independent sibling engine environments `ACT_ROOT/.venv-engines/<engine>/`; the main application
+environment stays `ACT_ROOT/.venv/`; **the engine portion of the 2026-11-13 unified-layout decision is superseded** (it governs the
+current installers until each engine migrates). (4) **A4/D-8:** Windows `copy`, the base repair cache retained, no persistent
+Qwen3/OmniVoice package cache by default; macOS `clone` subject to native proof (proved). (5) Bytecode compiled during
+installation. (6) The Windows OmniVoice installation proof moves to Phase 5B. (7) Native macOS feasibility completes before
+Phase 4 (done). Offline-repair limits for engines whose artifacts are not retained stay documented honestly.
+
+**Evidence (Phase 3B, HOME-MacOS, agent-verified, not independently reviewed).** Report:
+`files/plans/ACT-v0.8.2-Phase3B-macOS-uv-Feasibility.md`; pin: `files/plans/phase3a-uv-examples/python-downloads-macos.json`.
+- uv `uv-aarch64-apple-darwin.tar.gz` SHA-256 `e419bf07533bdbf48795fc793601c834dd79db57a8c49ce8e25cfe3a8639958d` (three sources agree);
+  Developer ID signed, notarized; a quarantined copy runs.
+- The ACT-owned pin installs the archive `bootstrap_host_macos.sh` pins (`83dcb047…75b8`). uv patches two files at install time on
+  macOS (`libpython3.12.dylib`'s install name, `_sysconfigdata`); every other file is byte-identical to today's interpreter; Aqua Tk
+  9.0.4, ssl, venv and offline restoration proved; no user, PATH or system writes.
+- Parity with the Phase 3A definitions unchanged: base 169/169, OmniVoice 86/86, Kokoro 97/97 + the spaCy model; all three installed
+  and import-proved with MPS available. No model loads or synthesis.
+- APFS `clone`: warm install 0.56 s and 18 MiB physical (copy 8.78 s, 1.2 GiB); in-place damage stays out of the cache; offline repair
+  0.10 s. uv deletes nested engines when it recreates the base; siblings survive. Move and copy relocation recreate offline.
+
+**Why clone and siblings.** Clone keeps environments independent of the cache (copy-on-write) at almost no disk cost, which is what
+made `copy` necessary on Windows; siblings remove the base-rebuild protection protocol entirely on both platforms.
+
+**Requirements carried to Phase 4** (report §11): pass `--python 3.12.15` and validate `home` (an interpreter path or `==3.12.*`
+records uv's minor-version link); interpreter identity by archive SHA-256 + `BUILD` + `sys.version`, never a tree hash; receipts
+after a RECORD check (a dist-info without RECORD is damage) and real imports; per-operation Python cache scratch removed; never
+transfer an interpreter through a quarantining path; `hardlink` never used.
+
+**Gate finding (not changed here).** D1: on Darwin an exiting process group answers EPERM to `killpg`, so
+`helpers/winproc.py` reports a false survivor or raises; the smallest correction (treat EPERM like ESRCH in `_stop_tree`, poll
+before recording survivors on POSIX) is owed before Phase 4 relies on macOS gate cleanup. D2: one exit-code contract test assumes
+the Windows-only `m4b-scaling` scenario (test portability). D3: `helpers/scratch.py` cannot prove a POSIX owner alive, so
+`--audit-scratch` on macOS calls an active run's scratch abandoned (read-only reporter; low severity).
+
+**Not changed.** Application code and behaviour, VERSION 0.8.1, the root `.venv/` and its nested OmniVoice engine,
+`files/runtime-data/`, the production setup route, the gate, macOS security settings, the owner's uncommitted work.
+
+— Owner decisions recorded and Phase 3B implemented by Claude Code under the owner's Phase 3B prompt.
+
+---
 
 ## 2026-11-27 — v0.8.2 Phase 3A: uv is feasible on Windows with exact parity; A1, A2, A4/D-8 and the uv pin are proposed to the owner
 
