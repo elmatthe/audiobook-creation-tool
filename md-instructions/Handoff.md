@@ -280,7 +280,13 @@ review. Items marked (?) could not be proven closed from the record and are kept
   (they do NOT exist in `C:\ACT-Dev`): regenerated Shadow Slave MP3s `files/dev-work/v082-fc/r1-failed4/mp3/` (never open, move, regenerate or delete); checkpoint and qualification evidence
   `files/dev-work/v0.8.2-cp1-evidence` to `cp6-evidence` and `v0.8.2-qual-evidence`; earlier gate runs `files/dev-work/verification-gate/outputs/`; the Phase 0A review bundle `files/run-temp/p0a-review/`; the Phase 0B ledgers
   and reconciliation `files/run-temp/p0b/`. Prefix them with `<primary checkout>\files\dev-work\wt082\`. Gate runs in `C:\ACT-Dev` write to its own `files/dev-work/verification-gate/outputs/`.
-- `%TEMP%\act-gate` (Phase 2 `--audit-scratch`, read-only): the earlier 31.6 GiB is gone; two abandoned folders remain, `6dc8` (run d0db) and `b18e` (run 04a6), about 0 MiB each, left as found. `C:\ACT-Dev` local evidence after Phase 2: gate `outputs/` 311 MB, guarded basetemps `files/dev-work/p05b-stage4c/` 646 MB (R2-campaign era), `files/run-temp/` 17 MB: within GATE.md's 2 GiB soft budget, kept.
+- **Phase 5A local leftovers (`C:\ACT-Dev\files\run-temp\`, untracked, never committed):** kept `n5-ev/` (the native proof's JSON
+  summaries and the library-proof output), `p5a/` (29 MB: the proof driver, logs, both sweeps' JUnit, the gate plans), `d6-cold*.log`
+  and `p5a-reg-*.log`; removed: the proof root `n5` (5.4 GB, after checking it held no link out of itself), the sweeps' basetemps and the
+  archive clone. `C:\ACT-Dev` itself has no `.venv-engines` (no Qwen3 engine is installed in the development checkout).
+- `%TEMP%\act-gate` (`--audit-scratch` at the end of Phase 5A, 2026-11-28, read-only): five abandoned folders, 7.57 GiB, left as found
+  for the owner: `b18e` (run 04a6, 0 MiB), Phase 4's `bad4` (run 2fdc, 4.17 GiB), `bbb8` (d5a9, 0 MiB) and `cb5b` (7d73, 0.2 MiB), and
+  5A's `d118` (3.59 GiB, the retained scratch of the failed regression `183c`); `6dc8` is gone. `C:\ACT-Dev` local evidence after Phase 2: gate `outputs/` 311 MB, guarded basetemps `files/dev-work/p05b-stage4c/` 646 MB (R2-campaign era), `files/run-temp/` 17 MB: within GATE.md's 2 GiB soft budget, kept.
 - Phase 1A-1 R1: the owner removed the three scratch folders left outside containment (`C:\t\p1a1` and `%TEMP%\act-gate\fd57`, `f2c1`); R1 created no
   external scratch (direct runs used short basetemps under `files/run-temp/`, removed). Free space on C: was about 7 GiB during R1: below the comfort
   margin for a full run; check it before any expensive run.
