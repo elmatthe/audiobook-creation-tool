@@ -17,6 +17,10 @@
 > bytecode, a person's download answer asked once, and two message fixes), D1-D3 confirmed natively, the census gap closed. The temporary
 > procedure file was retired after its results were recorded (Phase 4 record, `Handoff.md`). **Phase 4 is complete; next is Phase 5A on
 > HOME-PC**, after the small Windows regression the macOS corrections owe (Handoff).
+> **Revision 10 (2026-11-27, Phase 5A on HOME-PC; agent-verified, not independently reviewed):** the owed Windows regression ran; the D-6
+> cold fallback was proved (one defect fixed); the engine registry and shared engine provisioning were built and Qwen3 moved to uv in
+> `.venv-engines/qwen3` with its earlier engine kept working until the new one is proved. No requirement changed. The record is under 5A;
+> **next is Phase 5B (OmniVoice)** on its own prompt, after the owner reviews 5A.
 > **Revision 5 amendment R1 (2026-11-25):** Phase 1A-1 failed independent review; the R1 remediation corrected its contracts without changing this architecture (record under 1A-1).
 > **Revision 5 amendment R3 (2026-11-27):** the R2 remediation failed its independent review; R3 corrected six bounded groups (startup and launch admission, synthetic outputs and stage 0, independent accounting and explained stops, privacy, the Qwen3 selfcheck, documentation) without changing this architecture (record under 1A-1).
 > **Revision 5 amendment R2 (2026-11-26):** the R1 remediation failed its independent review; after a compatibility discovery and planning stop, the owner decided D-R2-1 to D-R2-5 and R2 corrected the remaining contracts without changing this architecture (record under 1A-1).
@@ -449,6 +453,43 @@ Every checkpoint follows §2. Each is separately reviewed; sub-checkpoints are i
 - **Touchpoints:** new `scripts/tts/engines/registry.py` and per-engine definitions; consumers `engine_policy.py`, `voice_registry.py`, `optional_setup_protocol.py`, `bootstrap.WINDOWS_OPTIONAL_CHOICES`, `local_engine_host.py`, `venv_layout.py`, `release.py`; Qwen3: `qwen3_setup.py`, `qwen3_packages.py`, `qwen3_wheels.py`, `qwen3_package_manifest.py`, `qwen3-requirements.txt`, `qwen3-artifacts.json`, `qwen3_models.json` (kept), `qwen3_runtime.py`, `qwen3_process.py`.
 - **Work:** registry as the single source, existing tables derived from it (no duplicated constants); shared engine-env provisioning via the wrapper; Qwen3 uv project (Windows-only, cu128 torch 2.10.0 parity) replacing its pip route; separate package manifest from model integrity; preserve the two Qwen3 choices sharing one env, Windows-only gating, CPU fallback, legacy sibling set-aside; package the Qwen3 dependency project and lockfile (transitional rule 8).
 - **Verify:** registry/selection, lock/platform/health, optional/deferred install and repair, process/cancel/skip, model hashes/offline, representative synthesis and existing Qwen3 tests (real engine only when separately authorized); prove no cross-env contamination; a disposable "add/remove engine" registry test. Record engine-specific differences and remaining legacy paths.
+- **Record (Revision 10, 2026-11-27, HOME-PC, `C:\ACT-Dev`; agent-verified, not independently reviewed).**
+  - *Owed Phase 4 Windows regression (unmodified candidate 930ade9):* quick `2026-11-27_212433_quick_7029` PASS; focused (the 14 named
+    modules) `…_212451_focused_e345` PASS (744 passed, 55 policy skips, 14/14); `regression --component setup` `…_212608_regression_183c`
+    FAIL, kept as evidence: ordinary 2,918 passed / 217 skipped and v3-supervisor 75 passed, but v3-planning 33 failed (a pre-existing
+    harness defect: the controlled read-only context refused uv's `pyvenv.cfg` shape since Phase 4; fixed in 5A) and the tree and
+    coverage-inventory checks failed because this phase's first edits landed during the run. No application defect.
+  - *D-6 cold fallback (disposable fresh start, `curl.exe`/`certutil`/`tar.exe`, explicit consent, no Python or PowerShell):* the first run
+    downloaded and verified uv, then got a 404 for the CPython archive: `call :fetch ... "%PY_URL%"` re-expanded the URL's `%2B`. Fixed
+    (the URL is passed by variable name and expanded with `!%~1!`; two regression tests, one proving cmd's real behaviour); the one bounded
+    re-test PASSED (both downloads verified, the interpreter proved at its final place).
+  - *Built:* `scripts/tts/engines/registry.py` (five `EngineDefinition`s; seven consumers derive their tables, values unchanged);
+    `scripts/shared/engine_env.py` (through `uv_runner` only); the Qwen3 project `scripts/tts/engines/qwen3/` (89/89 parity, lock 90
+    entries); `qwen3_setup` installs only through uv (`uv venv` + `uv sync --locked --no-dev --no-cache --compile-bytecode --link-mode
+    copy`), records last, retires the nested engine to `files/runtime-data/qwen3/set-aside/`; `qwen3_runtime` selects the engine in use
+    (new once installed to the end, else the earlier one); Check and repair adds a read-only RECORD check; the packager ships the engine
+    project; uv operations record their owner and a killed one's scratch is cleared by the next Qwen3 install (found by the native
+    interruption run: 422 MB of partial downloads were left behind).
+  - *Native proof (disposable root `files/run-temp/n5`: a copy of `scripts/`, the managed CPython and uv, a stand-in `.venv`, and a legacy
+    nested engine made as v0.8.1 made one, without its 89 packages):* two production installs killed mid-download (20-21 s in; fresh and
+    re-sync paths): the legacy engine byte-identical and still in use, status ok, the new folder recorded `created`, no receipt, repair
+    offered. Then the one authorized full install, through Check and repair: 351.5 s (download 4 m 32 s, install 18.5 s, 13,813 files
+    compiled 6.7 s, RECORD check about 19 s, probe about 27 s); the engine in use, identity, receipt and RECORD clean; 89/89 installed
+    distributions equal to the reviewed manifest by version and wheel tag; imports, CUDA 12.8 on the RTX 5070 and a CUDA kernel from the
+    engine's own interpreter, no app `.venv` on its path; the nested engine moved whole (digest identical) beside its note; the app's
+    `.venv` unchanged; no package cache, the killed operation's scratch cleared; 5.46 GB on disk. Read-only damage detection: a deleted
+    `pydub/playback.py` found (rebuild, 3.1 GB stated), clean after restore. The Qwen3 library proof
+    (`test_qwen3_calm_harness.py::test_the_real_library_merges_…`) PASSED against this engine and the owner's hash-verified Base
+    `generation_config.json` (read only; copied into the disposable root). No model download, no model load, no synthesis.
+  - *Verification:* the new modules and every adapted one pass directly; a direct sweep of the suite (9,815 tests) found the
+    adaptations still owed (fixed) and two pre-existing direct-run failures; a targeted re-sweep after the last changes (103 modules,
+    5,402 tests): only those two. Gate, about 12.5 minutes: quick `2026-11-27_235253_quick_4c1e` PASS; changed plan INCOMPLETE by
+    design (suite-wide `conftest.py`, sources over budget, five unrouted paths); focused `2026-11-27_235425_focused_6188` PASS (26 key
+    modules and the v3-planning and v3-supervisor guarded groups: 1,783 + 294 + 75 passed, 92 policy-named skips).
+  - *Exit criteria on Windows: met.* Legacy paths kept on purpose (seams with removal criteria in `Handoff.md`): the sealed-package
+    seam's pip route into the nested place (Phase 6); support for an earlier nested or `.venv-qwen3` engine; the nested carry protocol
+    (OmniVoice until 5B); `qwen3-requirements.txt`/`qwen3-artifacts.json` as parity references. Owed: native macOS regression of the
+    shared changes (Qwen3 itself is not offered there); an authorized real synthesis smoke on the new environment; independent review.
 
 ### 5B — Migrate OmniVoice
 

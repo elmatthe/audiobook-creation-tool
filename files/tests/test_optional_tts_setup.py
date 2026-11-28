@@ -167,7 +167,7 @@ CHATTERBOX_ALL = 407  # the three stand-in files Turbo loads (no s3gen.safetenso
 @pytest.fixture
 def world(sandbox, tiny_assets, monkeypatch):  # noqa: F811 - pytest fixture injection
     """The sandbox with the bundled references and transcript bundle reported intact (their own tests prove those),
-    and a stand-in hash-locked Qwen3 requirements file, so the engine has a pinned source."""
+    and a stand-in hash-locked Qwen3 requirements file (the engine's pinned source is the sandbox's stand-in uv.lock)."""
     monkeypatch.setattr(rt, "reference_status", lambda voice: (True, "ok"))
     monkeypatch.setattr(rt, "bundle_status", lambda: (True, "ok"))
     (sandbox / "scripts" / "qwen3-requirements.txt").write_text("tiny==1.0 --hash=sha256:" + "0" * 64 + "\n",
@@ -1186,10 +1186,12 @@ FORBIDDEN_PRE_VENV = ("subprocess", "socket", "ssl", "urllib.request", "http.cli
 #: v0.8.0 Phase 3: estimating OmniVoice reads its shipped manifest through ``tts.omnivoice_runtime`` (and its reference
 #: list module), both standard-library only like the rest of this set -- never the installer, torch or OmniVoice.
 # macOS P4C: shared.engine_policy (standard library only, process-free) answers which engines a platform offers.
-ALLOWED_PROJECT = {"shared", "shared.engine_policy", "shared.optional_setup_protocol", "shared.spacy_store",
-                   "shared.venv_layout", "tts",
-                   "tts.clone_references", "tts.model_assets", "tts.omnivoice_runtime",
-                   "tts.optional_setup", "tts.qwen3_runtime", "tts.voice_registry"}
+# v0.8.2 Phase 5A: the engine registry and the Qwen3 engine's uv lock identity (shared.engine_env -> shared.uv_runner,
+# whose only process-starting code imports subprocess where it runs) are standard library only and process-free too.
+ALLOWED_PROJECT = {"shared", "shared.engine_env", "shared.engine_policy", "shared.optional_setup_protocol",
+                   "shared.spacy_store", "shared.uv_runner", "shared.venv_integrity", "shared.venv_layout", "tts",
+                   "tts.clone_references", "tts.engines", "tts.engines.registry", "tts.model_assets",
+                   "tts.omnivoice_runtime", "tts.optional_setup", "tts.qwen3_runtime", "tts.voice_registry"}
 PRE_VENV_PROBE = '''\
 import json, sys
 sys.path.insert(0, {scripts!r})
@@ -1280,7 +1282,10 @@ def test_every_unit_names_its_exact_pinned_source(world):
     assert sources["kokoro-voice:af_heart"] == sources["kokoro-model"]
     assert sources["chatterbox-model"] == f"hf:{assets.CHATTERBOX_REPO}@{assets.CHATTERBOX_REVISION}"
     assert sources["spacy-english"] == f"wheel:{assets.SPACY_WHEEL_URL}#sha256:{assets.SPACY_WHEEL_SHA256}"
-    assert sources["qwen3-engine"] == f"pip-lock:qwen3-requirements.txt@sha256:{rt.requirements_sha256()}"
+    # v0.8.2 Phase 5A: the engine is what uv installs from its lock (every artifact by its SHA-256), named by that lock
+    lock = (rt.project_dir() / "uv.lock").read_bytes().replace(b"\r\n", b"\n")
+    assert sources["qwen3-engine"] == ("uv-lock:scripts/tts/engines/qwen3/uv.lock@sha256:"
+                                       + hashlib.sha256(lock).hexdigest())
     spec = rt.model_spec("base")
     assert sources["qwen3-model:base"] == f"hf:{spec.repo}@{spec.revision}#manifest-sha256:{spec.manifest_sha256()}"
     assert [u for u, s in sources.items() if s is None] == []  # spaCy's English model is pinned since Stage 2
@@ -1413,7 +1418,7 @@ def test_an_unpinned_source_is_refused_whoever_confirmed_it(world, monkeypatch):
     for consent, estimate in ((osu.consent_for(data), None), (osu.consent_for(shown), shown)):
         ok, code, why = covers(consent, data, estimate)
         assert (ok, code) == (False, proto.SOURCE_UNPINNED) and roster[0] in why
-    (world / "scripts" / "qwen3-requirements.txt").unlink()  # no lock file: the engine has no pinned source either
+    (rt.project_dir() / "uv.lock").unlink()  # no lock file: the engine has no pinned source either
     data = as_json([CV])
     assert unit(data, "qwen3-engine")["source"] is None
     assert covers(osu.consent_for(data), data)[:2] == (False, proto.SOURCE_UNPINNED)

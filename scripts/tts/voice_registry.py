@@ -97,10 +97,12 @@ from dataclasses import dataclass
 from typing import Literal
 
 from shared import engine_policy
+from tts.engines import registry as _engines
 
-BACKEND = Literal["edge", "kokoro", "chatterbox", "qwen3", "omnivoice"]
-#: The engines a row may name. Adding one is an engine change, never a registry edit.
-BACKENDS: tuple[str, ...] = ("edge", "kokoro", "chatterbox", "qwen3", "omnivoice")
+BACKEND = Literal["edge", "kokoro", "chatterbox", "qwen3", "omnivoice"]  # for type checkers; BACKENDS is the authority
+#: The engines a row may name: the engine registry's list (``tts.engines.registry``, v0.8.2 Phase 5A). Adding one is an
+#: engine change (a registry definition), never an edit of this voice list.
+BACKENDS: tuple[str, ...] = _engines.TABLES.engines
 
 
 @dataclass(frozen=True)

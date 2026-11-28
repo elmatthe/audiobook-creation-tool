@@ -35,6 +35,7 @@ not listed is history, recoverable here and through Git.
 - 2026-11-22 — v0.8.2: Windows excuses the `files/dev-work/` "no colliding test basename" skip, and only that one.
 
 **Setup, environment and packaging**
+- 2026-11-27 — v0.8.2 Phase 5A: one explicit engine registry (`scripts/tts/engines/registry.py`) that seven consumers derive from; shared engine provisioning (`shared/engine_env.py`); Qwen3 installed by uv into `.venv-engines/qwen3` (89/89 parity, no package cache), an earlier engine kept until the new one is proved, the nested one then retired to set-aside (supersedes the 2026-10-25 nested-layout entry for new Qwen3 installs).
 - 2026-11-27 — v0.8.2 Phase 4 macOS acceptance: a dangling `.venv/bin/python` link takes the repair route; a person's download answer stands for the process; the test guard excuses the macOS managed interpreter's stdlib bytecode; census standings for ROUTINE-EFFECTS and SCRATCH.
 - 2026-11-27 — v0.8.2 Phase 4: the base environment is provisioned only by uv (one wrapper, one locked base project, offline-first repair cache, receipts after RECORD and import proof); D-6 fallback approved and implemented; the legacy interpreter stays for engines through one resolver (supersedes 2026-10-31's local-store route for the base).
 - 2026-11-27 — v0.8.2 Phase 3B (macOS uv feasibility) and the owner's approvals: uv 0.13.10, A2 exact pinned build, A1 sibling engine environments `.venv-engines/<engine>/` (supersedes the engine part of 2026-11-13), A4/D-8 Windows copy and macOS clone, base repair cache kept, no GPU-engine cache by default, bytecode at install.
@@ -84,6 +85,68 @@ entries moved unchanged, byte for byte and in their original order, to two per-e
 12 November 2026, with the eight late-appended entries at its end) and [v0.5.0 to v0.6.6](../files/documentation-history/decisions/Decisions-v0.5.0-to-v0.6.6.md)
 (July to September 2026). The ordering breaks above are in those files. The whole file before the split:
 `git show dabb02d:md-instructions/Decisions.md`.
+
+## 2026-11-27 — v0.8.2 Phase 5A: one explicit engine registry; the Qwen3 engine is installed by uv into `.venv-engines/qwen3`; an earlier engine keeps working until the new one is proved
+
+**Context.** The owner's Phase 5A prompt (plan Revision 9; this phase is recorded as Revision 10), on HOME-PC in `C:\ACT-Dev`, after the
+owed Windows regression of the Phase 4 macOS corrections and the D-6 cold-fallback check. Approved inputs: uv 0.13.10, CPython 3.12.15 +
+PBS 20261009 through ACT's metadata, A1 siblings `.venv-engines/<engine>/`, A4/D-8 (Windows copy, no GPU-engine package cache), bytecode at
+install. Agent-verified, not independently reviewed.
+
+1. **One explicit registry.** `scripts/tts/engines/registry.py` (standard library only) holds one `EngineDefinition` per engine: identity
+   and names, platforms, placement (`base`, `nested`, `engine`), its uv project, earlier environment places, model manifest, installer,
+   worker, and the optional-setup `Component`s. `engine_policy` (engine lists, names, component engines), `voice_registry.BACKENDS`,
+   `optional_setup_protocol` (components, labels, wizard defaults, Qwen3 model keys), `bootstrap.WINDOWS_OPTIONAL_CHOICES`,
+   `local_engine_host.ENGINE_NAMES`, `venv_layout`'s engine places and `release`'s excluded environment folders and required engine
+   projects are derived from it, value for value as released. Adding an engine is one definition plus its own modules; removing one is
+   deleting it (`test_engine_registry.py` proves both on a disposable list and pins the released tables). No plugin discovery, dependency
+   injection, service container or worker server.
+2. **Shared engine provisioning without a second wrapper.** `scripts/shared/engine_env.py` holds what every `.venv-engines/<engine>` shares,
+   all through `shared.uv_runner`: its place and project, the `uv venv`/`uv sync` commands, identity (its own place, no link, isolated, built
+   by uv, on this copy's managed interpreter with the pinned build), the RECORD check (`shared.venv_integrity`), the receipt (lock,
+   interpreter, profile, distributions, health) and retirement of an earlier version's environment. Locks, runtime-use leases, process
+   ownership and cancellation stay each engine's own (Qwen3: `InstallLock`, the engine lease, `run_command`'s Job Object).
+3. **Qwen3's production installer is uv** (the pip route is no longer reachable from any production path). Project
+   `scripts/tts/engines/qwen3/` (`pyproject.toml` + `uv.lock`): 89 packages, every version and wheel hash exactly the v0.8.1 reviewed set
+   (`qwen3-requirements.txt` and `qwen3-artifacts.json` stay as its parity references, `test_qwen3_uv_project.py`); torch/torchaudio
+   2.10.0+cu128 only from the explicit CUDA 12.8 index; sox as ACT's commit-pinned derivative wheel; Windows x64 only; `no-build`; a virtual
+   project (`package = false`). Install: `uv venv` on the managed CPython at `.venv-engines/qwen3`, then `uv sync --locked --no-dev
+   --no-cache --compile-bytecode --link-mode copy`. No Qwen3 package cache is kept (A4/D-8): a failed or cancelled install keeps no packages
+   and the next downloads them again; the size shown first is every reviewed wheel. The v0.7.0-v0.8.1 wheel store and pip cache are removed
+   after a successful install, the store only when its `verified.json` shows it is the app's. The consent source of the engine unit is now
+   `uv-lock:scripts/tts/engines/qwen3/uv.lock@sha256:<lock>`. Both Qwen3 choices share this one environment; `qwen3_models.json` and every
+   model, voice and generation behaviour are unchanged.
+4. **Migration: no forced move; nothing working is broken.** An engine of an earlier version (`.venv/engines/qwen3`, v0.7.0-v0.8.1; or
+   `.venv-qwen3`) stays the engine in use, unchanged, until an install or repair builds the new one. The new one becomes the engine in use
+   only when its install record is written, last, after the sync, a RECORD check of every installed file, the worker's probe and the
+   receipt. An interrupted or failed new install never takes over; Check and repair finishes it. Then the nested engine is moved, whole and
+   by rename, into `files/runtime-data/qwen3/set-aside/nested-qwen3-<UTC>-<id>/` beside a `RETIRED-READ-ME.txt` (the OmniVoice convention;
+   never deleted by the app; left where it is while a file in it is in use). `.venv-qwen3` is never moved or deleted (the owner's to remove).
+   Only a create or remove the app recorded as interrupted is cleared automatically; an engine folder no record vouches for is left alone
+   until Check and repair rebuilds it. Check and repair also checks the uv engine's RECORDs read-only.
+5. **What stays as it was (seams).** The v3 sealed-package seam (`qwen3_engine_authority`, `optional_setup_authority.acquire_disposable`;
+   no production caller) still installs with pip into the nested place it was designed for, until Phase 6 removes the pip paths. The
+   nested-engine carry protocol stays for OmniVoice (5B) and for an earlier Qwen3 engine not yet replaced. OmniVoice, Kokoro and Chatterbox
+   are unchanged (5B-5D); Edge and the non-TTS tools are unaffected; macOS offers no Qwen3 and behaves as before.
+6. **A killed operation's partial downloads do not stay.** Each uv operation records its owner (process id and creation time) in its
+   scratch folder; the Qwen3 installer, before it starts, removes the scratch of operations whose process is provably gone
+   (`uv_runner.clear_stale_scratch`, `shared.work_area.owner_state`). A live, unknown or unrecorded owner's folder is left alone. Found by
+   the native interruption run (422 MB of partial downloads were left behind).
+7. **Clear Downloaded Data.** Its environment item still removes only `.venv`; the engine beside it is never reached and stays in use.
+   An earlier version's engine held inside `.venv` keeps every protection (the item is refused while one is there).
+8. **Smaller.** The pre-venv planner stays standard-library only and process-free (`uv_runner` imports `subprocess` where it runs it); the
+   test session guards the real `.venv-engines`, the Qwen3 engine's marker and receipt; the packager ships each engine's uv project and
+   refuses a build without it; the D-6 fallback hands `curl` each URL by variable name (passing it through `call` expanded the `%2B` of the
+   CPython URL into a 404, found by the cold run); `voice_registry` and `bootstrap` may import the registry package and nothing else of
+   `tts`; the direct-spawn allow-list names `uv_runner.run` (developer CLI and probes; a Phase 4 omission).
+
+**Why.** One list instead of seven parallel tables makes adding and removing engines (5B-5D, v0.9.0) one change; an engine in its own uv
+project beside the base survives every base rebuild (uv removes a whole project environment when it recreates it); keeping the earlier
+engine in use until the new one is proved means no install, interruption or failure leaves a person without working voices.
+
+**Not changed.** VERSION 0.8.1; no dependency or model upgrade; no new authorization store; nothing merged, tagged or released.
+
+— Claude Code (Opus 5.5) under the owner's Phase 5A prompt.
 
 ## 2026-11-27 — v0.8.2 Phase 4 macOS acceptance: corrections found natively on HOME-MacOS
 

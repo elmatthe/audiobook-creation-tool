@@ -33,15 +33,20 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+from tts.engines import registry as _engines
+
 #: The one folder inside a parent environment where an independent child environment may be held.
 ENGINES_DIRNAME = "engines"
-#: The two Qwen3 locations, relative to the repository root. New installs go to the nested (canonical) one only.
-LEGACY_QWEN3 = ".venv-qwen3"
-NESTED_QWEN3 = ".venv/engines/qwen3"  # canonical since P04C Stage 2
+#: The Qwen3 locations, relative to the repository root, from the engine registry (v0.8.2 Phase 5A). New installs go to
+#: ``.venv-engines/qwen3`` only (uv, approved A1); the nested one (v0.7.0 P04C to v0.8.1) and the older sibling are
+#: earlier versions' places, still used while nothing newer is installed (``tts.qwen3_runtime.venv_dir``).
+ENGINE_QWEN3 = _engines.QWEN3.environment
+LEGACY_QWEN3 = _engines.QWEN3.sibling_environment
+NESTED_QWEN3 = _engines.QWEN3.nested_environment  # canonical from P04C Stage 2 until v0.8.2 Phase 5A
 #: The two OmniVoice locations (v0.8.0). Only the nested one is ever installed into or run from; the sibling is where
 #: the first v0.8.0 development builds put it, and is only ever retired (moved aside, kept), never used or deleted.
-LEGACY_OMNIVOICE = ".venv-omnivoice"
-NESTED_OMNIVOICE = ".venv/engines/omnivoice"  # canonical (owner decision 2026-11-13, unified .venv layout)
+LEGACY_OMNIVOICE = _engines.OMNIVOICE.sibling_environment
+NESTED_OMNIVOICE = _engines.OMNIVOICE.nested_environment  # canonical (owner decision 2026-11-13) until Phase 5B
 
 IDENTITY_OK = "identity-ok"
 UNVERIFIED = "unverified"

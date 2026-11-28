@@ -645,11 +645,13 @@ def build_engine(*, runner, progress: Progress, cancel_check: CancelCheck) -> No
 # --------------------------------------------------------------------------- #
 def foreign_environments() -> list[str]:
     """Every other environment of this copy the engine must stay apart from: the parent ``.venv`` it is held in
-    (whose packages are never its own), both Qwen3 locations, and the earlier OmniVoice sibling. The worker treats
-    what lies inside its own environment as its own, although that environment lies inside the first of these."""
+    (whose packages are never its own), every Qwen3 location (v0.8.2 Phase 5A adds ``.venv-engines/qwen3``), and the
+    earlier OmniVoice sibling. The worker treats what lies inside its own environment as its own, although that
+    environment lies inside the first of these."""
     root = ov.repo_root()
     return [str(ov.parent_venv_dir()), str(root.joinpath(*venv_layout.NESTED_QWEN3.split("/"))),
-            str(root / venv_layout.LEGACY_QWEN3), str(ov.legacy_venv_dir())]
+            str(root / venv_layout.LEGACY_QWEN3), str(ov.legacy_venv_dir()),
+            str(root.joinpath(*venv_layout.ENGINE_QWEN3.split("/")))]
 
 
 def proof_job() -> dict:

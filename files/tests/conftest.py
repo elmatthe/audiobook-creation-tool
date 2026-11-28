@@ -179,7 +179,7 @@ def pytest_configure(config):
 # --------------------------------------------------------------------------- #
 #: The engine's guarded paths fingerprinted as one-level listings, not trees.
 _SHALLOW_GUARDED = frozenset({"the real nested Qwen3 engines folder", "the real canonical Qwen3 engine layout",
-                              "the real canonical Qwen3 engine packages"})
+                              "the real canonical Qwen3 engine packages", "the real independent engine environments"})
 
 #: Trees walked without following links or junctions (an engine must not be able to send the walk elsewhere).
 _LINK_SAFE_TREES = frozenset({"the real canonical Qwen3 engine launchers", "the real canonical Qwen3 engine tree"})
@@ -231,6 +231,11 @@ _GUARDED_PATHS = {
     "the real Qwen3 environment launchers": REPO_ROOT / ".venv-qwen3" / "Scripts",
     # v0.7.0 P04C: the canonical engine at .venv/engines/qwen3 -- see _canonical_engine_guard below.
     **_canonical_engine_guard(REPO_ROOT),
+    # v0.8.2 Phase 5A: the independent engine environments beside .venv (approved A1), where every new Qwen3 install
+    # goes. A test that created, synced, receipted or retired the real one would fake an installation (or lose one).
+    "the real independent engine environments": REPO_ROOT / ".venv-engines",
+    "the real Qwen3 engine environment marker": REPO_ROOT / ".venv-engines" / "qwen3" / "pyvenv.cfg",
+    "the real Qwen3 engine environment receipt": REPO_ROOT / ".venv-engines" / "qwen3" / ".act-environment.json",
     "the real Qwen3 install record": (REPO_ROOT / "files" / "runtime-data" / "qwen3"
                                       / "state.json"),
     # v0.7.0 P04C Stage 2: a repair or setup now always takes the engine lease. Locking an existing lock file changes
@@ -267,6 +272,8 @@ _PER_TEST_GUARDED = ("the real requirements stamp", "the real environment receip
                      "the real nested Qwen3 engines folder", "the real canonical Qwen3 engine layout",
                      "the real canonical Qwen3 engine marker", "the real canonical Qwen3 engine launchers",
                      "the real canonical Qwen3 engine packages",
+                     "the real independent engine environments", "the real Qwen3 engine environment marker",
+                     "the real Qwen3 engine environment receipt",
                      "the real Qwen3 install record", "the real Qwen3 engine lock",
                      "the real Qwen3 local transcripts", "the real Qwen3 transcript selection",
                      "the real Qwen3 model folder",

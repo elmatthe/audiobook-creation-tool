@@ -57,6 +57,16 @@ def test_the_guard_watches_the_real_uv_receipt_and_profile_choice_every_test():
     assert bootstrap.PROFILE_FILE in watched
 
 
+def test_the_guard_watches_the_real_independent_engine_environments_every_test():
+    """v0.8.2 Phase 5A: ``.venv-engines`` (a one-level listing), the Qwen3 engine's marker and its receipt."""
+    from shared import engine_env
+
+    watched = {conftest._GUARDED_PATHS[name] for name in conftest._PER_TEST_GUARDED}
+    assert {REPO_ROOT / ".venv-engines", engine_env.env_dir(REPO_ROOT, "qwen3") / "pyvenv.cfg",
+            engine_env.receipt_path(REPO_ROOT, "qwen3")} <= watched
+    assert "the real independent engine environments" in conftest._SHALLOW_GUARDED
+
+
 def test_the_guard_watches_the_real_setup_log_directory():
     assert (REPO_ROOT / "files" / "runtime-data" / "logs") in \
         set(conftest._GUARDED_PATHS.values())
@@ -1203,7 +1213,8 @@ def test_every_previously_guarded_path_is_still_guarded_with_the_same_attributio
     assert conftest._GUARDED_PATHS["the real Qwen3 environment marker"] == REPO_ROOT / ".venv-qwen3" / "pyvenv.cfg"
     assert conftest._GUARDED_PATHS["the real Qwen3 engine lock"] == \
         REPO_ROOT / "files" / "runtime-data" / "qwen3" / "engine.lock"
-    # every entry outside the engine keeps the full, link-following fingerprint it always had
+    # every entry outside the engine keeps the full, link-following fingerprint it always had (v0.8.2 Phase 5A: the
+    # independent engine environments folder is an engine path too, listed one level deep like the nested one)
     for name in conftest._GUARDED_PATHS:
-        if name not in set(ENGINE_PER_TEST) | set(ENGINE_SESSION):
+        if name not in set(ENGINE_PER_TEST) | set(ENGINE_SESSION) | {"the real independent engine environments"}:
             assert name not in conftest._SHALLOW_GUARDED and name not in conftest._LINK_SAFE_TREES

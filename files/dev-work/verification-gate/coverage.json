@@ -4695,6 +4695,21 @@
             "offered_voices",
             "offered_labels"
           ]
+        },
+        {
+          "path": "scripts/tts/engines/registry.py",
+          "symbols": [
+            "Component",
+            "EngineDefinition",
+            "Tables",
+            "tables",
+            "definition",
+            "get"
+          ]
+        },
+        {
+          "path": "scripts/tts/engines/__init__.py",
+          "symbols": []
         }
       ],
       "contracts": [
@@ -4703,10 +4718,12 @@
         "A voice of an engine not offered is refused at Start, at Retry, on the conversion worker before its engine is imported and at the engine's own entry points, with one plain message; nothing is started, installed, downloaded or published, and no other voice is used. A restored or imported selection becomes the default voice and is logged.",
         "Nothing is removed: every (backend, voice_id) identity, recording, transcript, preview, manifest and pin stays; Windows behaviour is unchanged.",
         "The sample helper checks its explicit voice patterns once, before anything runs, in ordinary samples, --quality-suite and --final-acceptance alike: on macOS a pattern naming a Chatterbox or Qwen3 voice (alone, beside offered voices, or through a shared word such as \"Female 1\") reports each such voice NOT OFFERED and refuses the whole request with exit status 2; nothing is synthesised, published or written (no folder, input or manifest). On every platform patterns that select no voice exit 1, and an empty quality or acceptance report is never a success. No patterns still means every offered voice; Windows runs every voice a pattern names, as released.",
-        "On macOS the wording of an environment on an incompatible Python names only Kokoro, the repair's and cleanup's engine-lock refusals and the repair's \"held still\" line name only OmniVoice (the Qwen3 folder's shared install locks are named as such), and the shared install lock's \"already being installed\" refusals name no engine; the choice is engine_policy's. Windows' words are byte-identical."
+        "On macOS the wording of an environment on an incompatible Python names only Kokoro, the repair's and cleanup's engine-lock refusals and the repair's \"held still\" line name only OmniVoice (the Qwen3 folder's shared install locks are named as such), and the shared install lock's \"already being installed\" refusals name no engine; the choice is engine_policy's. Windows' words are byte-identical.",
+        "v0.8.2 Phase 5A: the engines are one explicit list (scripts/tts/engines/registry.py, standard library only). engine_policy, voice_registry.BACKENDS, the optional-setup components, labels and defaults, the first-run choices, the local engine host's names, venv_layout's engine places and the packager's environment folders and engine projects are derived from it, exactly as released; adding or removing an engine is one definition (proved on a disposable list). No discovery, no service container, no worker server."
       ],
       "selection": [
-        "files/tests/test_engine_policy.py"
+        "files/tests/test_engine_policy.py",
+        "files/tests/test_engine_registry.py"
       ],
       "journeys": [],
       "verification": {
@@ -5030,6 +5047,26 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_engine_policy.py::test_a_mac_kokoro_install_refused_by_another_install_names_no_qwen3"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_registry.py::test_every_derived_table_is_exactly_what_v0_8_1_released"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_registry.py::test_every_consumer_holds_the_registry_s_table_not_a_copy_of_its_own"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_registry.py::test_the_registry_is_standard_library_only_and_imports_no_app_module"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_registry.py::test_adding_an_engine_is_one_definition_and_every_table_follows"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_registry.py::test_removing_an_engine_is_deleting_its_definition_and_nothing_refers_to_it_any_more"
           }
         ]
       },
@@ -5631,9 +5668,9 @@
         }
       ],
       "contracts": [
-        "Check and repair first runs a read-only full check (engine start-up probe and the SHA-256 of every installed file) and changes nothing.",
+        "Check and repair first runs a read-only full check (engine start-up probe and the SHA-256 of every installed file; since v0.8.2 Phase 5A also every installed engine package file against its RECORD) and changes nothing.",
         "What is wrong and what fixing it would download is shown and acted on only after Yes; No changes nothing; a clean check says so and asks nothing.",
-        "Repair re-fetches only the files that fail and rebuilds an engine that will not start, removing only the app's own canonical engine folder.",
+        "Repair re-fetches only the files that fail and rebuilds an engine that will not start, removing only the app's own engine folder (.venv-engines/qwen3 since v0.8.2 Phase 5A); a new engine whose install did not finish is finished by the repair while the earlier engine stays in use.",
         "A folder that cannot be shown to be the app's own environment is never deleted."
       ],
       "selection": [
@@ -5666,6 +5703,10 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_qwen3_setup.py::test_repair_refuses_to_delete_a_folder_that_is_not_the_apps_environment"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_qwen3_setup.py::test_the_read_only_check_finds_a_damaged_engine_package_the_probe_does_not_import"
           }
         ]
       },
@@ -5686,10 +5727,10 @@
           "path": "scripts/tts/qwen3_setup.py",
           "symbols": [
             "install_environment",
-            "verified_base_python",
-            "base_python_candidate",
+            "_install_uv_environment",
+            "_uv_preconditions",
+            "_retire_nested",
             "check_python",
-            "parent_problem",
             "safe_to_remove_environment",
             "probe_environment",
             "run_command",
@@ -5703,10 +5744,9 @@
           "symbols": [
             "reviewed",
             "wheels",
-            "missing",
-            "fetch",
-            "install_command",
-            "discard"
+            "total_bytes",
+            "earlier_store",
+            "discard_earlier_store"
           ]
         },
         {
@@ -5721,9 +5761,15 @@
           "path": "scripts/tts/qwen3_runtime.py",
           "symbols": [
             "venv_dir",
+            "engine_venv_dir",
             "nested_venv_dir",
             "legacy_venv_dir",
+            "earlier_venv_dir",
+            "is_canonical",
             "environment_status",
+            "_engine_status",
+            "engine_identity_problem",
+            "unfinished_engine_install",
             "environment_location_problem",
             "nested_assessment",
             "write_environment_state",
@@ -5735,13 +5781,39 @@
           "symbols": [
             "run_probe"
           ]
+        },
+        {
+          "path": "scripts/shared/engine_env.py",
+          "symbols": [
+            "definition",
+            "project_dir",
+            "env_dir",
+            "env_python",
+            "check",
+            "lock_identity",
+            "venv_command",
+            "sync_command",
+            "environment",
+            "offline_miss",
+            "identity_problem",
+            "record_damage",
+            "receipt_path",
+            "read_receipt",
+            "invalidate_receipt",
+            "write_receipt",
+            "receipt_problem",
+            "set_aside_dir",
+            "retire"
+          ]
         }
       ],
       "contracts": [
-        "The engine is created at .venv/engines/qwen3 directly from the verified base CPython 3.12, never from the app's own interpreter; an older .venv-qwen3 is used while it is the only engine and is never installed into, rebuilt or deleted.",
-        "Every package is the reviewed manifest's exact wheel (89), fetched and hash-verified once, then installed offline with --no-index --require-hashes --only-binary; pip never reaches an index.",
-        "The install is recorded only after the worker's probe imports the whole stack; a failed pip or probe is an incomplete install, with downloaded wheels kept for the retry.",
-        "The engine is ready only with its interpreter, a live base Python, a recorded probe and matching requirements; otherwise the status says to rebuild.",
+        "v0.8.2 Phase 5A: a new or rebuilt engine is built at .venv-engines/qwen3 by uv -- uv venv on this copy's managed CPython 3.12.15, then uv sync --locked --no-dev --no-cache --compile-bytecode --link-mode copy of scripts/tts/engines/qwen3/uv.lock -- never from the app's own interpreter and never inside .venv; CustomVoice and Base share this one environment.",
+        "The lock installs exactly the 89 artifacts v0.8.1 reviewed (scripts/qwen3-requirements.txt and scripts/qwen3-artifacts.json stay its parity references): torch and torchaudio 2.10.0+cu128 only from the explicit CUDA 12.8 index, sox as ACT's commit-pinned derivative wheel, Windows x64 only, nothing built from source, no other index.",
+        "No Qwen3 package cache is kept: a failed or cancelled install keeps no packages and the next one downloads them again; the download stated before an install is every reviewed wheel. The wheel store of v0.7.0-v0.8.1 is removed after a successful install, only when its record shows it is this app's.",
+        "The engine is in use only once installed to the end: created, synced, every installed file checked against its RECORD, the worker's probe passed, then the receipt (lock, interpreter, profile) and last the install record. It is ready only with that record, as this copy's own uv-built environment on the managed CPython at its own place through no link, for the current lock, with a current receipt; otherwise the status says to repair.",
+        "An engine of an earlier version (.venv/engines/qwen3 from v0.7.0-v0.8.1, or .venv-qwen3) keeps working unchanged until the new one is installed to the end; a new install that was interrupted or failed never takes over, and a repair finishes it. Then the nested engine is moved whole to files/runtime-data/qwen3/set-aside/ beside a note (never deleted; left in place while a file in it is in use); .venv-qwen3 is never moved or deleted.",
+        "Only a create or remove the app recorded as interrupted is cleared by the next install; an engine folder no record vouches for is left as it is until Check and repair rebuilds it, and nothing is ever created or deleted through a link.",
         "The worker's probe imports the name every conversion imports (Qwen3TTSModel from qwen_tts), so a package folder that lost its own files -- which Python still imports as an empty namespace -- fails the check and 'Check and repair' rebuilds the engine instead of answering that nothing needs repair",
         "POSIX (v0.8.x P5-C): every installer command run_command starts (pip, an engine probe) is followed to its own exit and reaped only after its process group has been ended, so a helper it left behind ends with it and one holding its output open cannot keep the install waiting; Cancel ends the whole group at once; a group not proved or not confirmed ended is a SetupError, never a success or a clean Cancel. Windows keeps its Job Object path unchanged"
       ],
@@ -5753,26 +5825,16 @@
         "files/tests/test_qwen3_environment_layout.py",
         "files/tests/test_qwen3_nested_adoption.py",
         "files/tests/test_qwen3_worker.py",
-        "files/tests/test_normal_exit_group_retirement.py"
+        "files/tests/test_normal_exit_group_retirement.py",
+        "files/tests/test_engine_env.py",
+        "files/tests/test_qwen3_uv_project.py"
       ],
       "journeys": [],
       "verification": {
         "all_of": [
           {
             "kind": "behavior",
-            "test": "files/tests/test_qwen3_setup.py::test_the_environment_install_runs_venv_then_pinned_pip_then_a_probe_and_records_it"
-          },
-          {
-            "kind": "behavior",
-            "test": "files/tests/test_release_installer.py::test_wheels_are_fetched_verified_recorded_and_never_fetched_twice"
-          },
-          {
-            "kind": "behavior",
             "test": "files/tests/test_qwen3_setup.py::test_a_rebuild_on_a_legacy_only_copy_builds_the_canonical_engine_and_never_touches_the_legacy_one"
-          },
-          {
-            "kind": "behavior",
-            "test": "files/tests/test_qwen3_runtime.py::test_environment_ready_only_with_interpreter_a_live_base_python_a_probe_and_matching_requirements[canonical]"
           },
           {
             "kind": "behavior",
@@ -5789,6 +5851,66 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_normal_exit_group_retirement.py::test_windows_run_command_keeps_its_job_object_path"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_qwen3_setup.py::test_the_environment_install_runs_uv_venv_then_a_locked_sync_then_a_probe_and_records_it"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_qwen3_uv_project.py::test_every_locked_version_is_exactly_the_reviewed_requirements_pin"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_qwen3_uv_project.py::test_every_reviewed_wheel_is_in_the_lock_by_its_exact_file_and_hash"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_qwen3_uv_project.py::test_torch_and_torchaudio_come_only_from_the_explicit_cuda_12_8_index"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_qwen3_uv_project.py::test_sox_is_act_s_commit_pinned_derivative_wheel"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_qwen3_runtime.py::test_the_uv_engine_is_ready_only_installed_to_the_end_on_the_managed_python_for_this_lock"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_qwen3_runtime.py::test_environment_ready_only_with_interpreter_a_live_base_python_a_probe_and_matching_requirements[nested]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_qwen3_setup.py::test_a_new_engine_beside_an_earlier_nested_one_is_built_without_touching_it_and_retires_it_whole_once_proved"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_qwen3_setup.py::test_a_failed_new_engine_leaves_the_earlier_working_one_in_use_and_unchanged"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_qwen3_setup.py::test_cancelling_during_the_sync_leaves_the_install_incomplete_and_the_next_one_syncs_it_again"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_qwen3_nested_adoption.py::test_an_engine_folder_the_app_cannot_vouch_for_is_left_alone_until_a_repair_rebuilds_it"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_env.py::test_the_receipt_vouches_only_for_the_lock_and_python_it_was_written_for"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_env.py::test_retiring_an_earlier_environment_moves_it_whole_beside_a_note_and_deletes_nothing"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_engine_env.py::test_a_folder_that_cannot_be_moved_stays_exactly_where_it_was"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_release_installer.py::test_the_earlier_wheel_store_is_given_back_only_when_it_is_this_apps"
           }
         ]
       },
@@ -23884,6 +24006,14 @@
           {
             "kind": "qualification",
             "scenario": "fresh-windows"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_bootstrap_host.py::test_the_fallback_hands_curl_each_url_by_variable_name_so_the_encoded_plus_survives"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_bootstrap_host.py::test_cmd_really_mangles_a_percent_encoded_url_passed_through_call_and_not_one_passed_by_name"
           }
         ]
       },
@@ -24043,7 +24173,8 @@
         "What setup says about FFmpeg is what it does: the environment rebuild never touches FFmpeg, and the launch that follows a repair run checks it and repairs it like every launch; the --repair-venv help and repair_venv's docstring say exactly that.",
         "A .venv folder that is present but holds no Python interpreter is replaced like any environment that cannot run -- set aside, rebuilt, its engines carried home byte for byte -- by first-run setup and by the repair alike; it is never kept as it is, and it comes back whole when the rebuild fails",
         "Package damage in a uv environment on the exact managed Python is first repaired in place (the damaged distributions reinstalled from the repair cache, then RECORD and import proof); only if that does not make it whole is the environment rebuilt",
-        "uv never syncs an environment it could recreate (and so delete a voice engine held in it): anything else is rebuilt through the set-aside transaction, which carries .venv/engines across byte for byte"
+        "uv never syncs an environment it could recreate (and so delete a voice engine held in it): anything else is rebuilt through the set-aside transaction, which carries .venv/engines across byte for byte",
+        "v0.8.2 Phase 5A: the independent engine environments beside .venv (.venv-engines; Qwen3) are outside every repair and are never touched by it; a Qwen3 install and a repair of the app's environment still refuse each other, whichever starts first, and a half-made engine an interrupted install left beside .venv is redone by the next install."
       ],
       "selection": [
         "files/tests/test_omnivoice_layout.py",
@@ -24051,7 +24182,8 @@
         "files/tests/test_setup_help_text.py",
         "files/tests/test_uv_provisioning.py",
         "files/tests/test_venv_integrity.py",
-        "files/tests/test_venv_recovery.py"
+        "files/tests/test_venv_recovery.py",
+        "files/tests/test_qwen3_nested_adoption.py"
       ],
       "journeys": [],
       "verification": {
@@ -24195,6 +24327,18 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_uv_provisioning.py::test_creating_the_environment_uses_uv_on_the_managed_python_only"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_qwen3_nested_adoption.py::test_install_first_a_repair_refuses_until_the_engine_exists_at_its_final_path"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_qwen3_nested_adoption.py::test_repair_first_a_new_install_refuses_and_nothing_is_created_under_the_parent_being_replaced[parent set aside]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_qwen3_nested_adoption.py::test_an_installer_that_dies_mid_creation_frees_the_repair_and_its_leftover_is_redone"
           }
         ]
       },
@@ -25970,7 +26114,8 @@
         "The packaged and committed config.toml ship [development] developer_mode = false, checked again in the finished archive",
         "A build refuses uncommitted changes and occupied destinations, validates every member against its source and publishes all or nothing",
         "The ordinary build produces only the Windows archive",
-        "Every root file the packager names must be tracked by git; an untracked or missing LICENSE refuses the build, and the shipped LICENSE is the canonical GPL-3.0 text byte for byte (SHA-256 pinned)"
+        "Every root file the packager names must be tracked by git; an untracked or missing LICENSE refuses the build, and the shipped LICENSE is the canonical GPL-3.0 text byte for byte (SHA-256 pinned)",
+        "v0.8.2 Phase 5A: each engine's own uv project (Qwen3: scripts/tts/engines/qwen3/pyproject.toml and uv.lock) ships byte for byte; a missing or untracked one refuses the build; .venv-engines and every engine environment never ship."
       ],
       "selection": [
         "files/tests/test_release_packaging.py",
@@ -26030,6 +26175,14 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_release_packaging.py::test_each_archive_carries_the_uv_provisioning_inputs_byte_for_byte[Windows]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_release_packaging.py::test_a_missing_or_untracked_engine_project_stops_the_build[delete]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_release_packaging.py::test_a_missing_or_untracked_engine_project_stops_the_build[untrack]"
           }
         ]
       },
@@ -29291,9 +29444,9 @@
     "scripts/shared/base_packages.py": "488605d6f4dc545c1809c07fc6587810cbf1c272fdc65b5a3563c7052ff7729d",
     "scripts/shared/book_workspace.py": "1d9f91bf97d33ca45af9ee344286dfb803a790ccac683aeb03acaf042e35e43b",
     "scripts/shared/book_workspace_ui.py": "e6eca05cecd79854b412af6d4d9c3469dbcb5ac614d9fd44752b0cc7103fb553",
-    "scripts/shared/bootstrap.py": "472360788dc76121809cb103172e96ffc112d78a9104f86adfb69739af68c497",
+    "scripts/shared/bootstrap.py": "b5ebf6c72186f4b01532d1e19a47ccdcf3cd209ca4475c40bef7f65307d4be15",
     "scripts/shared/bootstrap_host.ps1": "612bf139092e955f4b6ee16a3ee533a086fb68a0790f771311b1c768c83f4fd5",
-    "scripts/shared/bootstrap_host_fallback.cmd": "45e335ea28856ec4974e570cd41fb612b81f11bf617f217346fbf1411ed5f341",
+    "scripts/shared/bootstrap_host_fallback.cmd": "583e293fb37b0a4fc9e4cd02769c8aef82d25bcc7a4d04c244c1760a763f1c18",
     "scripts/shared/bootstrap_host_macos.sh": "62d1fdae0c84438aee60da85ed5974652b0d4c80b87625c72ca92f5ffcecc973",
     "scripts/shared/cancellation.py": "d6e92845f45349af3de43516b415cf7235097fc8e45bb405fd54ea69f8f9ffac",
     "scripts/shared/child_entry.py": "58ba40911902e1b6a84914ef2cd2454aa316adf5e29d6cebc33aa5e2b3d49aaf",
@@ -29304,8 +29457,9 @@
     "scripts/shared/cleanup_worker.py": "e259423a3b193817099c4caeff08ec66f2f152cedf16f4535bee4d08ddb768f9",
     "scripts/shared/close_terminal.py": "ebf6086b42f695bcb7ef59b605804677cd12ea0aa0b0ab1aa3f6fec8b05dc56f",
     "scripts/shared/config.py": "6a02527d142252815899d80d7701cb326edb77a30dfaed5f80e495f81a7a6401",
+    "scripts/shared/engine_env.py": "107265984f2cc86d40f12659888f090761357db6b31be488a161a6d0fb89e413",
     "scripts/shared/engine_lease.py": "bd6f6fe5e5968895a840226281ce56f767b219384c96ac003ade9ae6224b260b",
-    "scripts/shared/engine_policy.py": "0b821a7a66d9b7f59200dbf35ade9971adca6b8095efc927d6f49de524e6ff5b",
+    "scripts/shared/engine_policy.py": "a357c45b004f46ddcaee86bb855a5efd00a87efbf18a968484ca5cdecf72bcbb",
     "scripts/shared/espeak_data.py": "d6580373565c5140a7be8f098d3285d22f48edf67406b766df4952fb4c2328c4",
     "scripts/shared/ffmpeg_health.py": "55d2564cec45e117e7a64c0b25a16715c4b942096976b15cee203ac57ae3c5c7",
     "scripts/shared/ffmpeg_portable.py": "21fe4552e7295b510a2b63af2586773c6cc215156e11783da8f1919ca9a815d2",
@@ -29326,9 +29480,9 @@
     "scripts/shared/optional_setup_display_controller_v3.py": "ead9254b7bb897147e1a9748191392e63fe7906fd8f3f59754d732cce717037c",
     "scripts/shared/optional_setup_exchange_v3.py": "103c21cc4ab7e4c4a40ace206626677a04cc264bd453f1e7a65084393708a042",
     "scripts/shared/optional_setup_panel.py": "d4329092d8aab5caeda4bfc95e03b0687f5b17ce54629257434b096b1eec9a01",
-    "scripts/shared/optional_setup_planning_bridge_v3.py": "bd15e28228f79821e8ac819c60771abeb93e864f9ab3c99320791504d9df6c0e",
-    "scripts/shared/optional_setup_protocol.py": "029a83301b160fb7eece57126638a5e3ab5e2f07aeebe0cda895c6c96f9d748d",
-    "scripts/shared/optional_setup_readonly_context_v3.py": "c7c2b189553b131743f91c494ff862e7209b8517c95181f1d353ef6e6bb475f0",
+    "scripts/shared/optional_setup_planning_bridge_v3.py": "0a1137982c7547cf8e122eb4d05456fd28246f7a443c365f05584d65374574a6",
+    "scripts/shared/optional_setup_protocol.py": "023b29e242974550b779f123212f7d3c3e39e79ccb081445446204df6a901966",
+    "scripts/shared/optional_setup_readonly_context_v3.py": "27389fc26c915de5fd4945d73902dd0a606b69e26d6e6eabacd88a71c7c38084",
     "scripts/shared/optional_setup_resource_budget.py": "271a73b61458f77b439f7114ec2063511d14d2fe7fc07b588d48117c7598642b",
     "scripts/shared/optional_setup_supervisor_v3.py": "dce3016d8df5dd0750d25bf84014f1e05ab8190923e23e0a6a46dc663b2304fc",
     "scripts/shared/optional_setup_tk_harness_v3.py": "23727d8ea3d09d7ac49d523a05055748f378593c9cacd6b7c9942241562afb26",
@@ -29337,15 +29491,15 @@
     "scripts/shared/output_paths.py": "eba1ef6ddb1aa05f7d337785fe2b9aecd040b77794a956a1d9a54de37c0fdcca",
     "scripts/shared/paths.py": "9486c2afc0362d7b401da94b24d660ab5887ae581c97b754524a5524168f098f",
     "scripts/shared/preferences_ui.py": "a587859b3e8d0385baf8bf757c6bf669040d2edfa81bdb923375076377c62ef4",
-    "scripts/shared/release.py": "ed922563b1c2f1cc1c777ca8e8a325ad433e4dfec754f64aa96631f10adffb5e",
+    "scripts/shared/release.py": "0579a6d6c76234fc29dbf0c1b79fe8ef6ae6ac5588b9a1f4f149d1e5cb1c245e",
     "scripts/shared/settings.py": "2f564a150ce9b5f0dce110d711e54e8c00f18dc59a017d59e31936bcc136f84f",
     "scripts/shared/source_readback.py": "73b639ed4777cc1047fc40b7893c9dd292a112fe6ec7fb50a4b51991af0712a8",
     "scripts/shared/spacy_store.py": "089d966bc82296250c97fa98014ea8a269945f1a237064b24d26a050dd4d42f2",
     "scripts/shared/subprocess_utils.py": "0448a626eb11ca69e6be944810c7c412b12d77787aa991809b49707b119d1a3d",
     "scripts/shared/ui_theme.py": "6c60ddc9dbc0768e4fef051c38daa7e9979d790471c560cf4a56c1b58d46d2ef",
-    "scripts/shared/uv_runner.py": "ddf6f88997713c93c9cdd0b7fd8387debb0d3af3c310d77976683a58b72eddbc",
+    "scripts/shared/uv_runner.py": "07f2c475be7761ad4e0308bf0f448d769bd9bac407c2cf88378640b0f3b9b80b",
     "scripts/shared/venv_integrity.py": "5230492addc4a0c00c37cc0e3b6094648b521a92f4791ec63aa7b55c35e1adec",
-    "scripts/shared/venv_layout.py": "b474c32339b41b79025234bc22c07b286992e74c48572eeea357de473d1aa86b",
+    "scripts/shared/venv_layout.py": "fd2e20b0fa7f80e512334861af4cac8c918890cc3a3f80b1b0aaad9a2abf41a1",
     "scripts/shared/version.py": "ebe5a97fa55cc98347f8a9d3a9d8e4238b36ea6373cac1cc08761ab98149a67f",
     "scripts/shared/work_area.py": "dcbcf2ef2c9691e1c22ad023ae6d985ca44c1cc53c9263255cbb858fbf4c0e97",
     "scripts/tts/__init__.py": "ae2a96121ae6db400b4330367485b2bd6c4d1deaccbe749f13b05b5d43e1a4ea",
@@ -29356,6 +29510,8 @@
     "scripts/tts/disk_assembly.py": "ce3743e7fcb44512fea35684371264a1cb1c00ac0cedba1933c52f4614842951",
     "scripts/tts/edge_failures.py": "6935863a33eb1da68cd0521db5b2c0198b28aeae05b36832322303c281a6e2d5",
     "scripts/tts/edge_requests.py": "236de667f09942ef2cd178fad426e54925c7176a05a7256fc8dcc151d571ac55",
+    "scripts/tts/engines/__init__.py": "2a1a18ac8a51cc3bbd43d8bafa3b42f4568e9a034664a8c5dde02d5cb45b5336",
+    "scripts/tts/engines/registry.py": "05aa758f2bb40472140b971988b3ddc45c322ae5c0ec6271e71cf3ebac6887ee",
     "scripts/tts/epub2tts_edge/__init__.py": "7074e99d0681b82f6e709a94d1c009f9fe6920d8e7eb16a2b48ebdded15b23b6",
     "scripts/tts/epub2tts_edge/epub2tts_edge.py": "d764b140cd4b36eb950e42c49a4a19ddbef7f7098c84f73b75cffbade2bb5766",
     "scripts/tts/epub2tts_edge/runner.py": "39856844dcca17b495eb74fbec57c75ee56ee72fcb0d8f3a076904ad88a04230",
@@ -29363,15 +29519,15 @@
     "scripts/tts/ffmpeg_watch.py": "cb4a685e0c3e56c3967abae95a87389c355dd1fbfdf88357b1a5923b3dddc192",
     "scripts/tts/generate_voice_samples.py": "a8dcf9947fb3a215f51f14c0544d0df836817a48f207c431454df3704866a72e",
     "scripts/tts/kokoro_synth.py": "43547792ab50d9b394af0e78810c317cddef243aa5acdc6bbbb7c82aa6965226",
-    "scripts/tts/local_engine_host.py": "77f970a15125f07c111370aa082b59adf5d4b561f350a13580ebff226d32883f",
+    "scripts/tts/local_engine_host.py": "c144348c390e57591bbb06a34974d1fe8c76df674ab9306d5f1b0bc7e1432ef4",
     "scripts/tts/local_engine_worker.py": "0935955b240d134f48c17f15c625ca77557f056fc2e5198d394e7ef46d97cd6a",
     "scripts/tts/model_assets.py": "d2ffd3493fd459e10235bc96b8fa06ea70f23f84506b92122614ff446b3da013",
     "scripts/tts/omnivoice_runtime.py": "2de21574370807c52d6b1996abfb4e5d93a9f839cc0b96fb5335bfabe407e034",
-    "scripts/tts/omnivoice_setup.py": "bd4f7f1768402b0a58241219382a07d8c16230205f8b0cd2aef93a39a1de90f3",
+    "scripts/tts/omnivoice_setup.py": "6a6f61243b08656137f2e7dfdac210721471660bc654eab13ac663438cf10025",
     "scripts/tts/omnivoice_synth.py": "cd366c7bf9c2332c92d461e69d11a3a78dbacfe1e5a351204be6bd5b46259bd9",
     "scripts/tts/omnivoice_worker.py": "48b8c28c8858525e0ab372a07b1471015485adda70099fc1240cd8db7f5a92ca",
-    "scripts/tts/optional_setup.py": "4d2fb5d341a3006cd83a0c8c686860c1737a2ed909ac465988dee3f8d7544445",
-    "scripts/tts/optional_setup_acquire.py": "a9fe41855365ad00e37cf6046235c0af6ef6554a1213af61a6d36e98f65683ed",
+    "scripts/tts/optional_setup.py": "392b45a4d3d2048a015e9e213f4041be0594ec44c213c4793f94e2fe4dac4768",
+    "scripts/tts/optional_setup_acquire.py": "c3ad37d65424a137ebd33002fb8629a401d10682d0cdce4bf2ba0d5166705dc5",
     "scripts/tts/optional_setup_authority.py": "c3f10e7ac1113ead6ebdc55e815c2b793c4f071e2d60472d4a5e126646bd9276",
     "scripts/tts/optional_setup_health.py": "bae4c951e35b4c38c168bc69fd690caa8b4cb0fbf89a2170346ca5f08051606c",
     "scripts/tts/optional_setup_lifecycle.py": "98de2e70d7ff1f3bb0b1ee912648a58a1fd19229a063ca4eafc8de96b80bf8db",
@@ -29384,15 +29540,15 @@
     "scripts/tts/quality_corpus.py": "48f9526c5c8d2dd608c4cdf773e19419ffd12defb9d6f246aab1d736a592699a",
     "scripts/tts/qwen3_clone_setup.py": "58d4109a90738a13cafb5c4ab14a4fb7deebf04d07baa905ab78df2d90049471",
     "scripts/tts/qwen3_clone_setup_ui.py": "a987c97ecb77ac9ae162ebea4784e08104fdc63a2e2589fdb786fabf8554e4b2",
-    "scripts/tts/qwen3_engine_authority.py": "37897e7cfb564a99c15389c96db109f6885d58c600bf6c53c6fe33fe5ef11444",
-    "scripts/tts/qwen3_install_ui.py": "b3b3030ca6f0f46550d93f85dedb8d2d9bcbdf34fc949731e4ac5dc79614ee32",
+    "scripts/tts/qwen3_engine_authority.py": "9510a90689cb9f3065c434863039dd6d6bbcf1dc05c66fe9e4022ed4c6bc9738",
+    "scripts/tts/qwen3_install_ui.py": "c35b9278ef2e2338385a6f4e7a01bea9bdee10f718116ec086d98103889185c0",
     "scripts/tts/qwen3_package_manifest.py": "ecbdbe80aabe6379741bb4070bd1e702fff85775236a31d8760d2bd50955a566",
     "scripts/tts/qwen3_packages.py": "5a5d9c75dd7f601e2a9d1de43bdca866dd2b67bafa99adde34b052aceecf306f",
     "scripts/tts/qwen3_process.py": "bd5f6b222e4b1a2eec8de7394eadcc1a81ce50db809401b4788ded09ee7c189c",
-    "scripts/tts/qwen3_runtime.py": "ab84362e428c498e5fb89f06769ad282276802069c1dc2b71040fa608367d01d",
-    "scripts/tts/qwen3_setup.py": "f3d473baf481f4d1dd1a63f577b2cda52c684842281af66b1a71d1ca17d3bdd2",
+    "scripts/tts/qwen3_runtime.py": "50c26d21f46a5632f03225bd86217b81d16ebe3c8c95f8bab7519e83ef1354e8",
+    "scripts/tts/qwen3_setup.py": "0ed140bf8523eff9da69fc2d854e22dcf4562998dff3cf38c95d4d91a2b220fa",
     "scripts/tts/qwen3_synth.py": "5268d3b7e2a8096de6696d75c6056b04ca124ffd04d3773ee87f5aa3689687aa",
-    "scripts/tts/qwen3_wheels.py": "8ca4bd0479b8b85cf78bd76270db4d8a1be928d6dabe707c4d4b464ae2439fa4",
+    "scripts/tts/qwen3_wheels.py": "cb0829266c631e0cd27f67f05d03987c286ec84f0e3238fbc3d9d128d0cb6446",
     "scripts/tts/qwen3_worker.py": "a21a7e8a23338bae1f7b09ab1bd38335f8561b33c3bf433edf3949ed647773bc",
     "scripts/tts/spacy_consumer.py": "4531483832fcb8bcedcf523ca91b57475bded8429de720673318ee0dd7528768",
     "scripts/tts/speech/__init__.py": "46f8f554ac4f4097da70c7e3093d01cd44968de4b5b79b799d9088e9af985837",
@@ -29406,7 +29562,7 @@
     "scripts/tts/speech/profiles.py": "c19d5ecab536546738f1f40b080b72605a03cfc393b073bf904755daba7e3914",
     "scripts/tts/speech/report.py": "4136d3039a462f9f6d2c9354bce6bf468bbbaff466f08df2076e07dcfbe08fa4",
     "scripts/tts/voice_install.py": "e0f1c1a41c21f9eba22d99ec895e58316a0462ce0f2a470a2d20ee43542a5f74",
-    "scripts/tts/voice_registry.py": "a88702f6de61f934a45275577faa83f164138f667cc53536cf59389963cffc9c",
+    "scripts/tts/voice_registry.py": "59b0e2658e8b344ba0bd2bb5e055565479e17b65a0ba5d5d3a56747c42d62458",
     "scripts/tts/worker_limits.py": "c86609598b3baae6d42c3151b459fa65a4b3ea9dd590e27c761f07dc3e33a13d"
   },
   "macos": {

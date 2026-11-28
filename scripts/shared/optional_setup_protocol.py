@@ -51,6 +51,7 @@ from pathlib import Path
 from typing import Callable, Iterable, Optional
 
 from shared import venv_layout
+from tts.engines import registry as _engines
 
 # --------------------------------------------------------------------------- #
 # The five components
@@ -62,24 +63,19 @@ QWEN3_BASE = "qwen3-base"
 #: v0.8.0 Phase 3: the six OmniVoice cloned voices (``tts.omnivoice_runtime.COMPONENT``; a test pins that they agree).
 OMNIVOICE = "omnivoice"
 #: The order the wizard shows them in and every plan lists them in (Q14; v0.8.0 appends OmniVoice last). Nothing outside
-#: this tuple is ever accepted.
-COMPONENTS: tuple[str, ...] = (KOKORO, CHATTERBOX, QWEN3_CUSTOMVOICE, QWEN3_BASE, OMNIVOICE)
+#: this tuple is ever accepted. v0.8.2 Phase 5A: the components, their labels, the first-run defaults and the Qwen3
+#: models are the engine registry's (``tts.engines.registry``), derived here, never a second copy.
+COMPONENTS: tuple[str, ...] = _engines.TABLES.components
 
-LABELS: dict[str, str] = {
-    KOKORO: "Kokoro",
-    CHATTERBOX: "Chatterbox Turbo",
-    QWEN3_CUSTOMVOICE: "Qwen3 CustomVoice",
-    QWEN3_BASE: "Qwen3 Cloned Voices / Base",
-    OMNIVOICE: "OmniVoice — Six Cloned Voices",
-}
+LABELS: dict[str, str] = dict(_engines.TABLES.component_labels)
 
 #: Owner-approved first-run defaults (Q15): Kokoro checked, everything else unchecked -- OmniVoice too (v0.8.0 plan §3:
 #: a several-gigabyte, GPU-only, non-commercially licensed choice is never made for anyone).
-WIZARD_DEFAULTS: dict[str, bool] = {KOKORO: True, CHATTERBOX: False, QWEN3_CUSTOMVOICE: False, QWEN3_BASE: False,
-                                    OMNIVOICE: False}
+WIZARD_DEFAULTS: dict[str, bool] = dict(_engines.TABLES.wizard_defaults)
 
 #: The Qwen3 model each Qwen3 component installs (``tts.qwen3_runtime.MODEL_KEYS``; a test pins that they agree).
-QWEN3_MODEL_KEYS: dict[str, str] = {QWEN3_CUSTOMVOICE: "customvoice", QWEN3_BASE: "base"}
+QWEN3_MODEL_KEYS: dict[str, str] = {c: m for c, m in _engines.TABLES.component_models.items()
+                                    if _engines.TABLES.component_engines[c] == "qwen3"}
 
 # --------------------------------------------------------------------------- #
 # Readiness

@@ -49,9 +49,11 @@ Chatterbox 6, Qwen3 8, OmniVoice 6); macOS offers Edge, Kokoro and OmniVoice, **
 | Edge TTS | network, in the app process | the only engine with real multi-file concurrency; Kokoro, Chatterbox and Qwen3 use one worker |
 | Kokoro-82M | in-process on Windows; the supervised local-engine worker on macOS (D17, Decisions 2026-11-25) | pinned local model files; espeak data under a short path on macOS |
 | Chatterbox Turbo | in-process, Windows; optional, not the default | six bundled reference recordings, verified by SHA-256 on every use; torch device order cuda, mps, cpu; setuptools held at 80.9.0 |
-| Qwen3-TTS | isolated worker process in `.venv/engines/qwen3`, Windows only | per-file subprocess, JSON-lines events, Job Object, one-machine mutex; Python 3.12 exactly; models under `files/runtime-data/models/qwen3-tts` |
+| Qwen3-TTS | isolated worker process in `.venv-engines/qwen3` (uv, its own locked project, since v0.8.2 Phase 5A; an earlier `.venv/engines/qwen3` or `.venv-qwen3` keeps working until replaced), Windows only | per-file subprocess, JSON-lines events, Job Object, one-machine mutex; Python 3.12 exactly; models under `files/runtime-data/models/qwen3-tts` |
 | OmniVoice | isolated worker process in `.venv/engines/omnivoice` | Windows needs an NVIDIA GPU; macOS uses mps or cpu; offline by audit hook; 300-character chunks, at most 48 per worker; weights are non-commercial (CC-BY-NC) |
 
+The engines are one explicit list, `scripts/tts/engines/registry.py` (v0.8.2 Phase 5A): the policy, the voice registry's backends, the
+setup components and first-run choices, the local engine host, the environment places and the packager derive their tables from it.
 Clone voices use 18 shipped reference recordings, engine-specific, bound by `clone_references.json`; Qwen3 uses only the shipped transcript bundle.
 A clone transcript, approved selection or private listening artifact is never opened by an agent. Speech text preparation lives in `scripts/tts/speech/`;
 an OmniVoice chunk with words that renders silent is re-rendered with derived seeds, at most 24
@@ -63,8 +65,9 @@ renderings (Decisions 2026-11-25).
 README.md  LICENSE  config.toml  pytest.ini
 pyproject.toml  uv.lock     the base environment's project and its one lock (v0.8.2 Phase 4; shipped in the ZIP)
 Setup_and_Run-audiobook-creation-tool.bat / .command   the only files a user double-clicks
-scripts/        all program code (the single import root): launcher.py, shared/, tts/, mp3/, m4b/{converter,maker,metadata}/, artwork/,
-                qwen3-requirements.txt; requirements.txt and the two v0.8.1 hash locks stay only as a frozen parity reference
+scripts/        all program code (the single import root): launcher.py, shared/, tts/ (tts/engines/: the registry and each engine's
+                uv project, Qwen3's since 5A), mp3/, m4b/{converter,maker,metadata}/, artwork/; qwen3-requirements.txt and
+                qwen3-artifacts.json, requirements.txt and the two v0.8.1 hash locks stay only as frozen parity references
 md-instructions/  exactly five permanent documents (below)
 files/
   plans/                    active implementation plans (current: Developer-Experience-Upgrade.md)
@@ -75,8 +78,9 @@ files/
   Archives/  dist/          protected, local and ignored (historical archives, built ZIPs)
   test-files/               owner fixtures, never touched
   UI-Tool-Screenshots/  voice-previews/  Cloned-Voice-Uploads/  tracked supporting assets
-.venv/          the application environment (uv's); also holds .venv/engines/{qwen3,omnivoice} until 5A/5B move them to .venv-engines/
-                (owner decision A1, 2026-11-27); rebuilt on each machine, never committed
+.venv/          the application environment (uv's); also holds .venv/engines/omnivoice until 5B (and an earlier version's
+                .venv/engines/qwen3 until a new Qwen3 install replaces it); rebuilt on each machine, never committed
+.venv-engines/  independent engine environments (owner decision A1, 2026-11-27): qwen3/ since 5A; never committed or shipped
 ```
 
 `scripts/Universal/` no longer exists (Retired: the v0.5.0 layout was lifted to `scripts/` in v0.6.7; any mention of it is stale).
@@ -99,10 +103,16 @@ files/
   carried. The v0.8.1 interpreter in `files/runtime-data/python` is kept for engines built on it; `scripts/shared/app_python.py` is the one
   resolver of the base interpreter. NLTK and Hugging Face caches stay inside the app folder. First run prepares the base app only; the
   optional-component panel then offers five components (OmniVoice last and unchecked) acquired from pinned identities under a one-use
-  consent (Decisions 2026-10-25, 2026-10-27); the Qwen3 and OmniVoice installers keep their own route until 5A/5B.
-- **Unified layout.** One `.venv` holds `.venv/engines/qwen3` and `.venv/engines/omnivoice`; repair, replace and rollback keep them; engine
-  leases refuse a repair while a worker runs; set-aside folders (`.venv.replaced*`, `.venv.discarded*`) are ignored and never packaged. The older
-  `.venv-qwen3` is Retired and kept only for rollback until the owner retires it.
+  consent (Decisions 2026-10-25, 2026-10-27); the OmniVoice installer keeps its own route until 5B.
+- **Engine environments (v0.8.2 Phase 5A).** Qwen3 is installed by uv into `.venv-engines/qwen3` (`uv venv` on the managed CPython, then
+  `uv sync --locked --no-dev --no-cache` of `scripts/tts/engines/qwen3/`: the v0.8.1 89 packages exactly, torch 2.10.0+cu128 from the
+  explicit CUDA 12.8 index, no package cache kept) through `scripts/shared/engine_env.py` (identity, RECORD check, receipt, retirement);
+  it is the engine in use only once its install record is written, last. An earlier engine keeps working until then; the nested one is then
+  moved whole to `files/runtime-data/qwen3/set-aside/` (never deleted); `.venv-qwen3` is never moved. A base repair never touches
+  `.venv-engines`; a Qwen3 install and a repair still refuse each other.
+- **Nested layout (until 5B).** `.venv` holds `.venv/engines/omnivoice` (and an earlier version's `.venv/engines/qwen3`); repair, replace
+  and rollback keep them; engine leases refuse a repair while a worker runs; set-aside folders (`.venv.replaced*`, `.venv.discarded*`) are
+  ignored and never packaged. The older `.venv-qwen3` is Retired and kept only for rollback until the owner retires it.
 - **FFmpeg** is user-scope (winget or Homebrew) or a pinned portable copy under `files/bin/ffmpeg/<version>`, proved by running it; no PATH fallback.
 - **Path depth.** Windows paths are counted in UTF-16 (`shared.long_paths`): the app folder may be 87 characters or fewer with long paths off
   (83 with OmniVoice), 123 (119) with the Win32 long-paths switch; README documents the limits.
@@ -181,13 +191,13 @@ unknown paths and ACL-locked folders. Retention rules for agents' scratch and ga
 
 ## 11. Direction (Approved future; none of it is built)
 
-The active plan `files/plans/Developer-Experience-Upgrade.md` (Revision 9) sets the v0.8.2 direction: Phases 0 to 3 are done (documentation,
+The active plan `files/plans/Developer-Experience-Upgrade.md` (Revision 10) sets the v0.8.2 direction: Phases 0 to 3 are done (documentation,
 the simplified verification gate, cleanup, uv feasibility on Windows and macOS); **Phase 4, base provisioning through uv, is done**
-(above; accepted natively on Windows and macOS). Still to come: 5 an engine registry with Qwen3 and OmniVoice migrated to `.venv-engines/` and
-Kokoro and Chatterbox Turbo **isolated** into their own environments, 6 migration and legacy retirement, 7 user-facing documentation and
-deterministic distributions (VERSION becomes 0.8.2 only then), 8 performance and native qualification readiness, 9 independent Codex review.
-**Not implemented today**: engine environments under `.venv-engines/`, isolated Kokoro or isolated Chatterbox on Windows. Do not duplicate
-the plan here.
+(accepted natively on Windows and macOS); **Phase 5A, the engine registry and Qwen3 in `.venv-engines/qwen3`, is done on Windows**
+(above). Still to come: 5B OmniVoice migrated to `.venv-engines/`, 5C/5D Kokoro and Chatterbox Turbo **isolated** into their own
+environments, 6 migration and legacy retirement, 7 user-facing documentation and deterministic distributions (VERSION becomes 0.8.2 only
+then), 8 performance and native qualification readiness, 9 independent Codex review. **Not implemented today**: OmniVoice under
+`.venv-engines/`, isolated Kokoro or isolated Chatterbox on Windows. Do not duplicate the plan here.
 
 **Pending decisions:** D-2 external scratch, D-3 ACL-locked folders, D-4 the owner's uncommitted plan/release-history archiving (see
 `Handoff.md`). D-6 was approved and implemented in Phase 4.
@@ -203,6 +213,9 @@ the plan here.
   ZIP); a moved Mac copy is repaired on its next start (its environment's interpreter link dangles until then); the PowerShell-blocked fallback's download path and a non-admin Windows account are
   untested; the launch health check samples one file per package, so deep pure-Python damage is found by the import proof (7-day window) or
   Preferences' Check and repair. A repair cache costs about 2 GB beside the 2.1 GB environment.
+- **Qwen3 through uv (Phase 5A).** Every Qwen3 install or rebuild downloads about 3.1 GB again (no package cache, A4/D-8); proved on
+  HOME-PC only (one machine, one GPU); real synthesis on the new environment awaits a separately authorized run; a uv scratch folder left
+  by a killed operation is cleared only once its owner is provably gone (folders from before owner records are kept).
 - **Engines.** Two app copies can run Qwen3 and OmniVoice on one GPU together; OmniVoice outputs can reach full scale; Qwen3 is English-only
   and slow (RTF about 1.35); Chatterbox says "Tamar" wrongly and has frozen pause tuning (Decisions 2026-11-25); the 900 s worker stall deadline
   was measured only on CUDA.

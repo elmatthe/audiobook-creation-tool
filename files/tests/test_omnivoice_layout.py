@@ -49,7 +49,9 @@ from test_omnivoice_setup import (ENGINE, MODEL, MODEL_FILES, OV, PINS, WHEELS, 
 from test_omnivoice_synth import DLL_193, NETWORK_AT_IMPORT, PAGING_1455, SAC_4551, run_stack_worker
 from test_optional_tts_setup import (component, probes_are_explicit, sandbox, tiny_assets, tripwire, unit,  # noqa: F401
                                      world)
-from test_qwen3_runtime import install_environment as install_qwen3
+# The layout these tests model is v0.8.1's: both engines held inside .venv (Qwen3 moves to .venv-engines in v0.8.2
+# Phase 5A, once a new install replaces it; until then a copy keeps exactly this layout).
+from test_qwen3_runtime import install_engine_environment, install_nested_environment as install_qwen3
 from test_qwen3_setup import FakeRunner as Qwen3Runner
 from test_venv_recovery import (_Log, _caps, _creates_venv, _existing_venv, _probe, _protected,  # noqa: F401
                                 _protected_after, _reconcile_spy, _seed_interpreter, _successful_repair_fakes, _tree,
@@ -203,7 +205,8 @@ def test_a_fresh_install_builds_the_nested_environment_at_its_final_path_from_th
     job = omni.runner.probe_jobs[0]
     assert venv_layout.same_path(job["environment"], nested)
     assert [Path(p) for p in job["foreign"]] == [omni.root / ".venv", omni.root / ".venv" / "engines" / "qwen3",
-                                                 omni.root / ".venv-qwen3", omni.root / ".venv-omnivoice"]
+                                                 omni.root / ".venv-qwen3", omni.root / ".venv-omnivoice",
+                                                 omni.root / ".venv-engines" / "qwen3"]
     receipt = ov.read_receipt()
     assert receipt["stage"] == ov.STAGE_INSTALLED and venv_layout.same_path(receipt["path"], nested)
     assert receipt["base"] == venv_layout.base_identity(nested)
@@ -1180,8 +1183,10 @@ def test_the_worker_s_search_path_keeps_its_own_folder_and_drops_the_parent_s_an
     parent = ov.parent_venv_dir()
     (parent / "Scripts").mkdir(exist_ok=True)
     install_qwen3(omni.root)
+    install_engine_environment(omni.root)  # v0.8.2 Phase 5A: Qwen3's own place beside .venv is dropped too
     system = r"C:\Windows\System32"
-    entries = [str(parent / "Scripts"), str(nested / "Scripts"), str(rt.nested_venv_dir() / "Scripts"), system]
+    entries = [str(parent / "Scripts"), str(nested / "Scripts"), str(rt.nested_venv_dir() / "Scripts"),
+               str(rt.engine_venv_dir() / "Scripts"), system]
     environment = ov.worker_environment({"PATH": os.pathsep.join(entries), "VIRTUAL_ENV": str(parent)})
     kept = environment["PATH"].split(os.pathsep)
     assert kept == [str(nested / "Scripts"), system] and "VIRTUAL_ENV" not in environment

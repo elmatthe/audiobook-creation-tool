@@ -43,6 +43,11 @@ SOURCES = (
     # library only; never the OmniVoice installer). This seam itself still refuses OmniVoice (no reviewed v3 terms).
     'tts/omnivoice_runtime.py', 'tts/clone_references.py', 'tts/omnivoice_manifest.json',
     'tts/data/clone_references.json',
+    # v0.8.2 Phase 5A: the engine registry (engine_policy, venv_layout, voice_registry and the protocol derive their
+    # tables from it), and the Qwen3 engine's uv project, whose lock identity is the engine unit's source
+    # (shared.engine_env through shared.uv_runner and shared.venv_integrity; all standard library only).
+    'tts/engines/__init__.py', 'tts/engines/registry.py', 'shared/engine_env.py', 'shared/uv_runner.py',
+    'shared/venv_integrity.py', 'tts/engines/qwen3/pyproject.toml', 'tts/engines/qwen3/uv.lock',
 )
 _SOURCE_ROOT = Path(__file__).resolve().parents[1]
 _REPO = _SOURCE_ROOT.parent

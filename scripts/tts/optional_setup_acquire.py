@@ -10,8 +10,10 @@ consent-scope escapes found in the P05B Stage 3 review are closed here, at the o
   and the lock) can never make the acquisition fetch more than the person agreed to; it fails and asks for a new plan.
 * **Engine scope.** The Qwen3 installer is called with ``allow_environment`` only when the consent includes the
   ``qwen3-engine`` unit; a model-only consent can never build, rebuild or remove the engine.
-* **Packages.** The engine's packages are fetched by :mod:`tts.qwen3_wheels` (exact reviewed wheels, per-file size and
-  hash) through the same budgeted opener, then installed offline; pip never reaches an index.
+* **Packages.** v0.8.2 Phase 5A: the engine's packages are installed by uv from the engine's locked project
+  (``tts.qwen3_setup``, ``scripts/tts/engines/qwen3/uv.lock``), which downloads exactly the locked artifacts and checks
+  each one's SHA-256 itself; the size shown and charged for the engine unit is the reviewed manifest's
+  (:mod:`tts.qwen3_wheels`). The opener's byte budget governs the model files it fetches.
 
 v0.7.0 P05B Stage 2 (plan Revision 2 §5.4). ``tts.optional_setup_lifecycle.Operation`` calls :class:`RealAcquirer` only
 after the fresh plan was made, the consent was proved to cover it (``consent_covers``) and the consent was spent. The
@@ -458,10 +460,7 @@ class RealAcquirer:
         allowed = [qwen3_setup.hub_url(rt.model_spec(key), name) for key in rt.MODEL_KEYS
                    for name in rt.model_spec(key).files if key in keys[proto.SCOPE_REPAIR] + keys[proto.SCOPE_INSTALL]]
         engine = "qwen3-engine" in qwen  # only an engine unit in the consent lets the installer touch the engine
-        if engine:
-            from tts import qwen3_wheels
-            allowed += qwen3_wheels.urls()
-        opener = self._opener(allowed)
+        opener = self._opener(allowed)  # model files only: uv fetches the engine's locked packages itself
         last = {"message": None, "done": -PROGRESS_STEP_BYTES}
 
         def report(update: qwen3_setup.Progress) -> None:

@@ -44,6 +44,8 @@ README = REPO_ROOT / "README.md"
 #: Every production file Phase 5 touched or had to reason about. The guards below
 #: run over exactly these; nothing outside ``scripts/`` is ever scanned for the word.
 PRODUCTION_TTS_SOURCES = (
+    "tts/engines/__init__.py",
+    "tts/engines/registry.py",
     "tts/epub2tts_gui.py",
     "tts/epub2tts_edge/epub2tts_edge.py",
     "tts/epub2tts_edge/runner.py",

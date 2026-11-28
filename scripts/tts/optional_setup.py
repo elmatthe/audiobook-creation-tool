@@ -160,9 +160,14 @@ def chatterbox_source() -> str:
 
 
 def qwen_engine_source() -> Optional[str]:
-    """The hash-locked Qwen3 requirements (pip ``--require-hashes``), by the hash of the lock itself."""
-    digest = rt.requirements_sha256()
-    return f"pip-lock:qwen3-requirements.txt@sha256:{digest}" if digest else None
+    """The engine's uv lock (v0.8.2 Phase 5A: what uv installs, every artifact by its SHA-256), by the hash of the lock
+    itself (line endings normalised, ``shared.engine_env.lock_identity``)."""
+    from shared import engine_env
+
+    identity = engine_env.lock_identity(rt.repo_root(), rt.ENGINE_KEY)
+    if not identity:
+        return None
+    return f"uv-lock:scripts/tts/engines/qwen3/uv.lock@sha256:{identity['uv_lock_sha256']}"
 
 
 def qwen_model_source(spec: "rt.ModelSpec") -> str:
@@ -319,19 +324,20 @@ def _qwen_engine_unit() -> tuple[Unit, str]:
     ok, reason = rt.environment_status()
     if ok:
         return Unit(unit_id, label, [], READY, source=source), ""
-    # v0.7.0: the engine's packages are the reviewed manifest's exact wheels (``tts.qwen3_wheels``), so the download
-    # is known exactly: the wheels not already verified in the app's wheel cache.
+    # v0.8.2 Phase 5A: uv installs the engine from its locked project with no package cache, so an install downloads
+    # every locked artifact: the reviewed manifest's exact wheel sizes (``tts.qwen3_wheels``; the PyTorch index gives
+    # uv.lock no sizes) are the download, every time.
     from tts import qwen3_wheels
     try:
-        fetch = qwen3_wheels.missing_bytes()
+        fetch = qwen3_wheels.total_bytes()
     except Exception as exc:  # noqa: BLE001 - a manifest this build cannot vouch for: nothing can be installed from it
         return Unit(unit_id, label, [], UNVERIFIED, note=f"the Qwen3 package manifest could not be verified ({exc})",
                     source=source), reason
     install = dict(download=Figure(fetch, MANIFEST),
                    disk=Figure(rt.environment_installed_bytes(), APPROXIMATE),
                    temp=Figure(fetch, MANIFEST),
-                   note="the reviewed package wheels, each checked by size and SHA-256, then installed offline; "
-                        "they are kept until the install succeeds", source=source)
+                   note="the engine's locked packages, each checked by uv against the app's lock (SHA-256), installed "
+                        "in .venv-engines\\qwen3; no package files are kept afterwards", source=source)
     problem = rt.environment_location_problem(folder)
     if problem:  # a link or an outside location: no install can fix that, and nothing here can vouch for it
         return Unit(unit_id, label, [], UNVERIFIED, note=problem, source=source), reason
@@ -339,7 +345,7 @@ def _qwen_engine_unit() -> tuple[Unit, str]:
         return Unit(unit_id, label, [], MISSING, **install), reason
     if rt.is_nested(folder) and rt.environment_record(folder).get("stage") not in (rt.STAGE_CREATING,
                                                                                     rt.STAGE_REMOVING):
-        assessment = rt.nested_assessment(folder)
+        assessment = rt.nested_assessment(folder)  # an earlier version's engine, judged by its own identity
         if assessment.state == venv_layout.UNVERIFIED:
             return Unit(unit_id, label, [], UNVERIFIED, note=assessment.reason, source=source), reason
     return Unit(unit_id, label, [], DAMAGED, **install), reason

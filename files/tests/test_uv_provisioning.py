@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import sys
 import tomllib
 from pathlib import Path
 from types import SimpleNamespace
@@ -126,6 +127,34 @@ def test_an_operations_scratch_is_its_own_and_is_removed_alone(tmp_path):
         assert operation.path.parent == uv_runner.scratch_root(root)
         (operation.tmp / "partial.whl").write_bytes(b"x")
     assert not operation.path.exists() and sibling.is_dir()
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="a process's creation time is read on Windows only (work_area)")
+def test_only_the_scratch_of_a_provably_gone_operation_is_cleared(tmp_path):
+    """v0.8.2 Phase 5A: an operation records its owner; a killed one's folder (partial downloads of a ``--no-cache``
+    engine install) is cleared later, never a live one's, one without an owner record, or anything not an operation's."""
+    from shared import work_area
+
+    root = tmp_path / "ACT"
+    with uv_runner.Operation(root) as live:
+        owner = json.loads((live.path / uv_runner.OWNER_NAME).read_text(encoding="utf-8"))
+        assert owner["pid"] == os.getpid() and owner["created"] > 0
+        assert work_area.owner_state(owner) == work_area.ALIVE
+        parent = uv_runner.scratch_root(root)
+        gone = parent / "0123abcd"  # this pid, another creation time: the process that wrote it has ended
+        (gone / "tmp").mkdir(parents=True)
+        (gone / "tmp" / "torch.whl.partial").write_bytes(b"x" * 1024)
+        (gone / uv_runner.OWNER_NAME).write_text(json.dumps({"pid": os.getpid(), "created": 1}), encoding="utf-8")
+        unowned = parent / "4567cdef"  # an operation of Phase 4, before owners were recorded
+        unowned.mkdir()
+        foreign = parent / "not-an-operation"
+        foreign.mkdir()
+        (foreign / uv_runner.OWNER_NAME).write_text(json.dumps({"pid": os.getpid(), "created": 1}), encoding="utf-8")
+
+        assert uv_runner.clear_stale_scratch(root) == ["0123abcd"]
+        assert not gone.exists() and live.path.is_dir() and unowned.is_dir() and foreign.is_dir()
+    assert not live.path.exists()
+    assert uv_runner.clear_stale_scratch(tmp_path / "nothing-here") == []
 
 
 # --------------------------------------------------------------------------- #

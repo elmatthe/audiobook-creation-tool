@@ -3,9 +3,11 @@
 Owner rulings it implements (``Decisions.md``, 2026-10-19, CP6):
 
 * Q1/Q2 — one isolated environment shared by two independently installable models: CustomVoice (Aiden, Ryan) and
-  Base (the six clones), plus "install both". Since v0.7.0 P04C it is always installed at ``.venv/engines/qwen3``,
-  created there directly from the verified base CPython 3.12 (never from the app's own interpreter); an older
-  ``.venv-qwen3`` is used while it is the only engine and is never installed into, rebuilt or deleted here.
+  Base (the six clones), plus "install both". Since v0.8.2 Phase 5A it is always installed by uv at
+  ``.venv-engines/qwen3`` from the engine's locked project ``scripts/tts/engines/qwen3`` (``shared.engine_env``,
+  through ``shared.uv_runner``), on this copy's managed CPython 3.12.15. An engine an earlier version installed
+  (``.venv/engines/qwen3`` or ``.venv-qwen3``) is used until the new one has passed its checks; it is never installed
+  into or rebuilt here. Then the nested one is moved aside whole (kept); ``.venv-qwen3`` is never moved or deleted.
 * Sizes are stated BEFORE anything is acquired (:func:`plan_install` / :func:`describe_plan`), files that are already
   present and intact are reused, bytes both models share are fetched once, and nothing is ever downloaded on ordinary
   launch: the only caller is the in-app "Install / repair Qwen3 voices" dialog.
@@ -18,8 +20,8 @@ The three things that can go wrong on a user's machine each have an explicit, bo
 
 * an interrupted download keeps a ``.part`` file and resumes from it (HTTP ``Range``) up to a bounded number of
   attempts; a finished file is accepted only when its size AND SHA-256 match the tracked manifest;
-* an interrupted or cancelled environment install is simply reported as incomplete, and the next attempt continues
-  (pip's own download cache is kept until a full success, then removed to give the disk space back);
+* an interrupted or cancelled environment install is simply reported as incomplete, and the next attempt clears it and
+  installs again; no Qwen3 package cache is kept (approved A4/D-8), so its packages are downloaded again;
 * a corrupt file is found by the full check, deleted, and fetched again; nothing else is touched.
 """
 
@@ -53,8 +55,6 @@ from tts.qwen3_runtime import MODEL_BASE, MODEL_CUSTOMVOICE, MODEL_KEYS, Qwen3Un
 # --------------------------------------------------------------------------- #
 #: The evaluated stack is built for exactly this interpreter (every pin was resolved and tested on CPython 3.12).
 SUPPORTED_PYTHON = (3, 12)
-PYTORCH_INDEX = "https://download.pytorch.org/whl/cu128"
-PYPI_INDEX = "https://pypi.org/simple"
 HUB_URL = "https://huggingface.co/{repo}/resolve/{revision}/{path}"
 
 DOWNLOAD_BLOCK = 1 << 20
@@ -241,13 +241,21 @@ def describe_plan(plan: InstallPlan) -> list[str]:
 
 
 def legacy_engine_note() -> list[str]:
-    """Said before the engine is installed or rebuilt on a computer that still has an older ``.venv-qwen3``: the install
-    goes to the canonical place and leaves that folder exactly as it is (never a silent move, rebuild or delete)."""
-    if not os.path.lexists(rt.legacy_venv_dir()):
-        return []
-    return [f"The voice engine is installed in its new place ({rt.shown_path(rt.nested_venv_dir())}). The older "
-            f"{venv_layout.LEGACY_QWEN3} folder from an earlier version is not changed or deleted, and is no longer "
-            "used once the new engine works; it stays until you remove it."]
+    """Said before the engine is installed or rebuilt on a computer that still has an engine of an earlier version: the
+    install goes to the engine's own place and the older one keeps working until the new one has passed its checks
+    (never a silent rebuild or delete)."""
+    lines = []
+    new_place = rt.shown_path(rt.engine_venv_dir())
+    if os.path.lexists(rt.nested_venv_dir()):
+        lines.append(f"The voice engine is installed in its new place ({new_place}). The engine an earlier version "
+                     f"installed in {rt.shown_path(rt.nested_venv_dir())} keeps working until the new one passes its "
+                     f"checks; it is then moved, unchanged, to {rt.shown_path(rt.set_aside_dir())} (you may delete it "
+                     "there).")
+    if os.path.lexists(rt.legacy_venv_dir()):
+        lines.append(f"The voice engine is installed in its new place ({new_place}). The older "
+                     f"{venv_layout.LEGACY_QWEN3} folder from an earlier version is not changed or deleted, and is no "
+                     "longer used once the new engine works; it stays until you remove it.")
+    return lines
 
 
 def both_total_download_bytes() -> int:
@@ -787,12 +795,13 @@ def parent_problem() -> str:
 
 
 def safe_to_remove_environment(path: Path) -> bool:
-    """Only the canonical engine folder ``.venv/engines/qwen3``, only inside the repo and reached through no link, and only
-    if it really is a virtual environment -- or one this app's own install record says it was creating or removing
-    there (an interrupted step leaves no ``pyvenv.cfg`` behind). The legacy ``.venv-qwen3`` is never removable here."""
+    """Only the engine's own folder ``.venv-engines/qwen3`` (or, for the sealed-package seam alone, the nested
+    ``.venv/engines/qwen3`` it installs into), only inside the repo and reached through no link, and only if it really is
+    a virtual environment -- or one this app's own install record says it was creating or removing there (an
+    interrupted step leaves no ``pyvenv.cfg`` behind). The legacy ``.venv-qwen3`` is never removable here."""
     try:
         path = Path(path)
-        if not venv_layout.same_path(path, rt.nested_venv_dir()):
+        if not (venv_layout.same_path(path, rt.engine_venv_dir()) or venv_layout.same_path(path, rt.nested_venv_dir())):
             return False
         if rt.is_link(path) or rt.link_below_root(path) is not None:
             return False  # deleting through a link/junction, here or in any folder above it, could remove somebody else's
@@ -883,20 +892,20 @@ def scoped_model_acquisition(authority):
 def install_environment(*, progress: ProgressCallback = _noop_progress, cancel_check: Optional[CancelCheck] = None,
                         runner: Optional[CommandRunner] = None, rebuild: bool = False,
                         opener: Optional[Opener] = None, sleep: Callable[[float], None] = time.sleep) -> dict:
-    """Create the canonical ``.venv/engines/qwen3``, install the pinned stack, prove it imports, and record the result.
+    """Create ``.venv-engines/qwen3`` with uv, install the locked stack, prove it, and record the result (v0.8.2 Phase
+    5A, :func:`_install_uv_environment`).
 
-    Returns the probe report. A failure raises :class:`SetupError` carrying the tail of pip's own output. With
-    ``rebuild`` an existing canonical environment is removed first (only ever that folder — see
-    :func:`safe_to_remove_environment`; the legacy ``.venv-qwen3`` is never touched). pip's download cache is kept
-    after a failure or cancel (so a retry does not start over) and removed after a full success.
+    Returns the probe report. A failure raises :class:`SetupError` carrying the tail of uv's own output. With
+    ``rebuild`` an existing engine environment is removed first (only ever that folder -- see
+    :func:`safe_to_remove_environment`; an earlier version's engine is never touched before the new one is proved).
+    No package cache is kept, so a failed or cancelled install downloads its packages again next time.
 
-    The network/cache behavior above describes manual operation. Inside v3, a separate live
-    engine/package capability supplies only protected local wheels and the effective hash lock.
+    Inside the v3 sealed-package seam (``tts.qwen3_engine_authority``, no production caller) a separate live
+    engine/package capability supplies only protected local wheels and the effective hash lock instead.
 
-    :class:`InstallLock` is held from the first check to the last record (taken here if the caller does not hold it),
-    so a repair of the app's environment -- which needs ``setup.lock`` first -- can never set the parent aside between
-    the checks and the creation of the folder inside it. The environment is created at its final path, directly from
-    the verified base interpreter, and the identity of that interpreter is recorded outside the parent.
+    :class:`InstallLock` is held from the first check to the last record (taken here if the caller does not hold it), so
+    no conversion, worker or other install of this copy runs while the engine is built, and a repair of the app's own
+    environment -- which needs ``setup.lock`` first -- cannot run at the same time.
     """
     with install_lock_held():
         return _install_environment(progress, cancel_check, runner or run_command, rebuild, opener, sleep)
@@ -905,12 +914,174 @@ def install_environment(*, progress: ProgressCallback = _noop_progress, cancel_c
 def _install_environment(progress: ProgressCallback, cancel_check: Optional[CancelCheck], runner: CommandRunner,
                          rebuild: bool, opener: Optional[Opener] = None,
                          sleep: Callable[[float], None] = time.sleep) -> dict:
-    from tts import qwen3_engine_authority, qwen3_packages, qwen3_wheels
+    from tts import qwen3_engine_authority
     execution = qwen3_engine_authority.current()
     if _MODEL_ACQUISITION.get() is not None and execution is None:
         raise SetupError('Environment mutation is not authorized by this model acquisition scope.')
     if execution is not None:
-        execution.before('entry', rebuild=rebuild)
+        return _install_sealed_environment(execution, progress, cancel_check, runner, rebuild)
+    return _install_uv_environment(progress, cancel_check, runner, rebuild)
+
+
+#: The lines of uv's own output worth showing as a step while the engine installs (uv 0.13.10 wording).
+_UV_STEPS = ("Using CPython", "Creating virtual environment", "Resolved", "Prepared", "Installed", "Uninstalled",
+             "Downloading", "Downloaded", "Bytecode compiled", "Audited", "error:", "Caused by:")
+#: The note left beside an engine of an earlier version once a new one has passed its checks.
+RETIRED_NESTED_NOTE = (
+    "This is the Qwen3 voice engine an earlier version of the Audiobook Creation Tool installed in .venv\\engines\\qwen3.\n"
+    "Since v0.8.2 the engine is installed in .venv-engines\\qwen3, and the new one passed its checks before this folder "
+    "was moved here,\nwhole and unchanged. The app no longer uses it. It is kept so nothing is lost; you may delete this "
+    "folder to give its disk space back.\n")
+
+
+def _uv_preconditions() -> None:
+    """The engine project, this copy's pinned uv and its managed CPython must be there (stage 0 installs both)."""
+    from shared import uv_runner
+
+    root = rt.repo_root()
+    for name in ("pyproject.toml", "uv.lock"):
+        if not (rt.project_dir() / name).is_file():
+            raise SetupError("The Qwen3 engine's package lock is missing from this copy of the app; reinstall the "
+                             "app. Nothing was installed.")
+    if (uv_runner.uv_problem(root) or not uv_runner.managed_python(root).is_file()
+            or uv_runner.interpreter_build(root) != uv_runner.PYTHON_BUILD):
+        raise SetupError("The app's own Python or its package tool (uv) is missing or is not the pinned one, so the "
+                         "Qwen3 voice engine cannot be installed. Start the app with Setup_and_Run to repair it, then "
+                         "try again. Nothing was installed.")
+
+
+def _install_uv_environment(progress: ProgressCallback, cancel_check: Optional[CancelCheck],
+                            runner: CommandRunner, rebuild: bool) -> dict:
+    """v0.8.2 Phase 5A: build ``.venv-engines/qwen3`` with uv from the engine's locked project, prove it, record it.
+
+    The environment is created at its final place on this copy's managed CPython (``uv venv``), then ``uv sync
+    --locked --no-dev --no-cache`` installs exactly the 89 hash-locked artifacts of ``scripts/tts/engines/qwen3/uv.lock``
+    (torch/torchaudio 2.10.0+cu128 only from the explicit CUDA 12.8 index; sox as ACT's own wheel; no source builds) --
+    downloading them, because no Qwen3 package cache is kept (approved A4/D-8): an interrupted or failed install keeps
+    no packages, and the next one downloads them again. It is accepted only after a direct RECORD check of every
+    installed file and the worker's own load probe; the receipt and then the install record are written last, and only
+    then is it the engine in use. An engine of an earlier version (``.venv/engines/qwen3`` or ``.venv-qwen3``) keeps
+    working, untouched, until that moment; the nested one is then moved aside whole (:func:`_retire_nested`).
+    """
+    from shared import engine_env, uv_runner
+    from tts import qwen3_wheels
+
+    check_python()
+    _uv_preconditions()
+    root, key = rt.repo_root(), rt.ENGINE_KEY
+    venv = rt.engine_venv_dir()
+    problem = rt.environment_location_problem(venv)
+    if problem:
+        raise SetupError(problem)
+    try:
+        engine_env.check(root, key)
+    except uv_runner.TargetRefused as exc:
+        raise SetupError(f"The Qwen3 voice engine cannot be installed here ({exc}). Nothing was installed.") from None
+    uv_runner.clear_stale_scratch(root)  # an earlier install that was killed left its partial downloads: no cache is kept
+    step = "environment"
+    tail: list[str] = []
+
+    def on_line(line: str) -> None:
+        tail.append(line)
+        del tail[:-40]
+        shown = line.strip()
+        if shown.startswith(_UV_STEPS):
+            progress(Progress(step, shown[:140]))
+
+    stage = rt.environment_record(venv).get("stage")
+    unfinished = stage in (rt.STAGE_CREATING, rt.STAGE_REMOVING)  # a step that stopped half-way: the record vouches
+    if os.path.lexists(venv) and (rebuild or unfinished):
+        if not safe_to_remove_environment(venv):
+            raise SetupError(f"Refusing to delete {venv}: it is not the Qwen3 environment this app created. Move it out "
+                             "of the app's folder yourself, then run Install / repair again.")
+        progress(Progress(step, "Clearing an install that did not finish..." if unfinished and not rebuild
+                          else "Removing the old Qwen3 environment..."))
+        rt.record_environment_stage(venv, rt.STAGE_REMOVING)
+        engine_env.invalidate_receipt(root, key)
+        shutil.rmtree(venv)
+        rt.clear_environment_state(venv)
+    elif os.path.lexists(venv):
+        problem = rt.engine_identity_problem(venv) or ("" if stage else "no install record of this app names it")
+        if problem:  # uv is never run into an environment that cannot be shown to be the app's own
+            raise SetupError(f"The Qwen3 voice engine in {rt.shown_path(venv)} cannot be verified ({problem}), so it was "
+                             "left as it is. Choose \"Check and repair\" to rebuild it.")
+    cwd = rt.repo_root()
+    with uv_runner.Operation(root) as operation:
+        env = engine_env.environment(root, operation, key)
+        if not os.path.lexists(venv):
+            progress(Progress(step, "Creating the isolated Python environment..."))
+            rt.record_environment_stage(venv, rt.STAGE_CREATING)
+            code = runner(engine_env.venv_command(root, key), env=env, cwd=cwd, on_line=on_line,
+                          cancel_check=cancel_check)
+            if code != 0 or not venv_layout.interpreter(venv).is_file():
+                raise SetupError("The isolated Python environment could not be created. " + _tail_text(tail))
+            problem = rt.engine_identity_problem(venv)
+            if problem:
+                raise SetupError(f"The isolated Python environment could not be verified ({problem}), so it is not "
+                                 "used. Choose \"Check and repair\" to rebuild it.")
+            rt.record_environment_stage(venv, rt.STAGE_CREATED)
+        else:
+            rt.record_environment_stage(venv, rt.STAGE_CREATED)  # re-synced: not "installed" again until proved
+        _check_cancel(cancel_check)
+        engine_env.invalidate_receipt(root, key)
+        progress(Progress(step, "Downloading and installing the Qwen3 packages (about "
+                                f"{rt.format_bytes(qwen3_wheels.total_bytes())}, each checked against the app's lock)..."))
+        code = runner(engine_env.sync_command(root, key), env=env, cwd=cwd, on_line=on_line, cancel_check=cancel_check)
+        if code != 0:
+            raise SetupError("Installing the Qwen3 packages failed. No package files are kept, so Install / repair "
+                             "downloads them again. " + _tail_text(tail))
+    progress(Progress(step, "Checking every installed file against its record..."))
+    damaged = engine_env.record_damage(root, key)
+    if damaged:
+        shown = "; ".join(f"{name}: {why}" for name, why in list(damaged.items())[:3])
+        raise SetupError(f"The installed Qwen3 packages do not match their records ({shown}). Choose \"Check and "
+                         "repair\" to rebuild the engine.")
+    probe = probe_environment(runner=runner, progress=progress, cancel_check=cancel_check, folder=venv)
+    engine_env.write_receipt(root, key, health={"record": "ok", "probe": probe, "proved_at": time.time()})
+    rt.write_environment_state(probe, venv)  # the last step: from now on this is the engine in use
+    _retire_nested(progress)
+    shutil.rmtree(pip_cache_dir(), ignore_errors=True)  # an earlier version's pip cache, no longer used
+    qwen3_wheels.discard_earlier_store()
+    clear_scratch()
+    progress(Progress(step, "The Qwen3 voice engine is installed."))
+    return probe
+
+
+def _retire_nested(progress: ProgressCallback) -> Optional[Path]:
+    """Once ``.venv-engines/qwen3`` is the engine in use, move the engine v0.7.0-v0.8.1 installed at
+    ``.venv/engines/qwen3`` -- only that exact folder, a real environment reached through no link -- whole into
+    ``files/runtime-data/qwen3/set-aside/`` with a note (``shared.engine_env.retire``: a rename, nothing copied, nothing
+    deleted). ``.venv-qwen3`` is never moved (the owner's to remove). A folder that cannot be moved now (a file in use)
+    stays where it is, unused; nothing fails because of it."""
+    from shared import engine_env
+
+    nested = rt.nested_venv_dir()
+    if not rt.is_canonical() or not os.path.lexists(nested):
+        return None
+    if rt.is_link(nested) or rt.link_below_root(nested) is not None or not (nested / "pyvenv.cfg").is_file():
+        return None
+    try:
+        moved = engine_env.retire(rt.repo_root(), rt.ENGINE_KEY, nested, label="nested-qwen3",
+                                  note=RETIRED_NESTED_NOTE)
+    except OSError as exc:
+        progress(Progress("environment", f"The earlier engine in {rt.shown_path(nested)} is no longer used; it could not "
+                                         f"be moved aside now ({exc}), and is left where it is."))
+        return None
+    rt.clear_environment_state(nested)
+    progress(Progress("environment", f"The earlier engine is no longer used; it was moved, unchanged, to "
+                                     f"{rt.shown_path(moved.parent)}."))
+    return moved
+
+
+def _install_sealed_environment(execution, progress: ProgressCallback, cancel_check: Optional[CancelCheck],
+                                runner: CommandRunner, rebuild: bool) -> dict:
+    """The v0.7.0 P05B Stage 4B-3B sealed-package seam (``tts.qwen3_engine_authority``), unchanged: pip installs the
+    protected private wheel copies a live, spent package capability supplies, offline, into the nested place it was
+    designed for. It has no production caller (``optional_setup_authority.acquire_disposable`` is an explicit test
+    seam); the production installer is uv (:func:`_install_uv_environment`). Seam: removed with the pip paths in Phase 6.
+    """
+    from tts import qwen3_packages
+    execution.before('entry', rebuild=rebuild)
     check_python()
     requirements = rt.requirements_path()
     if not requirements.is_file():
@@ -933,32 +1104,20 @@ def _install_environment(progress: ProgressCallback, cancel_check: Optional[Canc
         if shown.startswith(("Collecting", "Downloading", "Installing collected", "Successfully", "Building", "Using cached")):
             progress(Progress(step, shown[:140]))
 
-    if execution is None:
-        # Every package is fetched as its exact reviewed wheel BEFORE any environment is removed or created, so a
-        # network failure or a cancel here leaves an existing engine exactly as it was (and the verified wheels kept).
-        def on_wheels(done: int, total: int, message: str) -> None:
-            progress(Progress(step, message[:140], done, total))
-
-        qwen3_wheels.fetch(opener=opener, progress=on_wheels, cancel_check=cancel_check, sleep=sleep)
     unfinished = rt.environment_record(venv).get("stage") in (rt.STAGE_CREATING, rt.STAGE_REMOVING)
     # Scoped operations verify the base BEFORE an approved old engine is removed.
     # A failed base proof must leave that engine and its recovery record intact.
-    approved_base = verified_base_python(runner=runner, cancel_check=cancel_check) if execution else None
+    approved_base = verified_base_python(runner=runner, cancel_check=cancel_check)
     if os.path.lexists(venv) and (rebuild or unfinished):
         if not safe_to_remove_environment(venv):
             raise SetupError(f"Refusing to delete {venv}: it is not the Qwen3 environment this app created. Move it out "
                              "of the app's folder yourself, then run Install / repair again.")
         progress(Progress(step, "Clearing an install that did not finish..." if unfinished and not rebuild
                           else "Removing the old Qwen3 environment..."))
-        if execution:
-            with execution.removal() as remove:
-                rt.record_environment_stage(venv, rt.STAGE_REMOVING)
-                remove()
-        else:
+        with execution.removal() as remove:
             rt.record_environment_stage(venv, rt.STAGE_REMOVING)
-            shutil.rmtree(venv)
-        if execution:
-            execution.before('removed')
+            remove()
+        execution.before('removed')
         rt.clear_environment_state(venv)
     elif os.path.lexists(venv):
         assessment = rt.nested_assessment(venv)
@@ -969,10 +1128,9 @@ def _install_environment(progress: ProgressCallback, cancel_check: Optional[Canc
     cwd = rt.repo_root()
     python = venv_layout.interpreter(venv)
     if not os.path.lexists(venv):
-        base = approved_base or verified_base_python(runner=runner, cancel_check=cancel_check)
+        base = approved_base
         progress(Progress(step, "Creating the isolated Python environment..."))
-        if execution:
-            execution.claim_creation()
+        execution.claim_creation()
         rt.record_environment_stage(venv, rt.STAGE_CREATING)
         code = runner([str(base), "-I", "-m", "venv", str(venv)], env=env, cwd=cwd, on_line=on_line,
                       cancel_check=cancel_check)
@@ -988,36 +1146,24 @@ def _install_environment(progress: ProgressCallback, cancel_check: Optional[Canc
         if not assessment.identity_ok:
             raise SetupError(f"The isolated Python environment could not be verified ({assessment.reason}). Choose "
                              "\"Check and repair\" to rebuild it.")
-        if execution:
-            execution.before('created')
+        execution.before('created')
     _check_cancel(cancel_check)
     progress(Progress(step, "Installing the Qwen3 packages from the verified downloads..."))
     # --isolated ignores user configuration and PIP_* steering; PIP_CONFIG_FILE=NUL disables other config files.
     # --require-virtualenv refuses to touch anything but a
     # virtual environment; --require-hashes installs only the exact artifacts whose SHA-256 the requirements file lists.
-    if execution:
-        execution.before('pip')
-        command = qwen3_packages.pip_command(python, execution.packages, execution.operation,
-                                           cancelled=cancel_check or (lambda: False))
-    else:
-        # Offline: only the verified local wheels, each by its hash; pip cannot reach an index or build anything.
-        command, pip_cwd = qwen3_wheels.install_command(python)
-    if execution:
-        pip_cwd = qwen3_packages.checked(execution.packages, execution.operation)['wheels']
+    execution.before('pip')
+    command = qwen3_packages.pip_command(python, execution.packages, execution.operation,
+                                         cancelled=cancel_check or (lambda: False))
+    pip_cwd = qwen3_packages.checked(execution.packages, execution.operation)['wheels']
     code = runner(command, env=env, cwd=pip_cwd, on_line=on_line, cancel_check=cancel_check)
     if code != 0:
-        if execution:
-            raise SetupError('Offline package installation failed; the canonical engine remains incomplete. ' +
-                             _tail_text(tail))
-        raise SetupError("Installing the Qwen3 packages failed (the downloaded packages are kept, so Install / "
-                         "repair again does not fetch them again). " + _tail_text(tail))
-    probe = probe_environment(runner=runner, progress=progress, cancel_check=cancel_check)
-    if execution:
-        execution.before('record')
+        raise SetupError('Offline package installation failed; the canonical engine remains incomplete. ' +
+                         _tail_text(tail))
+    probe = probe_environment(runner=runner, progress=progress, cancel_check=cancel_check, folder=venv)
+    execution.before('record')
     rt.write_environment_state(probe, venv)
     shutil.rmtree(pip_cache_dir(), ignore_errors=True)  # a full success gives the download cache's disk space back
-    if execution is None:
-        qwen3_wheels.discard()
     clear_scratch()
     progress(Progress(step, "The Qwen3 voice engine is installed."))
     return probe
@@ -1035,11 +1181,16 @@ APPLICATION_CONTROL_ATTEMPTS = 8
 
 
 def probe_environment(*, model_dir: Optional[Path] = None, runner: Optional[CommandRunner] = None,
-                      progress: ProgressCallback = _noop_progress, cancel_check: Optional[CancelCheck] = None) -> dict:
-    """Run the worker's ``probe`` job: import the whole stack, report GPU/CPU and versions; optionally load a model."""
+                      progress: ProgressCallback = _noop_progress, cancel_check: Optional[CancelCheck] = None,
+                      folder: Optional[Path] = None) -> dict:
+    """Run the worker's ``probe`` job: import the whole stack, report GPU/CPU and versions; optionally load a model.
+
+    *folder* is the engine environment to prove (default: the one in use, ``qwen3_runtime.venv_dir``); an install proves
+    its new ``.venv-engines/qwen3`` before it becomes the one in use."""
     for attempt in range(APPLICATION_CONTROL_ATTEMPTS):
         try:
-            return _probe_once(model_dir=model_dir, runner=runner, progress=progress, cancel_check=cancel_check)
+            return _probe_once(model_dir=model_dir, runner=runner, progress=progress, cancel_check=cancel_check,
+                               folder=folder)
         except SetupError as exc:
             if APPLICATION_CONTROL_MARK not in str(exc) or attempt + 1 == APPLICATION_CONTROL_ATTEMPTS:
                 raise
@@ -1049,7 +1200,7 @@ def probe_environment(*, model_dir: Optional[Path] = None, runner: Optional[Comm
 
 
 def _probe_once(*, model_dir: Optional[Path], runner: Optional[CommandRunner], progress: ProgressCallback,
-                cancel_check: Optional[CancelCheck]) -> dict:
+                cancel_check: Optional[CancelCheck], folder: Optional[Path] = None) -> dict:
     import json
 
     runner = runner or run_command
@@ -1083,8 +1234,9 @@ def _probe_once(*, model_dir: Optional[Path], runner: Optional[CommandRunner], p
     try:
         if not guard.acquire():
             raise SetupError(guard.refusal_message + " Everything downloaded so far is kept.")
-        code = runner([str(rt.venv_python()), str(rt.worker_script()), str(job_path)],
-                      env=rt.worker_environment(), cwd=jobs, on_line=on_line, cancel_check=cancel_check)
+        python = rt.venv_python() if folder is None else venv_layout.interpreter(folder)
+        code = runner([str(python), str(rt.worker_script()), str(job_path)],
+                      env=rt.worker_environment(own=folder), cwd=jobs, on_line=on_line, cancel_check=cancel_check)
     finally:
         guard.release()
         job_path.unlink(missing_ok=True)
@@ -1241,6 +1393,21 @@ def _analyze(keys: tuple[str, ...], progress: ProgressCallback, cancel_check: Op
             probe_environment(runner=runner, progress=progress, cancel_check=cancel_check)
         except SetupError as exc:
             rebuild, reason = True, str(exc)
+    if not rebuild and rt.is_canonical():
+        # v0.8.2 Phase 5A: a uv-built engine is also checked file by file against its packages' RECORDs (read-only),
+        # as its install was: damage the start-up probe does not import is found here, not in the middle of a book.
+        from shared import engine_env
+
+        progress(Progress("verify", "Checking every installed engine file against its record..."))
+        damaged = engine_env.record_damage(rt.repo_root(), rt.ENGINE_KEY)
+        if damaged:
+            shown = "; ".join(f"{name}: {why}" for name, why in list(damaged.items())[:3])
+            rebuild, reason = True, f"Installed Qwen3 packages do not match their records ({shown})."
+    if not rebuild and rt.unfinished_engine_install():
+        # v0.8.2 Phase 5A: the engine in use is an earlier version's and works, but an install of the new one in
+        # .venv-engines/qwen3 did not finish: a repair finishes it (the working engine is used until then).
+        rebuild, reason = True, ("An install of the voice engine in its new place did not finish. The earlier engine "
+                                 "keeps working until it does.")
     bad: dict[str, list[tuple[str, str]]] = {}
     verified: dict[str, dict[str, tuple[int, int]]] = {}
     unmarked: list[str] = []
@@ -1321,7 +1488,7 @@ def repair(components: Iterable[str], *, plan: Optional[RepairPlan] = None, prog
                 if not allow_environment:
                     raise SetupError(ENGINE_NOT_CONFIRMED)
                 install_environment(progress=progress, cancel_check=cancel_check, runner=runner,
-                                    rebuild=os.path.lexists(rt.nested_venv_dir()), opener=opener, sleep=sleep)
+                                    rebuild=os.path.lexists(rt.engine_venv_dir()), opener=opener, sleep=sleep)
                 steps.append("environment")
             for key, bad in plan.bad_files.items():
                 if not bad and key not in plan.unmarked:

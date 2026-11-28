@@ -360,6 +360,9 @@ _OS_SPAWNS = {"system", "popen", "posix_spawn", "posix_spawnp", "spawnv", "spawn
 #: Every direct ``subprocess``/``os`` spawn in the application, with why it is not (or not yet) a P1B-owned child.
 #: The guard fails on a site that is not here and on an entry whose site is gone, so the list stays exact.
 KX9_ALLOWED = {
+    # v0.8.2 Phase 4/5A: uv's own small runner, for the developer CLI (lock, check-lock, passthrough) and probes; setup
+    # and the engine installers run every uv command through their own owned runners (bootstrap._pip, run_command).
+    ("shared/uv_runner.py", "run"): "developer CLI and probes only; setup and installers use their own runners",
     # v0.8.x P5-I: class A, class B and the guardian all spawn through the one admitted spawn of the ownership helper.
     ("shared/child_ownership.py", "_spawn"): "the ownership helper itself (class A, class B and the guardian)",
     ("shared/child_ownership.py", "_launch_steps"): "v0.8.x P5-I-R3: the ownership helper's permit-gated launch of a "

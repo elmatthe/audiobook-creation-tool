@@ -2234,7 +2234,10 @@ def test_the_app_environment_repair_can_never_reach_the_qwen3_installer():
             imported.update(alias.name for alias in node.names)
         elif isinstance(node, ast.ImportFrom):
             imported.add(node.module or "")
-    assert not any(name == "tts" or name.startswith("tts.") for name in imported), imported
+    # v0.8.2 Phase 5A: the engine registry (tts.engines, standard library only, test_engine_registry.py) names the
+    # first-run choices; nothing else of tts -- no installer, no runtime -- may be reached from here.
+    assert not any((name == "tts" or name.startswith("tts.")) and name not in ("tts.engines", "tts.engines.registry")
+                   for name in imported), imported
     names = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)} | \
         {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)}
     for installer in ("qwen3_setup", "install_environment", "install_model", "qwen3_runtime"):

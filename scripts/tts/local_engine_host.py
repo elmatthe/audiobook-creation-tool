@@ -55,6 +55,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Optional
 
+from tts.engines import registry as _engines
+
 WORKER = Path(__file__).resolve().with_name("local_engine_worker.py")
 EVENT_PREFIX = "@@EVENT "
 PROTOCOL_VERSION = 1
@@ -86,8 +88,9 @@ OUTPUT_EOF_S = 0.4
 EXIT_DRAIN_S = 0.5
 
 
-#: How each engine is named in a message.
-ENGINE_NAMES = {"kokoro": "Kokoro", "chatterbox": "Chatterbox"}
+#: How each engine is named in a message: the engines this host serves, by the engine registry's short names
+#: (``tts.engines.registry``, v0.8.2 Phase 5A).
+ENGINE_NAMES = dict(_engines.TABLES.local_host_names)
 
 
 def engine_name(engine: str) -> str:

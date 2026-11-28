@@ -19,7 +19,7 @@ from tts import qwen3_setup as setup
 from test_optional_setup_authority import (authority_world, world, sandbox, tiny_assets,
     confirmed, Response)  # noqa: F401
 from test_qwen3_setup import fake_runner
-from test_qwen3_runtime import make_engine, install_environment
+from test_qwen3_runtime import make_engine, install_nested_environment as install_environment  # the seam installs the nested engine
 
 pytestmark = pytest.mark.usefixtures('production_writes_refused')
 

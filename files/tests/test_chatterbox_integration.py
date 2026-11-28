@@ -341,8 +341,10 @@ def test_the_registry_imports_no_engine_module():
                 for a in n.names}
     imported |= {n.module or "" for n in ast.walk(tree)
                  if isinstance(n, ast.ImportFrom)}
-    assert not any(name.startswith("tts.") or name in {"torch", "chatterbox"}
-                   for name in imported), imported
+    # v0.8.2 Phase 5A: the engine registry (tts.engines, standard library only, test_engine_registry.py) is the one
+    # piece of tts it may name: BACKENDS is derived from it.
+    assert not any((name.startswith("tts.") and name not in ("tts.engines", "tts.engines.registry"))
+                   or name in {"torch", "chatterbox"} for name in imported), imported
 
 
 # --------------------------------------------------------------------------- #

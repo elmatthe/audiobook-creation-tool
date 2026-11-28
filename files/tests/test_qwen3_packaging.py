@@ -214,7 +214,9 @@ def test_a_force_committed_nested_engine_its_set_aside_and_preserved_copies_neve
     _force_committed(root, ROOT_PLANTS + SCRIPTS_PLANTS)
     members = names(build(root, tmp_path / "dist", os_name))
 
-    assert [m for m in members if _ENVIRONMENT_MEMBER.search(m)] == []
+    # v0.8.2 Phase 5A: the engine's own locked project (scripts/tts/engines/qwen3/) ships; no environment ever does.
+    assert [m for m in members if _ENVIRONMENT_MEMBER.search(m) and m not in release.ENGINE_PROJECT_FILES] == []
+    assert set(release.ENGINE_PROJECT_FILES) <= set(members)
     assert not set(members) & set(ROOT_PLANTS + SCRIPTS_PLANTS)
     assert sorted(m for m in members if m.startswith("files/")) == sorted(REFERENCE_MEMBERS)
     assert "scripts/launcher.py" in members  # and the application itself still ships

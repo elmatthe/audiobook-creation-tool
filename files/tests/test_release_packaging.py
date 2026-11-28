@@ -109,6 +109,10 @@ def fake_repo(root: Path, config_text: str = SHIPPABLE_CONFIG) -> Path:
     (root / "LICENSE").write_bytes((REPO_ROOT / "LICENSE").read_bytes())
     (root / "pyproject.toml").write_text('[project]\nname = "x"\n', encoding="utf-8")
     (root / "uv.lock").write_text("version = 1\n", encoding="utf-8")
+    # v0.8.2 Phase 5A (transitional rule 8): every engine with its own uv project ships its project and lock.
+    for name in release.ENGINE_PROJECT_FILES:
+        (root / name).parent.mkdir(parents=True, exist_ok=True)
+        (root / name).write_text(f"# {name}\n", encoding="utf-8")
     (root / "config-template.toml").write_text("# unrelated maintainer file\n", encoding="utf-8")
     for launcher in LAUNCHERS.values():
         (root / launcher).write_text("launcher\n", encoding="utf-8")
@@ -334,6 +338,19 @@ def test_bundled_wav_bytes_and_hashes_match_production(archives, os_name):
             assert hashlib.sha256(data).hexdigest() == voice.source_sha256
 
 
+@pytest.mark.parametrize("action", ["delete", "untrack"])
+def test_a_missing_or_untracked_engine_project_stops_the_build(tmp_path, action):
+    root = fake_repo(tmp_path / "repo")
+    name = release.ENGINE_PROJECT_FILES[-1]
+    if action == "delete":
+        (root / name).unlink()
+    else:
+        git(root, "rm", "--cached", "-q", "--", name)
+        git(root, "commit", "-qm", "untrack the engine lock")
+    with pytest.raises(release.ReleaseError, match="engine project file"):
+        build(root, tmp_path / "dist", OS_NAMES[0])
+
+
 @pytest.mark.parametrize("action", ["delete", "untrack", "staged_edit"])
 def test_reference_assets_cannot_be_missing_untracked_or_dirty(tmp_path, action):
     root = fake_repo(tmp_path / "repo")
@@ -511,11 +528,12 @@ def test_the_packager_allowlist_names_the_license_the_base_project_and_no_other_
 @pytest.mark.parametrize("os_name", OS_NAMES)
 def test_each_archive_carries_the_uv_provisioning_inputs_byte_for_byte(archives, os_name):
     """v0.8.2 Phase 4: without the project, its lock, the Python download pin and the uv runner a copy cannot build
-    its environment. They ship as committed; no environment, cache, uv or interpreter ever does."""
+    its environment. They ship as committed; no environment, cache, uv or interpreter ever does. v0.8.2 Phase 5A: the
+    same for every engine's own uv project (Qwen3: ``scripts/tts/engines/qwen3``), which Install / repair syncs."""
     shipped = names(archives[os_name])
     with zipfile.ZipFile(archives[os_name]) as zf:
         for name in ("pyproject.toml", "uv.lock", "scripts/shared/python-downloads.json",
-                     "scripts/shared/uv_runner.py", "scripts/shared/app_python.py"):
+                     "scripts/shared/uv_runner.py", "scripts/shared/app_python.py", *release.ENGINE_PROJECT_FILES):
             assert shipped.count(name) == 1, name
             assert zf.read(name).replace(b"\r\n", b"\n") == (REPO_ROOT / name).read_bytes().replace(b"\r\n", b"\n"), name
     stage0 = {"Windows": ("scripts/shared/bootstrap_host.ps1", "scripts/shared/bootstrap_host_fallback.cmd"),
@@ -896,9 +914,14 @@ def test_the_packager_imports_nothing_from_the_application():
             imported.add((node.module or "").split(".")[0])
     # subprocess is for git alone: v0.6.6 Phase 11 packages only committed files. os/tempfile/zlib are the
     # v0.6.7 no-replace staging, link-based publication and per-member CRC validation; tomllib reads config.toml's
-    # developer_mode (v0.7.0 P03D).
+    # developer_mode (v0.7.0 P03D). v0.8.2 Phase 5A: the engine registry (standard library only) names the environment
+    # folders and the engine projects -- that one module of the application, and nothing else of it.
     assert imported <= {"__future__", "subprocess", "sys", "zipfile", "pathlib", "version",
-                        "os", "tempfile", "zlib", "tomllib"}
+                        "os", "tempfile", "zlib", "tomllib", "tts"}
+    application = {node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)
+                   and (node.module or "").split(".")[0] == "tts"}
+    assert application == {"tts.engines"} and "from tts.engines import registry" in \
+        (UNIVERSAL / "shared" / "release.py").read_text(encoding="utf-8")
 
 
 def test_building_is_not_part_of_application_startup():

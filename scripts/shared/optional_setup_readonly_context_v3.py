@@ -274,10 +274,16 @@ def issue_controlled_context(root):
         cfg = pins.enter_context(_pin_file(origin.main_prefix / 'pyvenv.cfg'))
         values = dict(line.split('=', 1) for line in cfg.decode('utf-8').splitlines() if '=' in line)
         values = {k.strip().lower(): v.strip() for k, v in values.items()}
+        # v0.8.2 Phase 5A: since Phase 4 the main .venv is built by uv, whose pyvenv.cfg names no ``executable`` and
+        # states the version as ``version_info`` (beside its ``uv = <version>`` line); a stdlib venv's cfg keeps its
+        # two keys. Either way the home, the isolation and the exact running version must match.
+        executable = values.get('executable')
+        version = values.get('version') if 'version' in values else values.get('version_info')
         if (values.get('include-system-site-packages') != 'false'
                 or Path(values.get('home', '')) != origin.base_prefix
-                or Path(values.get('executable', '')) != origin.base_prefix / 'python.exe'
-                or values.get('version') != '.'.join(map(str, sys.version_info[:3]))):
+                or (Path(executable) != origin.base_prefix / 'python.exe' if executable is not None
+                    else not values.get('uv'))
+                or version != '.'.join(map(str, sys.version_info[:3]))):
             raise OriginUnavailable('main-venv-configuration')
         executable_image, birth = process_identity(os.getpid())
         if executable_image != origin.base_prefix / 'python.exe':

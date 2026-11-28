@@ -62,7 +62,9 @@ def sandbox(tmp_path, monkeypatch):
     monkeypatch.setattr(sys, "platform", "win32")
     monkeypatch.setattr(rt, "gpu_probe", lambda: None)
     rt._GPU_CACHE.clear()
-    make_parent(tmp_path)  # the app's own .venv, which the canonical engine is created inside
+    make_parent(tmp_path)  # the app's own .venv (since v0.8.2 Phase 5A the engine is its sibling, not inside it)
+    make_managed_python(tmp_path, monkeypatch)  # this copy's uv-managed CPython the engine is built on
+    make_engine_project(tmp_path)  # scripts/tts/engines/qwen3: the engine's uv project
     serve_tiny_wheels(monkeypatch)
     return tmp_path
 
@@ -102,22 +104,52 @@ def tiny_wheel_opener(request):
 
 
 def serve_tiny_wheels(monkeypatch) -> None:
+    """v0.8.2 Phase 5A: uv downloads the engine's locked packages itself; the manifest's wheel list only states their
+    sizes. In the sandbox that list is two tiny stand-ins."""
     from tts import qwen3_wheels
     wheels = tuple(qwen3_wheels.Wheel(name.split("-")[0], name, TINY_WHEEL_BASE + name, len(data),
                                       hashlib.sha256(data).hexdigest()) for name, data in TINY_WHEELS.items())
     monkeypatch.setattr(qwen3_wheels, "wheels", lambda: wheels)
-    real_fetch = qwen3_wheels.fetch
 
-    def fetch(*, opener=None, **kwargs):
-        def served(request):
-            # A scoped/budgeted opener is still asked first (so its refusals are real); the bytes come from memory.
-            if opener is not None and not request.full_url.startswith(TINY_WHEEL_BASE):
-                return opener(request)
-            if opener is not None and hasattr(opener, "allowed"):
-                return opener.__class__(opener.allowed, tiny_wheel_opener, opener.budget)(request)
-            return tiny_wheel_opener(request)
-        return real_fetch(opener=served, **kwargs)
-    monkeypatch.setattr(qwen3_wheels, "fetch", fetch)
+
+def make_managed_python(root: Path, monkeypatch) -> Path:
+    """A stand-in for this copy's uv-managed CPython (``files/runtime-data/uv/python/<key>``, with uv's BUILD stamp)
+    and its pinned uv (whose real program is never run here: its identity check is answered for it)."""
+    from shared import uv_runner
+    home = uv_runner.managed_python_home(root, "win32")
+    home.mkdir(parents=True, exist_ok=True)
+    (home / "python.exe").write_bytes(b"managed interpreter")
+    (home / "BUILD").write_text(uv_runner.PYTHON_BUILD, encoding="ascii")
+    exe = uv_runner.uv_exe(root, "win32")
+    exe.write_bytes(b"stand-in uv")
+    monkeypatch.setattr(uv_runner, "uv_problem", lambda root, platform=None: "")
+    return home
+
+
+ENGINE_PYPROJECT = b'[project]\nname = "act-qwen3-engine"\nversion = "0.0.0"\nrequires-python = "==3.12.*"\n'
+ENGINE_LOCK = b'version = 1\nrevision = 5\nrequires-python = "==3.12.*"\n'
+
+
+def make_engine_project(root: Path) -> Path:
+    """``scripts/tts/engines/qwen3`` with a tiny ``pyproject.toml`` and ``uv.lock`` (bytes: LF on every platform)."""
+    project = root / "scripts" / "tts" / "engines" / "qwen3"
+    project.mkdir(parents=True, exist_ok=True)
+    (project / "pyproject.toml").write_bytes(ENGINE_PYPROJECT)
+    (project / "uv.lock").write_bytes(ENGINE_LOCK)
+    return project
+
+
+def make_uv_engine(env: Path, root: Path) -> Path:
+    """Files that make *env* look like the environment ``uv venv`` builds on this copy's managed CPython: an
+    interpreter and uv's ``pyvenv.cfg`` (no ``executable``/``command``; ``uv`` and ``version_info`` lines)."""
+    from shared import uv_runner
+    python = venv_layout.interpreter(env)
+    python.parent.mkdir(parents=True, exist_ok=True)
+    python.write_bytes(b"")
+    (env / "pyvenv.cfg").write_text(f"home = {uv_runner.managed_venv_home(root, 'win32')}\nimplementation = CPython\n"
+                                    f"uv = {uv_runner.UV_VERSION}\nversion_info = {uv_runner.PYTHON_VERSION}\n"
+                                    "include-system-site-packages = false\n", encoding="utf-8")
+    return env
 
 
 def make_parent(root: Path) -> Path:
@@ -160,15 +192,43 @@ def install_model(root: Path, key: str, *, corrupt: str | None = None, marker: b
 
 
 def install_environment(root: Path, *, requirements: str = "torch==1.0\n") -> None:
-    """A complete install of the engine in use (the canonical one unless a legacy-only folder is already there), as the
-    installer leaves it: environment files, the creation record (canonical only) and the probe's install record."""
+    """A complete install of the engine in use (``.venv-engines/qwen3`` unless an earlier version's folder is already
+    there), as the installer leaves it: environment files, the creation record (engine and nested), the uv receipt
+    (engine only) and the probe's install record."""
     # bytes, not write_text: on Windows write_text would silently turn these LFs into CRLFs
     (root / "scripts" / "qwen3-requirements.txt").write_bytes(requirements.encode("utf-8"))
     env = rt.venv_dir()
+    if rt.is_canonical(env):
+        install_engine_environment(root, requirements=requirements)
+        return
     make_engine(env, root / "base-python")
     if rt.is_nested(env):
         rt.record_environment_stage(env, rt.STAGE_CREATED)
-    rt.write_environment_state({"torch": "2.10.0+cu128", "cuda_available": True})
+    rt.write_environment_state({"torch": "2.10.0+cu128", "cuda_available": True}, env)
+
+
+def install_engine_environment(root: Path, *, requirements: str = "torch==1.0\n") -> Path:
+    """A complete install at ``.venv-engines/qwen3`` -- whatever earlier engine is also there -- as the v0.8.2 uv
+    installer leaves it: uv's environment files, the creation record, the receipt, then the probe's install record."""
+    from shared import engine_env
+    (root / "scripts" / "qwen3-requirements.txt").write_bytes(requirements.encode("utf-8"))
+    env = rt.engine_venv_dir()
+    make_uv_engine(env, root)
+    rt.record_environment_stage(env, rt.STAGE_CREATED)
+    engine_env.write_receipt(root, rt.ENGINE_KEY, health={"record": "ok"})
+    rt.write_environment_state({"torch": "2.10.0+cu128", "cuda_available": True}, env)
+    return env
+
+
+def install_nested_environment(root: Path, *, requirements: str = "torch==1.0\n") -> Path:
+    """A complete install of the engine v0.7.0 P04C to v0.8.1 made at ``.venv/engines/qwen3`` (pip, on the base
+    interpreter), as that version's installer left it (and as the sealed-package seam still makes it)."""
+    (root / "scripts" / "qwen3-requirements.txt").write_bytes(requirements.encode("utf-8"))
+    env = rt.nested_venv_dir()
+    make_engine(env, root / "base-python")
+    rt.record_environment_stage(env, rt.STAGE_CREATED)
+    rt.write_environment_state({"torch": "2.10.0+cu128", "cuda_available": True}, env)
+    return env
 
 
 def install_clone_fixture(root: Path, monkeypatch, voice_id: str = "qwen3-male-1") -> rt.Qwen3Voice:
@@ -279,12 +339,48 @@ def test_environment_missing_says_how_to_install_and_that_nothing_downloads_unas
     assert not ok and "not installed" in reason and "3.1 GB" in reason and "nothing is downloaded until you ask" in reason
 
 
-@pytest.mark.parametrize("layout", ["canonical", "legacy-only"])
+def test_the_uv_engine_is_ready_only_installed_to_the_end_on_the_managed_python_for_this_lock(sandbox):
+    """v0.8.2 Phase 5A: ``.venv-engines/qwen3`` is judged by its install record, its uv identity on this copy's managed
+    CPython, the lock it was synced from and its receipt -- not by qwen3-requirements.txt (a parity reference now)."""
+    from shared import uv_runner
+    install_environment(sandbox)
+    assert rt.is_canonical() and rt.venv_dir() == rt.engine_venv_dir()
+    assert rt.environment_status() == (True, "ok")
+
+    lock = sandbox / "scripts" / "tts" / "engines" / "qwen3" / "uv.lock"
+    (sandbox / "scripts" / "qwen3-requirements.txt").write_bytes(b"torch==2.0\n")  # the parity reference alone moved
+    assert rt.environment_status() == (True, "ok")
+    lock.write_bytes(ENGINE_LOCK + b"# a new lock\n")  # the lock moved on
+    ok, reason = rt.environment_status()
+    assert not ok and "out of date" in reason
+    lock.write_bytes(ENGINE_LOCK.replace(b"\n", b"\r\n"))  # same lock, CRLF endings
+    assert rt.environment_status() == (True, "ok")  # line endings must not look like a version change
+
+    (rt.engine_venv_dir() / ".act-environment.json").unlink()  # no receipt: the install cannot be confirmed
+    ok, reason = rt.environment_status()
+    assert not ok and "cannot be confirmed" in reason and "no installation receipt" in reason
+
+    install_environment(sandbox)
+    rt.record_environment_stage(rt.engine_venv_dir(), rt.STAGE_CREATED)  # created, never probed
+    ok, reason = rt.environment_status()
+    assert not ok and "not installed completely" in reason
+
+    install_environment(sandbox)
+    uv_runner.managed_python(sandbox, "win32").unlink()  # the managed interpreter it runs on is gone
+    ok, reason = rt.environment_status()
+    assert not ok and "this copy's own Python is missing" in reason and "rebuild" in reason
+
+
+@pytest.mark.parametrize("layout", ["nested", "legacy-only"])
 def test_environment_ready_only_with_interpreter_a_live_base_python_a_probe_and_matching_requirements(sandbox, layout):
+    """An engine an earlier version installed (v0.7.0 P04C-v0.8.1 nested, or the pre-v0.7.0 sibling) keeps its own
+    checks while nothing newer is installed."""
     if layout == "legacy-only":
         (sandbox / ".venv-qwen3").mkdir()  # an engine an earlier version installed, and nothing at the canonical path
-    install_environment(sandbox)
-    assert rt.is_nested() is (layout == "canonical")
+        install_environment(sandbox)
+    else:
+        install_nested_environment(sandbox)
+    assert rt.is_nested() is (layout == "nested") and not rt.is_canonical()
     assert rt.environment_status() == (True, "ok")
 
     (sandbox / "scripts" / "qwen3-requirements.txt").write_bytes(b"torch==2.0\n")  # pins moved on
@@ -296,17 +392,20 @@ def test_environment_ready_only_with_interpreter_a_live_base_python_a_probe_and_
 
     rt.clear_environment_state()
     ok, reason = rt.environment_status()
-    if layout == "canonical":  # the record that is gone also held the base identity: nothing vouches for the folder
+    if layout == "nested":  # the record that is gone also held the base identity: nothing vouches for the folder
         assert not ok and "cannot be verified" in reason and "no base-interpreter identity" in reason
         rt.record_environment_stage(rt.venv_dir(), rt.STAGE_CREATED)  # created and verified, but never probed
         ok, reason = rt.environment_status()
     assert not ok and "not installed completely" in reason
 
-    install_environment(sandbox)
+    if layout == "nested":
+        install_nested_environment(sandbox)
+    else:
+        install_environment(sandbox)
     (sandbox / "base-python" / "python.exe").unlink()
     (sandbox / "base-python").rmdir()
     ok, reason = rt.environment_status()
-    if layout == "canonical":
+    if layout == "nested":
         assert not ok and "the Python it was built from is missing" in reason and "rebuild" in reason
     else:
         assert not ok and "broken" in reason and "rebuild" in reason

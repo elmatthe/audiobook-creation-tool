@@ -30,6 +30,7 @@ from test_qwen3_runtime import (  # noqa: F401  (the sandbox fixture and its bui
     TINY_FILES,
     install_environment,
     make_engine,
+    make_uv_engine,
     install_model,
     sandbox,
 )
@@ -169,6 +170,24 @@ class FakeRunner:
             return 0
         self.commands.append({"cmd": [str(c) for c in cmd], "env": env, "cwd": cwd})
         text = " ".join(str(c) for c in cmd)
+        uv = Path(str(cmd[0])).name.lower() == "uv.exe" and len(cmd) > 1
+        if uv and str(cmd[1]) == "venv":  # v0.8.2 Phase 5A: uv builds the engine on the managed CPython
+            if self.fail_venv:
+                on_line("error: venv exploded")
+                return 1
+            make_uv_engine(Path(cmd[2]), rt.repo_root())
+            return 0
+        if uv and str(cmd[1]) == "sync":  # and installs the locked packages (the "pip" switches still steer it)
+            on_line("Resolved 90 packages in 2ms")
+            on_line("Downloading torch (2.7GiB)")
+            if self.cancel_during_pip:
+                raise su.SetupCancelled()
+            if self.fail_pip:
+                on_line("error: Failed to fetch: `https://download.pytorch.org/whl/cu128/torch-2.10.0%2Bcu128.whl`")
+                return 1
+            on_line("Prepared 89 packages in 47.01s")
+            on_line("Installed 89 packages in 17.02s")
+            return 0
         if " -m venv " in f" {text} ":
             if self.fail_venv:
                 on_line("Error: venv exploded")
@@ -520,47 +539,51 @@ def test_a_server_that_sends_the_wrong_file_never_produces_an_installed_model(hu
 # --------------------------------------------------------------------------- #
 # The environment
 # --------------------------------------------------------------------------- #
-def test_the_environment_install_runs_venv_then_pinned_pip_then_a_probe_and_records_it(sandbox, runner):
+def test_the_environment_install_runs_uv_venv_then_a_locked_sync_then_a_probe_and_records_it(sandbox, runner):
+    """v0.8.2 Phase 5A: ``uv venv`` at ``.venv-engines/qwen3`` on the managed CPython, ``uv sync --locked --no-dev
+    --no-cache`` of the engine's own project (no package cache), the RECORD check, the worker's probe, then the
+    receipt and the install record, in that order."""
+    from shared import engine_env, uv_runner
     events = []
     probe = su.install_environment(progress=events.append, runner=runner)
-    venv_cmd, pip_cmd, probe_cmd = [c["cmd"] for c in runner.commands]
-    # v0.7.0 P04C: created at the canonical final path, by the verified base interpreter (isolated), never the app's
-    assert venv_cmd == [str(runner.python), "-I", "-m", "venv", str(rt.nested_venv_dir())]
-    assert rt.venv_dir() == rt.nested_venv_dir() and runner.base_probes and runner.base_probes[0][0] == str(runner.python)
-    assert rt.environment_record()["stage"] == rt.STAGE_INSTALLED
-    assert rt.environment_record()["base"] == venv_layout.base_identity(rt.nested_venv_dir())
-    assert rt.nested_assessment().identity_ok
-    # v0.7.0: pip reads only the verified local wheels, offline, through the bootstrap that refuses network/processes.
-    from tts import qwen3_packages, qwen3_wheels
-    assert pip_cmd[:5] == [str(rt.venv_python()), "-I", "-B", "-c", qwen3_packages.OFFLINE_BOOTSTRAP]
-    for flag in ("--isolated", "--require-virtualenv", "--require-hashes", "--no-deps", "--no-index",
-                 "--only-binary=:all:"):
-        assert flag in pip_cmd, flag  # ignore ambient pip settings; only a venv; only the exact hashed artifacts
-    assert "--index-url" not in pip_cmd and "--extra-index-url" not in pip_cmd
-    assert Path(pip_cmd[pip_cmd.index("--find-links") + 1]) == qwen3_wheels.wheel_dir()
-    assert qwen3_wheels.wheel_dir().is_relative_to(sandbox / "files")  # never a new top-level folder
-    assert runner.commands[1]["cwd"] == qwen3_wheels.wheel_dir()
-    assert not qwen3_wheels.wheel_dir().exists()  # the verified wheels are given back after a proved install
-    assert probe_cmd[:2] == [str(rt.venv_python()), str(rt.worker_script())]
+    venv_cmd, sync_cmd, probe_cmd = [c["cmd"] for c in runner.commands]
+    engine, project = rt.engine_venv_dir(), rt.project_dir()
+    assert venv_cmd == [str(uv_runner.uv_exe(sandbox)), "venv", str(engine), "--project", str(project), "--python",
+                        uv_runner.PYTHON_VERSION, "--no-python-downloads", "--no-config", "--color", "never",
+                        "--no-progress"]
+    for flag in ("--locked", "--no-dev", "--no-cache", "--compile-bytecode", "--no-python-downloads"):
+        assert flag in sync_cmd, flag
+    assert sync_cmd[sync_cmd.index("--project") + 1] == str(project)
+    assert sync_cmd[sync_cmd.index("--link-mode") + 1] == "copy" and "--offline" not in sync_cmd
+    sync_env = runner.commands[1]["env"]
+    assert sync_env["UV_PROJECT_ENVIRONMENT"] == str(engine) and sync_env["UV_PYTHON_PREFERENCE"] == "only-managed"
+    assert "PYTHONPATH" not in sync_env and Path(sync_env["TEMP"]).is_relative_to(sandbox)
+    assert not runner.base_probes  # the managed interpreter is uv's choice, never sys._base_executable
+    assert rt.venv_dir() == engine and rt.is_canonical()
+    record = rt.environment_record()
+    assert record["stage"] == rt.STAGE_INSTALLED and record["installer"] == "uv"
+    assert record["lock"] == engine_env.lock_identity(sandbox, "qwen3")
+    assert engine_env.receipt_problem(sandbox, "qwen3") == "" and rt.engine_identity_problem() == ""
+    assert probe_cmd[:2] == [str(venv_layout.interpreter(engine)), str(rt.worker_script())]
     assert probe["cuda_available"] is True and rt.installed_probe()["device_name"] == "Test GPU"
     assert rt.environment_status() == (True, "ok")
-    assert not su.pip_cache_dir().exists()  # a full success gives the download cache's space back
-    assert any("Installing the Qwen3 packages" in e.message for e in events)
-    pip_env = runner.commands[1]["env"]
-    assert "PYTHONPATH" not in pip_env and Path(pip_env["TEMP"]).is_relative_to(sandbox)
+    assert any("Downloading and installing the Qwen3 packages" in e.message for e in events)
+    assert any(e.message.startswith("Installed 89 packages") for e in events)  # uv's own words, as progress
 
 
-def test_a_failed_pip_reports_its_own_words_keeps_the_download_cache_and_records_nothing(sandbox, runner):
+def test_a_failed_sync_reports_uvs_own_words_and_records_nothing(sandbox, runner):
+    from shared import engine_env
     runner.fail_pip = True
-    with pytest.raises(su.SetupError, match=r"Installing the Qwen3 packages failed.*Could not find a version"):
+    with pytest.raises(su.SetupError, match=r"Installing the Qwen3 packages failed. No package files are kept.*"
+                                            r"Failed to fetch"):
         su.install_environment(runner=runner)
-    assert su.pip_cache_dir().exists()  # a retry continues instead of starting over
     assert rt.environment_status()[0] is False and "environment" not in rt.read_state()
-    record = rt.environment_record()  # the canonical record says only that the folder was created and verified
-    assert record["stage"] == rt.STAGE_CREATED and "probe_ok" not in record and "requirements_sha256" not in record
+    record = rt.environment_record(rt.engine_venv_dir())  # says only that the folder was created and verified
+    assert record["stage"] == rt.STAGE_CREATED and "probe_ok" not in record and "lock" not in record
+    assert engine_env.read_receipt(sandbox, "qwen3") is None
 
 
-def test_a_failed_venv_creation_stops_before_pip(sandbox, runner):
+def test_a_failed_venv_creation_stops_before_the_sync(sandbox, runner):
     runner.fail_venv = True
     with pytest.raises(su.SetupError, match=r"could not be created.*venv exploded"):
         su.install_environment(runner=runner)
@@ -568,17 +591,26 @@ def test_a_failed_venv_creation_stops_before_pip(sandbox, runner):
 
 
 def test_a_failed_probe_is_an_incomplete_install_not_a_success(sandbox, runner):
+    from shared import engine_env
     runner.probe_failure = "ImportError: DLL load failed while importing _C"
     with pytest.raises(su.SetupError, match="did not start correctly: ImportError: DLL load failed"):
         su.install_environment(runner=runner)
     assert rt.environment_status()[0] is False  # no install record was written
+    assert engine_env.read_receipt(sandbox, "qwen3") is None
 
 
-def test_cancelling_during_pip_leaves_the_install_incomplete_and_the_cache_in_place(sandbox, runner):
+def test_cancelling_during_the_sync_leaves_the_install_incomplete_and_the_next_one_syncs_it_again(sandbox, runner):
     runner.cancel_during_pip = True
     with pytest.raises(su.SetupCancelled):
         su.install_environment(runner=runner)
-    assert rt.environment_status()[0] is False and su.pip_cache_dir().exists()
+    assert rt.environment_status()[0] is False
+    assert rt.environment_record(rt.engine_venv_dir())["stage"] == rt.STAGE_CREATED
+    runner.cancel_during_pip = False
+    runner.commands.clear()
+    su.install_environment(runner=runner)  # the environment it created is the app's own: uv syncs it to the lock again
+    assert [c["cmd"][1] for c in runner.commands[:1]] == ["sync"]
+    assert not any(c["cmd"][1] == "venv" for c in runner.commands)
+    assert rt.environment_status() == (True, "ok")
 
 
 def test_an_unsupported_python_is_refused_before_anything_is_created(sandbox, runner, monkeypatch):
@@ -588,10 +620,50 @@ def test_an_unsupported_python_is_refused_before_anything_is_created(sandbox, ru
     assert runner.commands == [] and not rt.venv_dir().exists()
 
 
-def test_a_missing_requirements_file_is_a_clear_error(sandbox, runner):
-    (sandbox / "scripts" / "qwen3-requirements.txt").unlink()
-    with pytest.raises(su.SetupError, match="requirements file is missing"):
+@pytest.mark.parametrize("missing", ["pyproject.toml", "uv.lock"])
+def test_a_missing_engine_project_is_a_clear_error(sandbox, runner, missing):
+    (rt.project_dir() / missing).unlink()
+    with pytest.raises(su.SetupError, match="package lock is missing.*reinstall the app"):
         su.install_environment(runner=runner)
+    assert runner.commands == [] and not rt.engine_venv_dir().exists()
+
+
+@pytest.mark.parametrize("damage", ["uv", "python", "build"])
+def test_without_the_pinned_uv_or_the_managed_python_nothing_is_installed(sandbox, runner, monkeypatch, damage):
+    from shared import uv_runner
+    if damage == "uv":
+        monkeypatch.setattr(uv_runner, "uv_problem", lambda root, platform=None: "uv.exe is missing")
+    elif damage == "python":
+        uv_runner.managed_python(sandbox, "win32").unlink()
+    else:
+        (uv_runner.managed_python_home(sandbox, "win32") / "BUILD").write_text("20250101", encoding="ascii")
+    with pytest.raises(su.SetupError, match="Start the app with Setup_and_Run.*Nothing was installed"):
+        su.install_environment(runner=runner)
+    assert runner.commands == [] and not rt.engine_venv_dir().exists()
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="a process's creation time is read on Windows only (work_area)")
+def test_a_killed_installs_partial_downloads_are_cleared_by_the_next_install(sandbox, runner):
+    """v0.8.2 Phase 5A: with no package cache, the partial downloads of an install killed outright (not cancelled) are
+    in its uv scratch; the next install clears them -- only an operation's whose process is provably gone."""
+    from shared import uv_runner
+
+    killed = uv_runner.scratch_root(sandbox) / "0badc0de"
+    (killed / "tmp").mkdir(parents=True)
+    (killed / "tmp" / "torch-2.10.0+cu128-cp312-cp312-win_amd64.whl.partial").write_bytes(b"x" * 4096)
+    (killed / uv_runner.OWNER_NAME).write_text(f'{{"pid": {os.getpid()}, "created": 1}}', encoding="utf-8")
+    su.install_environment(runner=runner)
+    assert not killed.exists() and rt.environment_status() == (True, "ok")
+    assert list(uv_runner.scratch_root(sandbox).iterdir()) == []  # and the install's own scratch went with it
+
+
+def test_a_damaged_installed_file_is_found_by_its_record_and_never_recorded_as_installed(sandbox, runner, monkeypatch):
+    from shared import engine_env
+    monkeypatch.setattr(engine_env, "record_damage", lambda root, key: {"torch": "torch/lib/c10.dll is missing"})
+    with pytest.raises(su.SetupError, match=r"do not match their records \(torch: torch/lib/c10.dll is missing\)"):
+        su.install_environment(runner=runner)
+    assert rt.environment_status()[0] is False and engine_env.read_receipt(sandbox, "qwen3") is None
+    assert not any(str(rt.worker_script()) in c["cmd"] for c in runner.commands)  # never probed
 
 
 def test_pythonw_is_replaced_by_python_for_the_child_so_output_is_not_lost(tmp_path, monkeypatch):
@@ -830,6 +902,20 @@ def test_repairing_a_healthy_install_changes_nothing_but_does_start_the_engine_t
     assert before == {p: p.stat().st_mtime_ns for p in before}
 
 
+def test_the_read_only_check_finds_a_damaged_engine_package_the_probe_does_not_import(sandbox, runner, monkeypatch):
+    """v0.8.2 Phase 5A: the uv engine is checked against its packages' RECORDs too; a clean check changes nothing."""
+    from shared import engine_env
+
+    install_environment(sandbox)
+    assert rt.is_canonical()
+    plan = su.analyze_repair([], runner=runner)
+    assert not plan.rebuild_environment and len(runner.commands) == 1  # the probe; the RECORD check runs no process
+    monkeypatch.setattr(engine_env, "record_damage", lambda root, key: {"sox": "sox/core.py is missing"})
+    plan = su.analyze_repair([], runner=runner)
+    assert plan.rebuild_environment and "do not match their records (sox: sox/core.py is missing)" in plan.environment_reason
+    assert rt.environment_status() == (True, "ok")  # a check changes nothing; the repair is what rebuilds
+
+
 def test_repair_refetches_a_corrupt_model_file_and_nothing_else(hub, sandbox, runner):
     install_environment(sandbox)
     su.install_model("customvoice", opener=opener, sleep=no_sleep)
@@ -844,7 +930,8 @@ def test_repair_refetches_a_corrupt_model_file_and_nothing_else(hub, sandbox, ru
 def test_repair_rebuilds_a_stale_environment_by_removing_only_the_apps_own_folder(hub, sandbox, runner):
     install_environment(sandbox)
     install_model(sandbox, "customvoice")
-    (sandbox / "scripts" / "qwen3-requirements.txt").write_bytes(b"torch==2.0\n")  # the pins moved on
+    lock = rt.project_dir() / "uv.lock"
+    lock.write_bytes(lock.read_bytes() + b"# the lock moved on\n")
     assert rt.environment_status()[0] is False
     old_marker = rt.venv_dir() / "old-environment-marker"
     old_marker.write_text("x", encoding="utf-8")
@@ -967,15 +1054,17 @@ def test_pip_raw_progress_becomes_throttled_byte_counted_events_over_the_whole_i
     assert progress.feed("Progress not-a-number of 10") is False
 
 
-def test_the_environment_install_shows_wheel_download_progress_as_progress(sandbox, runner):
-    """v0.7.0: the bytes are fetched by the app (exact wheels), so their progress is the app's own, by bytes."""
-    from test_qwen3_runtime import TINY_WHEELS
+def test_the_environment_install_states_the_download_and_shows_uvs_own_lines_as_progress(sandbox, runner):
+    """v0.8.2 Phase 5A: uv fetches the locked packages itself; the step names the manifest's exact download size and
+    uv's own lines (Resolved, Downloading, Prepared, Installed) are shown as the step's progress."""
+    from tts import qwen3_wheels
     seen = []
     su.install_environment(progress=seen.append, runner=runner)
-    measured = [e for e in seen if e.total_bytes]
-    total = sum(len(data) for data in TINY_WHEELS.values())
-    assert measured and measured[-1].done_bytes == total and measured[-1].total_bytes == total
-    assert all(e.step == "environment" for e in measured)
+    size = rt.format_bytes(qwen3_wheels.total_bytes())
+    assert any(f"(about {size}, each checked against the app's lock)" in e.message for e in seen)
+    shown = [e.message for e in seen if e.step == "environment"]
+    for line in ("Resolved 90 packages", "Downloading torch (2.7GiB)", "Prepared 89 packages", "Installed 89 packages"):
+        assert any(message.startswith(line) for message in shown), line
 
 
 def test_scratch_space_for_the_worker_and_the_installer_is_inside_the_repository(sandbox):
@@ -1644,6 +1733,9 @@ def test_a_load_check_runs_nothing_when_the_machine_wide_guard_cannot_be_had(san
 # ``.venv/engines``) leading somewhere else inside the app folder passed every
 # old check, and a rebuild would have deleted whatever was there.
 # --------------------------------------------------------------------------- #
+_REAL_VENV_DIR = rt.venv_dir  # the path authority itself, for tests that patch it away
+
+
 def _tree(root: Path) -> dict[str, bytes]:
     return {p.relative_to(root).as_posix(): p.read_bytes() for p in sorted(root.rglob("*")) if p.is_file()}
 
@@ -1666,25 +1758,58 @@ def test_a_nested_engine_is_removable_only_as_itself_never_through_its_parent(ne
     assert not su.safe_to_remove_environment(nested_engine / "engines")
 
 
-def test_rebuilding_a_nested_engine_removes_only_its_own_folder(nested_engine, sandbox, runner):
-    install_environment(sandbox)
-    (rt.venv_dir() / "old-engine-marker").write_text("x", encoding="utf-8")
+def test_a_new_engine_beside_an_earlier_nested_one_is_built_without_touching_it_and_retires_it_whole_once_proved(
+        nested_engine, sandbox, runner, monkeypatch):
+    """v0.8.2 Phase 5A: an earlier version's ``.venv/engines/qwen3`` keeps working while ``.venv-engines/qwen3`` is
+    built; the parent ``.venv`` and ``.venv-qwen3`` are never touched; once the new engine has passed every check the
+    nested one is moved, byte for byte, into ``files/runtime-data/qwen3/set-aside/`` with a note."""
+    from test_qwen3_runtime import install_nested_environment
+    monkeypatch.setattr(rt, "venv_dir", _REAL_VENV_DIR)  # the real authority: nothing newer is installed yet
+    nested = install_nested_environment(sandbox)
+    (nested / "old-engine-marker").write_text("x", encoding="utf-8")
     legacy = sandbox / ".venv-qwen3"
     (legacy / "Lib").mkdir(parents=True)
     (legacy / "pyvenv.cfg").write_text("home = x\n", encoding="utf-8")
     (legacy / "Lib" / "legacy.bin").write_bytes(b"legacy engine")
+    nested_before = _tree(nested)
     parent_before = {k: v for k, v in _tree(nested_engine).items() if not k.startswith("engines/")}
     legacy_before = _tree(legacy)
+    assert rt.venv_dir() == nested and rt.environment_status() == (True, "ok")
 
     su.install_environment(runner=runner, rebuild=True)
 
-    assert not (rt.venv_dir() / "old-engine-marker").exists() and rt.venv_python().is_file()
+    assert rt.venv_dir() == rt.engine_venv_dir() and rt.environment_status() == (True, "ok")
+    assert not nested.exists() and "nested_environment" not in rt.read_state()
+    kept = list(rt.set_aside_dir().glob("nested-qwen3-*/qwen3"))
+    assert len(kept) == 1 and _tree(kept[0]) == nested_before  # moved whole and unchanged, never deleted
+    assert "no longer uses it" in (kept[0].parent / "RETIRED-READ-ME.txt").read_text(encoding="utf-8")
     assert {k: v for k, v in _tree(nested_engine).items() if not k.startswith("engines/")} == parent_before
-    assert _tree(legacy) == legacy_before  # both layouts present: the other one is never touched
+    assert _tree(legacy) == legacy_before  # the pre-v0.7.0 engine is never moved or deleted
+
+
+def test_a_failed_new_engine_leaves_the_earlier_working_one_in_use_and_unchanged(sandbox, runner):
+    """A migration that fails changes nothing the app uses: the earlier engine stays in use, byte for byte, and a repair
+    offers to finish the new one."""
+    from test_qwen3_runtime import install_nested_environment
+    nested = install_nested_environment(sandbox)
+    before, record = _tree(nested), dict(rt.read_state()["nested_environment"])
+    for failure in ("fail_pip", "probe_failure"):
+        setattr(runner, failure, "ImportError: torch" if failure == "probe_failure" else True)
+        with pytest.raises(su.SetupError):
+            su.install_environment(runner=runner)
+        setattr(runner, failure, None if failure == "probe_failure" else False)
+        assert rt.venv_dir() == nested and rt.environment_status() == (True, "ok")
+        assert _tree(nested) == before and rt.read_state()["nested_environment"] == record
+        assert rt.unfinished_engine_install() and not list(rt.set_aside_dir().glob("*"))
+    plan = su.analyze_repair([], runner=runner)
+    assert plan.rebuild_environment and "did not finish" in plan.environment_reason
+    assert su.repair([], plan=plan, runner=runner, disk_free=lambda p: 10**12).ok
+    assert rt.venv_dir() == rt.engine_venv_dir() and not rt.unfinished_engine_install()
 
 
 def test_a_rebuild_on_a_legacy_only_copy_builds_the_canonical_engine_and_never_touches_the_legacy_one(sandbox, runner):
-    """v0.7.0 P04C: the app never rebuilds, installs into or deletes ``.venv-qwen3``; it builds the canonical one."""
+    """v0.7.0 P04C: the app never rebuilds, installs into or deletes ``.venv-qwen3``; v0.8.2 Phase 5A builds the engine
+    in ``.venv-engines/qwen3``."""
     legacy = sandbox / ".venv-qwen3"
     legacy.mkdir()
     install_environment(sandbox)  # the legacy-only engine an earlier version left
@@ -1698,11 +1823,11 @@ def test_a_rebuild_on_a_legacy_only_copy_builds_the_canonical_engine_and_never_t
     su.install_environment(runner=runner, rebuild=True)
 
     assert _tree(legacy) == before and rt.read_state()["environment"] == legacy_record
-    assert rt.venv_dir() == rt.nested_venv_dir() and rt.environment_status() == (True, "ok")
+    assert rt.venv_dir() == rt.engine_venv_dir() and rt.environment_status() == (True, "ok")
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="junctions are a Windows mechanism")
-@pytest.mark.parametrize("linked", [".venv", ".venv/engines"])
+@pytest.mark.parametrize("linked", [".venv", ".venv/engines", ".venv-engines"])
 def test_a_linked_ancestor_is_refused_and_nothing_is_deleted_through_it(sandbox, runner, monkeypatch, linked):
     """The decoy is *inside* the app folder, so resolving the path and checking containment cannot catch it."""
     decoy = sandbox / "files" / "runtime-data" / "models" / "decoy"
@@ -1717,16 +1842,19 @@ def test_a_linked_ancestor_is_refused_and_nothing_is_deleted_through_it(sandbox,
         (sandbox / ".venv").rmdir()
     link.parent.mkdir(parents=True, exist_ok=True)
     make_junction(link, decoy)
-    monkeypatch.setattr(rt, "venv_dir", lambda: sandbox / ".venv" / "engines" / "qwen3")
+    target = rt.engine_venv_dir() if linked == ".venv-engines" else rt.nested_venv_dir()
+    monkeypatch.setattr(rt, "venv_dir", lambda: target)
     before = _tree(decoy)
 
-    assert rt.link_below_root(rt.venv_dir()) == link
-    assert su.safe_to_remove_environment(rt.venv_dir()) is False
+    assert rt.link_below_root(target) == link
+    assert su.safe_to_remove_environment(target) is False
     assert "reached through a link" in rt.environment_location_problem()
     assert rt.environment_status()[0] is False
-    with pytest.raises(su.SetupError, match="reached through a link"):
-        su.install_environment(runner=runner, rebuild=True)
-    assert runner.commands == [] and _tree(decoy) == before
+    if linked == ".venv-engines":
+        with pytest.raises(su.SetupError, match="reached through a link"):
+            su.install_environment(runner=runner, rebuild=True)
+        assert runner.commands == []
+    assert _tree(decoy) == before
 
 
 def test_the_legacy_location_has_no_ancestor_to_check(sandbox):

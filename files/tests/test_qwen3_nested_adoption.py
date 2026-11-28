@@ -15,6 +15,14 @@ other refuses, changing nothing -- in both orders, with the engine's folder not 
 Every environment, record and lock here lives in ``tmp_path``. Cross-process cases run the production installer, the
 production lease or the production worker claim in real subprocesses; nothing touches ``.venv``, ``.venv-qwen3`` or
 the real runtime folder.
+
+**v0.8.2 Phase 5A.** New installs now go to the independent ``.venv-engines/qwen3``, built by uv from the engine's
+locked project on this copy's managed CPython (``tts.qwen3_setup._install_uv_environment``); the base-interpreter
+checks above belonged to the retired ``python -m venv`` + pip installer and live on only behind the test-only sealed
+seam. What this module still proves: an earlier version's nested engine keeps working and is judged exactly as before
+until the new one is installed; nothing is created through a link; and an install and a repair of the app's own
+environment still refuse each other in both orders -- now with the engine beside ``.venv``, which a repair never
+touches.
 """
 
 from __future__ import annotations
@@ -36,7 +44,7 @@ from shared import venv_layout
 from tts import qwen3_runtime as rt
 from tts import qwen3_setup as su
 
-from test_qwen3_runtime import install_environment, make_engine, sandbox  # noqa: F401  (sandbox is a fixture)
+from test_qwen3_runtime import install_environment, sandbox  # noqa: F401  (sandbox is a fixture)
 from test_qwen3_setup import FakeRunner, fake_runner, runner  # noqa: F401  (runner is a fixture)
 from test_qwen3_lifecycle_locks import ALL_FREE, SCRIPTS, free, held_by_another_process, wait_free
 from test_venv_recovery import (  # noqa: F401  (``env`` is a fixture)
@@ -44,6 +52,11 @@ from test_venv_recovery import (  # noqa: F401  (``env`` is a fixture)
 )
 
 NESTED_PARTS = (".venv", "engines", "qwen3")
+ENGINE_PARTS = (".venv-engines", "qwen3")  # v0.8.2 Phase 5A: where every new install goes
+
+
+def _is_uv(cmd, verb: str) -> bool:
+    return Path(str(cmd[0])).name.lower() == "uv.exe" and len(cmd) > 1 and str(cmd[1]) == verb
 
 
 def _tree_or_none(root: Path):
@@ -54,7 +67,7 @@ def _tree_or_none(root: Path):
 # A. Which engine is used: the selection matrix
 # --------------------------------------------------------------------------- #
 def test_with_nothing_installed_the_canonical_path_is_the_one_and_it_is_simply_not_installed(sandbox):
-    assert rt.venv_dir() == sandbox.joinpath(*NESTED_PARTS) and rt.is_nested()
+    assert rt.venv_dir() == sandbox.joinpath(*ENGINE_PARTS) and rt.is_canonical() and not rt.is_nested()
     ok, reason = rt.environment_status()
     assert not ok and "not installed on this computer" in reason and "nothing is downloaded until you ask" in reason
     assert "older engine" not in reason
@@ -142,7 +155,7 @@ def test_a_damaged_canonical_engine_is_reported_never_hidden_behind_the_legacy_o
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="junctions are a Windows mechanism")
-@pytest.mark.parametrize("linked", [".venv", ".venv/engines", ".venv/engines/qwen3"])
+@pytest.mark.parametrize("linked", [".venv-engines", ".venv-engines/qwen3"])
 def test_a_canonical_path_reached_through_a_link_is_unusable_and_nothing_is_created_through_it(
         sandbox, runner, linked, tmp_path):
     from test_qwen3_runtime import make_junction
@@ -150,10 +163,6 @@ def test_a_canonical_path_reached_through_a_link_is_unusable_and_nothing_is_crea
     decoy = tmp_path / "files" / "decoy"
     decoy.mkdir(parents=True)
     link = sandbox.joinpath(*linked.split("/"))
-    if linked == ".venv":
-        (sandbox / ".venv" / "pyvenv.cfg").unlink()
-        (sandbox / ".venv").rmdir()
-        (decoy / "pyvenv.cfg").write_text("home = x\n", encoding="utf-8")
     link.parent.mkdir(parents=True, exist_ok=True)
     make_junction(link, decoy)
     before = _tree(decoy)
@@ -163,7 +172,7 @@ def test_a_canonical_path_reached_through_a_link_is_unusable_and_nothing_is_crea
     with pytest.raises(su.SetupError, match="link"):
         su.install_environment(runner=runner)
     assert runner.commands == [] and runner.base_probes == [] and _tree(decoy) == before
-    assert rt.NESTED_RECORD not in rt.read_state()
+    assert rt.ENGINE_RECORD not in rt.read_state()
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="junctions are a Windows mechanism")
@@ -183,14 +192,16 @@ def test_a_legacy_location_that_is_a_link_is_never_used_and_the_install_goes_to_
 
     su.install_environment(runner=runner)  # never into the link: the canonical engine is created beside it
 
-    assert _tree(decoy) == before and rt.venv_dir() == sandbox.joinpath(*NESTED_PARTS)
+    assert _tree(decoy) == before and rt.venv_dir() == sandbox.joinpath(*ENGINE_PARTS)
     assert rt.environment_status() == (True, "ok")
 
 
 # --------------------------------------------------------------------------- #
 # B. Creating the canonical engine: where, from what, and what is recorded
 # --------------------------------------------------------------------------- #
-def test_a_first_install_creates_the_engine_at_its_final_path_from_the_verified_base(sandbox, runner, monkeypatch):
+def test_a_first_install_creates_the_engine_at_its_final_path_on_the_managed_python(sandbox, runner, monkeypatch):
+    from shared import engine_env
+
     stages: list[tuple[str, bool]] = []
     real_record = rt.record_environment_stage
 
@@ -199,93 +210,49 @@ def test_a_first_install_creates_the_engine_at_its_final_path_from_the_verified_
         real_record(folder, stage)
 
     monkeypatch.setattr(rt, "record_environment_stage", watch)
-    final = sandbox.joinpath(*NESTED_PARTS)
+    final = sandbox.joinpath(*ENGINE_PARTS)
     assert not os.path.lexists(final) and not os.path.lexists(sandbox / ".venv-qwen3")
 
     su.install_environment(runner=runner)
 
     venv_cmd = runner.commands[0]["cmd"]
-    assert venv_cmd == [str(runner.python), "-I", "-m", "venv", str(final)]  # final, absolute, the base interpreter
-    assert Path(venv_cmd[-1]).is_absolute()
+    assert venv_cmd == [str(c) for c in engine_env.venv_command(sandbox, "qwen3")] and _is_uv(venv_cmd, "venv")
+    assert Path(venv_cmd[2]).is_absolute() and venv_layout.same_path(venv_cmd[2], final)  # final, absolute
+    assert _is_uv(runner.commands[1]["cmd"], "sync") and runner.base_probes == []  # no base interpreter is consulted
     assert stages == [(rt.STAGE_CREATING, False), (rt.STAGE_CREATED, True)]  # recorded before, then after, creation
-    record = rt.read_state()[rt.NESTED_RECORD]
-    assert record["stage"] == rt.STAGE_INSTALLED and record["probe_ok"] is True
+    record = rt.read_state()[rt.ENGINE_RECORD]
+    assert record["stage"] == rt.STAGE_INSTALLED and record["probe_ok"] is True and record["installer"] == "uv"
     assert venv_layout.same_path(record["path"], final)
-    assert record["base"] == venv_layout.base_identity(final)
-    assert venv_layout.same_path(record["base"]["executable"], runner.python)
-    assert not rt.state_path().is_relative_to(sandbox / ".venv")  # outside the parent a repair may replace
+    assert not rt.state_path().is_relative_to(sandbox / ".venv")  # outside the app's own environment
     assert rt.environment_status() == (True, "ok") and not os.path.lexists(sandbox / ".venv-qwen3")
+    assert not os.path.lexists(sandbox / ".venv" / "engines")  # nothing is created inside the app's environment
 
 
-def _refuse_base(sandbox, runner, monkeypatch, case):
-    if case == "missing":
-        runner.python.unlink()
-    elif case == "a link":
-        target = runner.python.with_name("real.exe")
-        runner.python.rename(target)
-        try:
-            os.symlink(target, runner.python)
-        except OSError:
-            pytest.skip("this account cannot create symbolic links")
-    elif case == "inside the app folder":
-        inside = sandbox / "files" / "python" / "python.exe"
-        inside.parent.mkdir(parents=True)
-        inside.write_bytes(b"")
-        monkeypatch.setattr(su, "base_python_candidate", lambda: inside)
-    elif case == "a venv's interpreter":
-        (runner.base / "pyvenv.cfg").write_text("home = x\n", encoding="utf-8")
-    elif case == "Python 3.13":
-        runner.base_report = {"version": [3, 13, 1]}
-    elif case == "not CPython":
-        runner.base_report = {"implementation": "pypy"}
-    elif case == "a virtual environment by its own account":
-        runner.base_report = {"prefix": str(sandbox / "some-venv")}
-    elif case == "another interpreter by its own account":
-        runner.base_report = {"executable": str(sandbox / "other" / "python.exe")}
-    elif case == "silent":
-        runner.base_report = {"implementation": None, "version": None}
-
-
-@pytest.mark.parametrize("case", ["missing", "a link", "inside the app folder", "a venv's interpreter", "Python 3.13",
-                                  "not CPython", "a virtual environment by its own account",
-                                  "another interpreter by its own account", "silent"])
-def test_an_unusable_base_interpreter_stops_the_install_before_anything_is_created(sandbox, runner, monkeypatch, case):
-    _refuse_base(sandbox, runner, monkeypatch, case)
-    with pytest.raises(su.SetupError, match="Nothing was installed"):
-        su.install_environment(runner=runner)
-    assert runner.commands == []  # no venv, no pip, no probe
-    assert not os.path.lexists(sandbox.joinpath(*NESTED_PARTS)) and rt.NESTED_RECORD not in rt.read_state()
-    assert free(rt.runtime_dir()) == ALL_FREE
-
-
-class BuildsFromAnotherBase(FakeRunner):
-    """``python -m venv`` that writes a ``pyvenv.cfg`` naming a different base than the interpreter that ran it."""
+class BuildsOnAnotherPython(FakeRunner):
+    """``uv venv`` that writes a ``pyvenv.cfg`` naming a Python other than this copy's managed CPython."""
 
     def __call__(self, cmd, **kw):
         code = super().__call__(cmd, **kw)
-        if " -m venv " in " ".join(str(c) for c in cmd) + " ":
-            other = self.base.parent / (self.base.name + "-other")
-            make_engine(Path(cmd[-1]), other)
+        if _is_uv(cmd, "venv"):
+            cfg = Path(cmd[2]) / "pyvenv.cfg"
+            lines = [f"home = {self.base}" if line.startswith("home") else line
+                     for line in cfg.read_text(encoding="utf-8").splitlines()]
+            cfg.write_text("\n".join(lines) + "\n", encoding="utf-8")
         return code
 
 
-def test_an_engine_that_does_not_name_the_base_it_was_built_with_is_not_used(sandbox, monkeypatch):
-    (sandbox / "scripts" / "qwen3-requirements.txt").write_bytes(b"torch==1.0\n")
-    fake = BuildsFromAnotherBase(sandbox.parent / f"{sandbox.name}-base-python")
-    monkeypatch.setattr(su, "base_python_candidate", lambda: fake.python)
-    with pytest.raises(su.SetupError, match="not built from the Python it was created with"):
+def test_an_engine_built_on_any_other_python_is_not_used(sandbox, monkeypatch):
+    fake = BuildsOnAnotherPython(sandbox.parent / f"{sandbox.name}-other-python")
+    with pytest.raises(su.SetupError, match="could not be verified"):
         su.install_environment(runner=fake)
-    assert [c["cmd"][1:4] for c in fake.commands] == [["-I", "-m", "venv"]]  # no pip ran into it
+    assert [c["cmd"][1] for c in fake.commands] == ["venv"]  # no sync ran into it
     assert rt.environment_status()[0] is False
 
 
-@pytest.mark.parametrize("problem, words", [
-    ("no pyvenv.cfg", "missing or incomplete"),
-    ("no parent at all", "missing or incomplete"),
-    (".venv.replaced", "did not finish (.venv.replaced"),
-    (".venv.replaced-20261025", "did not finish (.venv.replaced-20261025"),
-])
-def test_the_engine_is_never_created_in_a_parent_that_is_missing_or_mid_repair(sandbox, runner, problem, words):
+@pytest.mark.parametrize("problem", ["no pyvenv.cfg", "no parent at all", ".venv.replaced", ".venv.replaced-20261025"])
+def test_the_independent_engine_never_reaches_into_the_app_s_own_environment(sandbox, runner, problem):
+    """The engine beside ``.venv`` is built on the managed CPython, not from ``.venv`` and not inside it: the app's own
+    environment, whatever its state (a repair's leftovers included), is neither read nor changed by the install."""
     parent = sandbox / ".venv"
     if problem in ("no pyvenv.cfg", "no parent at all"):
         (parent / "pyvenv.cfg").unlink()
@@ -293,9 +260,10 @@ def test_the_engine_is_never_created_in_a_parent_that_is_missing_or_mid_repair(s
             parent.rmdir()
     else:
         (sandbox / problem).mkdir()
-    with pytest.raises(su.SetupError, match=words.replace("(", r"\(").replace(".", r"\.")):
-        su.install_environment(runner=runner)
-    assert runner.commands == [] and not os.path.lexists(parent / "engines")
+    before = {name: _tree_or_none(sandbox / name) for name in (".venv", problem)}
+    su.install_environment(runner=runner)
+    assert rt.environment_status() == (True, "ok") and rt.venv_dir() == sandbox.joinpath(*ENGINE_PARTS)
+    assert {name: _tree_or_none(sandbox / name) for name in (".venv", problem)} == before
 
 
 def test_a_leftover_that_is_only_awaiting_deletion_does_not_block_an_install(sandbox, runner):
@@ -308,7 +276,7 @@ def test_a_leftover_that_is_only_awaiting_deletion_does_not_block_an_install(san
 def test_an_interrupted_install_or_removal_is_cleared_and_redone_by_the_next_install(sandbox, runner, stage):
     """A creation or deletion that stopped half-way leaves a folder with no ``pyvenv.cfg``; the record says it was the
     app's own, so the next install clears it (no rebuild needed) and builds it again."""
-    final = sandbox.joinpath(*NESTED_PARTS)
+    final = sandbox.joinpath(*ENGINE_PARTS)
     (final / "Lib" / "site-packages").mkdir(parents=True)
     (final / "Lib" / "site-packages" / "half.py").write_text("x", encoding="utf-8")
     rt.record_environment_stage(final, stage)
@@ -320,7 +288,7 @@ def test_an_interrupted_install_or_removal_is_cleared_and_redone_by_the_next_ins
 
 
 def test_an_engine_folder_the_app_cannot_vouch_for_is_left_alone_until_a_repair_rebuilds_it(sandbox, runner):
-    final = sandbox.joinpath(*NESTED_PARTS)
+    final = sandbox.joinpath(*ENGINE_PARTS)
     final.mkdir(parents=True)
     install_environment(sandbox)
     rt.clear_environment_state(final)  # e.g. copied in from elsewhere: no record vouches for it
@@ -328,7 +296,7 @@ def test_an_engine_folder_the_app_cannot_vouch_for_is_left_alone_until_a_repair_
     (final / "Lib" / "theirs.py").write_text("x", encoding="utf-8")
     before = _tree(final)
     with pytest.raises(su.SetupError, match="cannot be verified.*left as it is"):
-        su.install_environment(runner=runner)  # an install never pips into it
+        su.install_environment(runner=runner)  # an install never runs uv into it
     assert _tree(final) == before and runner.commands == []
 
     su.install_environment(runner=runner, rebuild=True)  # the repair path the message points to
@@ -346,14 +314,14 @@ def test_a_repair_of_a_broken_legacy_engine_builds_the_canonical_one_and_says_so
     plan = su.analyze_repair([], runner=runner)
     assert plan.rebuild_environment
     shown = "\n".join(su.describe_repair(plan))
-    assert ".venv\\engines\\qwen3" in shown or ".venv/engines/qwen3" in shown
+    assert ".venv-engines\\qwen3" in shown or ".venv-engines/qwen3" in shown
     assert "not changed or deleted" in shown
 
     result = su.repair([], plan=plan, runner=runner, load_check=False, disk_free=lambda p: 10 ** 13)
 
     assert result.ok, result.message
     assert _tree(legacy) == before and "environment" not in rt.read_state()  # nothing was written for the legacy engine
-    assert rt.venv_dir() == sandbox.joinpath(*NESTED_PARTS) and rt.environment_status() == (True, "ok")
+    assert rt.venv_dir() == sandbox.joinpath(*ENGINE_PARTS) and rt.environment_status() == (True, "ok")
 
 
 def test_the_install_plan_says_where_the_engine_goes_only_when_an_older_one_is_there(sandbox):
@@ -409,7 +377,7 @@ def test_an_install_holds_the_install_lock_itself_and_reuses_one_already_held(sa
     real_call = FakeRunner.__call__
 
     def observe(self, cmd, **kw):
-        if " -m venv " in " ".join(str(c) for c in cmd) + " ":
+        if _is_uv(cmd, "venv"):
             seen.append(free_from_another_process(rt.runtime_dir()))
         return real_call(self, cmd, **kw)
 
@@ -472,24 +440,18 @@ _INSTALLER = textwrap.dedent("""
     from pathlib import Path
     sys.path.insert(0, sys.argv[1])
     root, base, mode, guard = Path(sys.argv[2]), Path(sys.argv[3]), sys.argv[4], sys.argv[5]
+    from shared import uv_runner
     from tts import qwen3_runtime as rt
     from tts import qwen3_setup as su
     rt.repo_root = lambda: root
     rt.MACHINE_GUARD_NAME = guard
-    su.base_python_candidate = lambda: base
-    from tts import qwen3_wheels as qw  # v0.7.0: no real wheel is fetched in this disposable process
-    qw.fetch = lambda **kwargs: 0
-    qw.install_command = lambda python: ([str(python), "-m", "pip", "install", "--no-index"], root)
-    qw.discard = lambda: None
+    uv_runner.uv_problem = lambda root, platform=None: ""  # the stand-in uv is never run: its identity is answered
 
     def runner(cmd, *, env, cwd, on_line, cancel_check=None):
         cmd = [str(c) for c in cmd]
-        if cmd[1:3] == ["-I", "-c"]:
-            on_line(su._BASE_PROBE_MARK + json.dumps({"version": [3, 12, 10], "implementation": "cpython",
-                    "prefix": str(base.parent), "base_prefix": str(base.parent), "executable": cmd[0]}))
-            return 0
-        if cmd[1:4] == ["-I", "-m", "venv"]:
-            target = Path(cmd[-1])
+        uv = Path(cmd[0]).name.lower() == "uv.exe"
+        if uv and cmd[1] == "venv":
+            target = Path(cmd[2])
             if mode in ("pause", "die"):
                 print("CREATING " + str(os.path.lexists(target)), flush=True)  # InstallLock held, folder not made
             if mode == "pause":
@@ -502,10 +464,11 @@ _INSTALLER = textwrap.dedent("""
             (target / "Scripts").mkdir(parents=True)
             (target / "Scripts" / "python.exe").write_bytes(b"")
             (target / "pyvenv.cfg").write_text(
-                f"home = {base.parent}\\ninclude-system-site-packages = false\\nversion = 3.12.10\\n"
-                f"executable = {base}\\ncommand = {base} -m venv {target}\\n", encoding="utf-8")
+                f"home = {uv_runner.managed_venv_home(root, 'win32')}\\nimplementation = CPython\\n"
+                f"uv = {uv_runner.UV_VERSION}\\nversion_info = {uv_runner.PYTHON_VERSION}\\n"
+                "include-system-site-packages = false\\n", encoding="utf-8")
             return 0
-        if cmd[1:3] == ["-m", "pip"]:
+        if uv and cmd[1] == "sync":
             return 0
         if cmd[1].endswith("qwen3_worker.py"):
             on_line("@@EVENT " + json.dumps({"event": "probe", "versions": {"torch": "test"}}))
@@ -555,7 +518,7 @@ def _installer_argv(sandbox: Path, base: Path, mode: str) -> list[str]:
 
 @contextlib.contextmanager
 def installer_mid_creation(sandbox: Path, base: Path, mode: str = "pause"):
-    """The production installer in another process, stopped inside ``python -m venv``: InstallLock held, folder absent."""
+    """The production installer in another process, stopped inside ``uv venv``: InstallLock held, folder absent."""
     proc = subprocess.Popen(_installer_argv(sandbox, base, mode), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE, text=True)
     try:
@@ -585,14 +548,14 @@ def test_install_first_a_repair_refuses_until_the_engine_exists_at_its_final_pat
         installer.stdin.flush()
         out = installer.stdout.read()
         assert installer.wait(timeout=60) == 0 and "INSTALLED" in out, out
-    child = sandbox.joinpath(*NESTED_PARTS)
-    assert child.is_dir() and keepsake.read_text(encoding="utf-8") == "previous"  # created inside the unchanged parent
-    assert rt.environment_status() == (True, "ok")
+    child = sandbox.joinpath(*ENGINE_PARTS)
+    assert child.is_dir() and keepsake.read_text(encoding="utf-8") == "previous"  # created beside the unchanged parent
+    assert rt.environment_status() == (True, "ok") and not os.path.lexists(env.venv / "engines")
 
     engine = _tree(child)
     ok, message = bootstrap.repair_venv(_Log(), headless=True)  # once it is done, the repair goes ahead
     assert ok is True and (env.venv / "candidate.txt").exists(), message
-    assert _tree(child) == engine and rt.environment_status() == (True, "ok")  # carried home, still the same engine
+    assert _tree(child) == engine and rt.environment_status() == (True, "ok")  # beside it, never touched
 
 
 def test_install_first_first_run_setup_refuses_the_same_way(first_install, env, sandbox, monkeypatch):
@@ -616,7 +579,7 @@ def test_repair_first_a_new_install_refuses_and_nothing_is_created_under_the_par
 
     def try_to_install():
         code, out = run_installer(sandbox, base)
-        attempts.append((code, out, os.path.lexists(env.venv / "engines"),
+        attempts.append((code, out, os.path.lexists(env.venv / "engines") or os.path.lexists(sandbox / ".venv-engines"),
                          os.path.lexists(bootstrap._venv_aside_path() / "engines")))
 
     hook = {"before recovery": "recover_interrupted_replacement", "parent set aside": "create_venv",
@@ -636,11 +599,11 @@ def test_repair_first_a_new_install_refuses_and_nothing_is_created_under_the_par
     assert code == 2 and "REFUSED" in out and "being installed or repaired" in out, out
     assert not engines_in_parent and not engines_in_aside  # nothing appeared under either while the repair ran
     assert not os.path.lexists(env.venv / "engines") and not os.path.lexists(bootstrap._venv_aside_path())
-    assert rt.NESTED_RECORD not in rt.read_state()
+    assert rt.ENGINE_RECORD not in rt.read_state()
 
-    code, out = run_installer(sandbox, base)  # after the repair: installed at its final path in the new parent
+    code, out = run_installer(sandbox, base)  # after the repair: installed at its final path beside the new parent
     assert code == 0 and "INSTALLED" in out, out
-    assert (env.venv / "candidate.txt").exists() and sandbox.joinpath(*NESTED_PARTS).is_dir()
+    assert (env.venv / "candidate.txt").exists() and sandbox.joinpath(*ENGINE_PARTS).is_dir()
     assert rt.environment_status() == (True, "ok")
 
 
@@ -651,10 +614,10 @@ def test_an_installer_that_dies_mid_creation_frees_the_repair_and_its_leftover_i
         installer.stdin.flush()
         assert installer.wait(timeout=60) == 3
     assert wait_free(rt.runtime_dir()) == ALL_FREE  # the operating system dropped every lock it held
-    child = sandbox.joinpath(*NESTED_PARTS)
+    child = sandbox.joinpath(*ENGINE_PARTS)
     assert (child / "Lib" / "half.py").is_file() and rt.environment_record(child)["stage"] == rt.STAGE_CREATING
 
-    ok, message = bootstrap.repair_venv(_Log(), headless=True)  # the half-made engine is held: carried, never deleted
+    ok, message = bootstrap.repair_venv(_Log(), headless=True)  # the half-made engine is beside it: never touched
     assert ok is True, message
     assert (child / "Lib" / "half.py").is_file()
     assert "not installed completely" in rt.environment_status()[1]

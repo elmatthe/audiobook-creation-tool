@@ -81,6 +81,12 @@ DIST_DIR = REPO_ROOT / "dist"
 sys.path.insert(0, str(SHARED_DIR))
 from version import VERSION  # noqa: E402
 
+# v0.8.2 Phase 5A: the engine registry (standard library only) names every engine environment folder and every engine's
+# own dependency project, so neither list is kept here as a copy.
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(1, str(SCRIPTS_DIR))
+from tts.engines import registry as _engines  # noqa: E402
+
 # v0.8.1: one shared source again, so the ordinary build makes both archives. (0.8.0+macos.1, D16, was the macOS-only
 # revision of v0.8.0 and made the macOS archive alone; the published Windows v0.8.0 came from d1701e9.)
 RELEASE_OS_NAMES = ("Windows", "MacOS")
@@ -102,6 +108,11 @@ ENTRY_FILES = {
 # which setup installs through uv. Without them a release cannot build its environment, so they ship in both archives.
 # (The Python download pin, ``scripts/shared/python-downloads.json``, ships with the tracked ``scripts/`` tree.)
 ROOT_FILES = ("README.md", "config.toml", "LICENSE", "pyproject.toml", "uv.lock")
+# v0.8.2 Phase 5A (transitional rule 8): each engine that installs into its own ``.venv-engines/<engine>`` through uv
+# ships its project and lock (Qwen3: ``scripts/tts/engines/qwen3/``). They travel with the tracked ``scripts/`` tree;
+# an archive without any of them is refused, because that engine could not be installed from it.
+ENGINE_PROJECT_FILES = tuple(f"{project}/{name}" for project in _engines.TABLES.engine_projects.values()
+                             for name in ("pyproject.toml", "uv.lock"))
 
 # CLOSED ALLOWLIST: never walk files/ or the reference directory. MP3 originals,
 # extra recordings, transcripts, the owner's upload archive, derivatives and caches
@@ -138,7 +149,9 @@ REFERENCE_ASSETS = (
 # preserved ``*.act67-preserved-*`` copies. They are named here too -- exactly, or by the prefixes below -- so that a
 # copy force-committed under ``scripts/`` or a future widening of the walk can never package a multi-gigabyte
 # environment by accident.
-EXCLUDED_DIR_NAMES = {".venv", ".venv-qwen3", ".venv-omnivoice", "__pycache__", ".pytest_cache"}
+# v0.8.2 Phase 5A: the environment folders come from the engine registry: ``.venv``, ``.venv-engines`` (every
+# independent engine environment since Phase 5A) and the earlier versions' ``.venv-qwen3`` and ``.venv-omnivoice``.
+EXCLUDED_DIR_NAMES = {*_engines.TABLES.environment_folders, "__pycache__", ".pytest_cache"}
 # Directory-name prefixes excluded wherever they appear: ``.venv.replaced``, ``.venv.discarded-…``,
 # ``.venv-qwen3.act67-preserved-…`` and the like.
 EXCLUDED_DIR_PREFIXES = (".venv.", ".venv-")
@@ -330,6 +343,10 @@ def _write_archive(os_name: str, zip_path: Path) -> tuple[list[tuple[str, Path]]
                 continue
             zf.write(path, arcname=rel.as_posix())
             written.append((rel.as_posix(), path))
+    names = {name for name, _ in written}
+    for name in ENGINE_PROJECT_FILES:
+        if name not in names:
+            raise ReleaseError(f"Required engine project file missing or not tracked by git: {name}")
     return written, left_behind
 
 

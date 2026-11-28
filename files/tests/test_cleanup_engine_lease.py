@@ -12,6 +12,11 @@ the coordinator holds this copy's ``shared.engine_lease`` (``setup.lock`` → ``
 taken first and released last. Busy or uncheckable leaves the item exactly as it was and says so; every other selected
 item is handled as before. ``MachineGuard`` (the cross-copy GPU limit) is deliberately not taken.
 
+**v0.8.2 Phase 5A.** A new Qwen3 install builds its engine beside ``.venv`` (``.venv-engines/qwen3``), outside the
+environment item: clearing ``.venv`` leaves it whole and in use, and an install no longer needs ``.venv`` at all. The
+held-engine protections below still guard an engine an earlier version built inside ``.venv`` (and OmniVoice's), and the
+lease still orders a cleanup against an install, a conversion and a model check.
+
 Every root here is a disposable folder under ``tmp_path``. Cross-process cases use real subprocesses: the production
 installer stopped inside ``python -m venv`` (``test_qwen3_nested_adoption``'s harness) and real lock holders
 (``test_qwen3_lifecycle_locks``'s). Nothing touches the real ``.venv``, ``.venv-qwen3``, models or runtime folder.
@@ -39,9 +44,11 @@ from test_cleanup_worker import (
 )
 from test_qwen3_lifecycle_locks import ALL_FREE, SCRIPTS, held_by_another_process, wait_free
 from test_qwen3_nested_adoption import (  # noqa: F401  (sandbox is a fixture)
-    DAMAGES, NESTED_PARTS, free_from_another_process, installer_mid_creation, run_installer,
+    DAMAGES, ENGINE_PARTS, NESTED_PARTS, free_from_another_process, installer_mid_creation, run_installer,
 )
-from test_qwen3_runtime import install_environment, install_model, sandbox  # noqa: F401
+from test_qwen3_runtime import (  # noqa: F401
+    install_engine_environment, install_environment, install_model, install_nested_environment, sandbox,
+)
 
 LEASED = ("virtual_environment", "downloaded_models")
 UNLEASED = ("portable_binaries", "application_logs")
@@ -158,13 +165,14 @@ def test_install_first_cleanup_leaves_the_environment_and_models_whole_and_still
         installer.stdin.flush()
         out = installer.stdout.read()
         assert installer.wait(timeout=60) == 0 and "INSTALLED" in out, out
-    child = root.joinpath(*NESTED_PARTS)
-    assert child.is_dir() and rt.environment_status() == (True, "ok")  # built inside the untouched parent
-    engine = region(root, ".venv/engines/")
+    child = root.joinpath(*ENGINE_PARTS)
+    assert child.is_dir() and rt.environment_status() == (True, "ok")  # built beside the untouched parent
+    assert region(root, ".venv/") == venv_before and not os.path.lexists(root / ".venv" / "engines")
+    engine = region(root, ".venv-engines/")
 
-    outcome = worker.process_asset("virtual_environment", root)  # lease free now: the held engine stops it
-    assert outcome.status == "refused" and outcome.message == mnt.HELD_ENVIRONMENT_PROBLEM
-    assert region(root, ".venv/engines/") == engine and rt.environment_status() == (True, "ok")
+    outcome = worker.process_asset("virtual_environment", root)  # lease free now: .venv holds no engine any more
+    assert outcome.status == "removed" and not os.path.lexists(root / ".venv")
+    assert region(root, ".venv-engines/") == engine and rt.environment_status() == (True, "ok")  # never reached
     assert private(root) == private_before
 
 
@@ -176,7 +184,8 @@ def test_cleanup_first_an_install_refuses_and_nothing_is_created_under_the_paren
     def try_to_install(moment: str) -> None:
         code, out = run_installer(root, base)
         attempts.append((moment, code, "REFUSED" in out and "being installed or repaired" in out,
-                         os.path.lexists(root / ".venv" / "engines"), free_from_another_process(lock_dir(root))))
+                         os.path.lexists(root / ".venv" / "engines") or os.path.lexists(root / ".venv-engines"),
+                         free_from_another_process(lock_dir(root))))
 
     def removing(target):
         try_to_install("re-authorized, nothing removed yet")
@@ -190,9 +199,10 @@ def test_cleanup_first_an_install_refuses_and_nothing_is_created_under_the_paren
     assert outcome.status == "removed" and not os.path.lexists(root / ".venv")
     assert attempts == [("re-authorized, nothing removed yet", 2, True, False, NONE_FREE),
                         ("removed, lease still held", 2, True, False, NONE_FREE)]
-    code, out = run_installer(root, base)  # afterwards: refused for the missing parent, and it makes no .venv
-    assert code == 2 and "missing or incomplete" in out, out
+    code, out = run_installer(root, base)  # afterwards: the engine is built beside, and no .venv is made
+    assert code == 0 and "INSTALLED" in out, out
     assert not os.path.lexists(root / ".venv") and rt.NESTED_RECORD not in rt.read_state()
+    assert root.joinpath(*ENGINE_PARTS).is_dir() and rt.environment_status() == (True, "ok")
 
 
 _CONVERSION = textwrap.dedent("""
@@ -348,7 +358,8 @@ def test_a_lock_that_cannot_be_checked_leaves_the_item_whole(copy, tmp_path, mon
 
 
 # --------------------------------------------------------------------------- #
-# E. What is held in .venv: canonical healthy / damaged / partial, legacy-only, both, unexpected entries
+# E. What is held in .venv: an earlier version's nested engine healthy / damaged / partial, legacy-only, both,
+#    unexpected entries; and the engine beside .venv (v0.8.2 Phase 5A), which the item never reaches
 # --------------------------------------------------------------------------- #
 def _child(root: Path) -> Path:
     return root.joinpath(*NESTED_PARTS)
@@ -358,7 +369,7 @@ def _child(root: Path) -> Path:
                                     "was built from a Python that has changed", "was being created when it stopped"])
 def test_a_canonical_engine_in_any_state_is_never_removed_and_the_models_still_clear(copy, damage):
     root, _ = copy
-    install_environment(root)
+    install_nested_environment(root)  # what v0.7.0 P04C to v0.8.1 left inside .venv
     if damage != "healthy":
         DAMAGES[damage][0](_child(root), root)
     engine, venv_before = region(root, ".venv/engines/"), region(root, ".venv/")
@@ -379,11 +390,11 @@ def test_an_engine_left_half_made_by_a_killed_installer_is_never_removed(copy):
         installer.stdin.flush()
         assert installer.wait(timeout=60) == 3
     assert wait_free(lock_dir(root)) == ALL_FREE
-    assert (_child(root) / "Lib" / "half.py").is_file()
-    before = region(root, ".venv/")
-    outcome = worker.process_asset("virtual_environment", root)
-    assert (outcome.status, outcome.message) == ("refused", mnt.HELD_ENVIRONMENT_PROBLEM)
-    assert region(root, ".venv/") == before
+    half_made = root.joinpath(*ENGINE_PARTS)
+    assert (half_made / "Lib" / "half.py").is_file()
+    before = region(root, ".venv-engines/")
+    outcome = worker.process_asset("virtual_environment", root)  # .venv holds nothing: cleared; the engine beside stays
+    assert outcome.status == "removed" and region(root, ".venv-engines/") == before
 
 
 def test_with_only_the_legacy_engine_the_environment_clears_and_the_legacy_engine_is_untouched(copy):
@@ -402,11 +413,21 @@ def test_with_both_engines_present_neither_is_removed(copy):
     root, _ = copy
     (root / ".venv-qwen3").mkdir()
     install_environment(root)
-    _child(root).mkdir(parents=True)
-    install_environment(root)
+    install_nested_environment(root)
     before = {**region(root, ".venv/"), **region(root, ".venv-qwen3/")}
     assert worker.process_asset("virtual_environment", root).status == "refused"
     assert {**region(root, ".venv/"), **region(root, ".venv-qwen3/")} == before
+
+
+def test_the_engine_beside_the_environment_is_never_reached_and_stays_in_use(copy):
+    """v0.8.2 Phase 5A: ``.venv-engines/qwen3`` is not part of the environment item; clearing ``.venv`` (the app's own
+    dependencies) leaves it byte-identical and still the engine in use."""
+    root, _ = copy
+    install_engine_environment(root)
+    engine = region(root, ".venv-engines/")
+    assert engine and rt.is_canonical() and rt.environment_status() == (True, "ok")
+    assert worker.process_asset("virtual_environment", root).status == "removed" and not os.path.lexists(root / ".venv")
+    assert region(root, ".venv-engines/") == engine and rt.environment_status() == (True, "ok")
 
 
 def _plant(root: Path, tmp_path: Path, kind: str) -> None:

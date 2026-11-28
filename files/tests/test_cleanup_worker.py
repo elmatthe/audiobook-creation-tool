@@ -44,6 +44,9 @@ COORDINATOR_MODULES = ("__init__.py", "maintenance.py", "cleanup_state.py",
                        "engine_policy.py",
                        # v0.8.2 Phase 4: cleanup_state resolves the base interpreter through these (standard library only)
                        "app_python.py", "uv_runner.py")
+#: v0.8.2 Phase 5A: ``engine_policy`` and ``venv_layout`` read the engine registry (standard library only), so the
+#: coordinator's copy carries it too, relative to ``scripts``.
+COORDINATOR_TTS_MODULES = ("tts/__init__.py", "tts/engines/__init__.py", "tts/engines/registry.py")
 #: The lease's lock files, relative to a root (``shared.engine_lease``).
 LEASE_LOCK_FILES = frozenset(f"files/runtime-data/qwen3/{name}"
                              for name in ("setup.lock", "inference.lock", "engine.lock")) | frozenset(
@@ -734,6 +737,10 @@ def disposable_copy(tmp_path: Path, *, name="disposable-repo") -> Path:
     destination.mkdir(parents=True, exist_ok=True)
     for module in COORDINATOR_MODULES:
         shutil.copy2(source / module, destination / module)
+    for module in COORDINATOR_TTS_MODULES:
+        target = root / "scripts" / module
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(REPO_ROOT / "scripts" / module, target)
     return root
 
 

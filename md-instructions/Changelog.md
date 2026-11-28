@@ -31,6 +31,24 @@ down moved unchanged, byte for byte, to [v0.6.7 to v0.7.3](../files/documentatio
 
 ## [0.8.2] - unreleased (development branch `0.8.2`; nothing is tagged, merged or published)
 
+**Changed (the Qwen3 voices get their own uv-built environment, v0.8.2 Phase 5A, 2026-11-27; Windows, agent-verified)**
+- The Qwen3 voice engine is now installed by uv into its own folder beside the app's environment, `.venv-engines\qwen3`, from a locked
+  project that ships with the app (`scripts/tts/engines/qwen3/`). It installs exactly the same 89 packages as v0.8.1 (torch 2.10.0 with
+  CUDA 12.8, the same versions and file hashes); no package cache is kept, so each install downloads about 3.1 GB, as stated before it starts.
+- If an earlier version installed the engine (`.venv\engines\qwen3` or `.venv-qwen3`), it keeps working, unchanged, until the new one has
+  installed completely and passed its checks. The earlier `.venv\engines\qwen3` is then moved, whole, into
+  `files\runtime-data\qwen3\set-aside\` with a note (delete it there when you like); `.venv-qwen3` is left where it is. An install that is
+  interrupted or fails never replaces a working engine; "Check and repair" finishes it.
+- "Check and repair" now also checks every installed engine file against its package's record.
+- Internal: the app's five voice engines are one explicit list (`scripts/tts/engines/registry.py`) that the voice list, setup choices,
+  engine policy and packager read; adding or removing an engine is one entry there.
+
+**Fixed (v0.8.2 Phase 5A)**
+- When PowerShell cannot run, the setup fallback (`bootstrap_host_fallback.cmd`) asked for the wrong Python download address (the `+` in it
+  was turned into another character) and failed with a 404; found by a real cold run.
+- A Qwen3 install that was killed (closed window, power cut) left its partial downloads (about 0.4 GB) in the app's uv working folder;
+  the next install now removes them, and only when the process that made them has provably ended.
+
 **Changed (setup and repair install the app with uv, v0.8.2 Phase 4, 2026-11-27; verified natively on Windows and macOS)**
 - The app's own Python is now uv's managed CPython 3.12.15, kept in `files/runtime-data/uv` with the pinned uv 0.13.10; setup asks before
   downloading them, checks both against pinned hashes and installs nothing on the computer.

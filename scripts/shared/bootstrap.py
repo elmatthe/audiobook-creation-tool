@@ -105,6 +105,8 @@ from shared import engine_policy  # noqa: E402
 # v0.8.2 Phase 4: the one uv wrapper (pins, isolation, targets) and the resolver of this copy's two base interpreters.
 from shared import uv_runner  # noqa: E402
 from shared import app_python  # noqa: E402
+# v0.8.2 Phase 5A: the engine registry (standard library only): the first-run choices are read from it.
+from tts.engines import registry as _engine_registry  # noqa: E402
 
 IS_WINDOWS = sys.platform.startswith("win")
 IS_MAC = sys.platform == "darwin"
@@ -652,10 +654,9 @@ def _prove_and_record(log) -> tuple[bool, str]:
 #: POSIX: uv is not a Python program, so the contained runner (:func:`_pip`, which adds ACT's lifeline) starts this
 #: one-line Python parent for it; uv runs as its child in the same process group and ends with it.
 _UV_PARENT = "import subprocess, sys; sys.exit(subprocess.call(sys.argv[1:]))"
-#: What uv prints (lower-cased here) when an offline run needed a file its cache does not hold. uv 0.13.10, seen on the
-#: Phase 4 fresh-copy run: "Network connectivity is disabled, but the requested data wasn't found in the cache: <url>";
-#: and, for metadata, "<package> was not found in the cache".
-_OFFLINE_MISSING_MARKERS = ("network connectivity is disabled", "wasn't found in the cache", "not found in the cache")
+#: What uv prints when an offline run needed a file its cache does not hold (``uv_runner.OFFLINE_MISSING_MARKERS``,
+#: shared with the engine installers since Phase 5A).
+_OFFLINE_MISSING_MARKERS = uv_runner.OFFLINE_MISSING_MARKERS
 #: About how much a sync of the base environment downloads when the repair cache is empty (Phase 3A/3B measurements).
 BASE_DOWNLOAD_ESTIMATE = "about 500 MB" if IS_WINDOWS else "about 350 MB"
 #: Who answers "may setup download?": None asks the person (a repair or a launch); setup itself sets True, because
@@ -3609,21 +3610,8 @@ def fetch_sentence_data(log: SetupLog) -> bool:
 #: The five optional voice choices of the first-run wizard, in the approved order, with the approved defaults
 #: (Kokoro checked, the other four unchecked) and what each one is. v0.8.0 Phase 3 appends OmniVoice, unchecked.
 #: These are Windows' words, as released; :func:`optional_choices_for` gives a Mac its own OmniVoice line.
-WINDOWS_OPTIONAL_CHOICES = (
-    ("kokoro", "Kokoro voices", True,
-     "Natural English voices that run on this computer (CPU or GPU)."),
-    ("chatterbox", "Chatterbox Turbo voices", False,
-     "Expressive local voices; a large model, best with an NVIDIA GPU."),
-    ("qwen3-customvoice", "Qwen3 CustomVoice voices (Aiden, Ryan)", False,
-     "High-quality preset voices. Windows only; an NVIDIA GPU is strongly recommended."),
-    ("qwen3-base", "Qwen3 Cloned Voices (six bundled voices)", False,
-     "The six cloned voices that ship with the app - no recording or transcription needed. "
-     "Windows only; an NVIDIA GPU is strongly recommended."),
-    ("omnivoice", "OmniVoice — Six Cloned Voices", False,
-     "Six more cloned voices from a separate engine. Windows with an NVIDIA GPU only. NON-COMMERCIAL: the model "
-     "weights are CC-BY-NC and its audio tokenizer has its own licence; the full terms are shown before anything is "
-     "downloaded."),
-)
+#: v0.8.2 Phase 5A: read from the engine registry (``tts.engines.registry``, standard library only), never a copy.
+WINDOWS_OPTIONAL_CHOICES = _engine_registry.TABLES.optional_choices
 #: macOS P4B: the OmniVoice line on a Mac, where it runs on Apple Silicon (P4A owner-accepted, 2026-11-16).
 OMNIVOICE_MAC_NOTE = ("Six more cloned voices from a separate engine, on this Mac's GPU (Apple Silicon). "
                       "NON-COMMERCIAL: the model weights are CC-BY-NC and its audio tokenizer has its own licence; the "

@@ -33,7 +33,8 @@ Turns PDF and TXT files into narrated MP3s. One queue, four engines, 28 voices.
 Optional-setup v3 planning and the disposable locked model-acquisition seam live in `optional_setup_authority.py`.
 See the [Stage 4B-3A contract](../../files/plans/ACT-v0.7.0-P05B-Stage4B3A-Authority.md).
 Production installs (v0.7.0) go through `optional_setup_worker.py` and `optional_setup_acquire.py` instead: the
-Qwen3 engine's exact reviewed wheels are fetched by `qwen3_wheels.py` and installed offline, and `voice_install.py` tells
+Qwen3 engine is installed by uv from its own locked project in `engines/qwen3/` (v0.8.2 Phase 5A; `qwen3_wheels.py`
+states its download size from the reviewed manifest), and `voice_install.py` tells
 the TTS panel which component a voice needs (Install & Continue). The rest of that pipeline: `optional_setup.py` (the
 planner: readiness and every download/reuse/disk figure), `optional_setup_lifecycle.py` (one request, one terminal
 outcome), `optional_setup_health.py` (bounded offline engine proofs and busy locks) and `model_assets.py` (the pinned
@@ -41,7 +42,8 @@ Kokoro, Chatterbox Turbo and spaCy identities inference loads). `optional_setup_
 `optional_setup_readonly_worker_v3.py` belong to the v3 qualification harness and are not used by production. The explicitly injected disposable engine runner uses
 `qwen3_packages.py` (live protected wheel sets) and `qwen3_engine_authority.py` (spent engine mutation authority)
 through the existing installer; see the [Stage 4B-3B contract](../../files/plans/ACT-v0.7.0-P05B-Stage4B3B-Offline-Execution.md).
-Manual Qwen install/repair keeps its separate index/cache contract outside v3; spaCy installation remains deferred.
+Manual Qwen install/repair is uv's locked, cacheless sync outside v3 (v0.8.2 Phase 5A); the seam above still installs
+into the nested place it was designed for and goes with the pip paths in Phase 6. spaCy installation remains deferred.
 
 `spacy_consumer.py` provides a separate versioned **disposable-only** M3 qualification:
 an exact wheel, retained v3 confirmation, pinned target, sealed offline pip and
@@ -63,8 +65,27 @@ explicit non-production `published-supply-qualification` purpose emits it as a r
 | Kokoro (local) | `kokoro_synth.py`, `local_engine_host.py`, `local_engine_worker.py` | nine voices; Kokoro's own G2P handles numbers. On macOS (v0.8.x P2) inference runs in one preemptible worker process: `local_engine_host.py` starts it under the app's containment owner, sends it prepared text and validates the PCM it hands back, and ends its process group at once on Cancel; `local_engine_worker.py` is the worker entry (it loads through `kokoro_synth`'s own verified-files path). Speech preparation, chunking, assembly, the one encode and publication stay in the app. Windows keeps Kokoro in process, unchanged |
 | Chatterbox Turbo (local, cloned) | `chatterbox_synth.py` | six voices from Chatterbox's own bundled recordings (`files/Cloned-Voice-Uploads/Chatterbox/`); 300-character chunks |
 | Shared speech preparation | `speech/document.py` | one decode and `Title:`/`Author:`/`#` structure loader for Kokoro, Chatterbox and Qwen3 (A1); standard library only |
-| Qwen3-TTS (local, optional, Windows first) | `qwen3_runtime.py`, `qwen3_synth.py`, `qwen3_worker.py`, `qwen3_process.py`, `qwen3_setup.py`, `qwen3_install_ui.py`, `qwen3_clone_setup.py`, `qwen3_clone_setup_ui.py`, `qwen3_models.json`, `data/bundled_clone_transcripts.json` | eight voices in a separate `.venv-qwen3`; only `qwen3_worker.py` runs inside it. The six clones' owner-approved reference transcripts ship in `data/bundled_clone_transcripts.json`, each bound to its recording's SHA-256 (v0.7.0 P03C); `qwen3_runtime.load_bundle` checks the whole file and narration reads nothing else. `qwen3_clone_setup` is the maintainer's local draft-and-approve workflow, a developer tool since v0.7.0 P03D: its "Developer tools → Reference transcripts" entry and every restricted step exist only with `[development] developer_mode = true` in `config.toml` (shipped `false`); a locally approved text reaches narration only after a deliberate per-voice selection bound to the voice id and the recording and text hashes |
-| OmniVoice (local, optional, Windows + NVIDIA GPU) | `omnivoice_runtime.py`, `omnivoice_synth.py`, `omnivoice_worker.py`, `omnivoice_setup.py`, `omnivoice_manifest.json`, `clone_references.py`, `data/clone_references.json` | six cloned voices (v0.8.0) in their own environment held inside the app's (`.venv/engines/omnivoice`, beside Qwen3's); only `omnivoice_worker.py` runs inside it, offline, one bounded batch of chunks per process. Each voice is conditioned on its own owner-curated recording (`files/Cloned-Voice-Uploads/OmniVoice/`, 44.1 kHz, used whole: at most 10 s, one hash-bound Male 1 exception of 10.227 s) with the owner-written transcript; both are pinned by SHA-256 and listed with all 18 clone references in `data/clone_references.json`, and the recording is only ever read. `omnivoice_manifest.json` pins the 88 wheels (URL, size, SHA-256) and the model snapshot that the optional installer acquires and readiness is judged against. `omnivoice_setup.py` is the fifth component of the existing optional installer (v0.8.0 Phase 3): it installs, adopts (an existing environment holding exactly the pinned set is proved, never rebuilt) or repairs (a broken environment is moved to `files/runtime-data/omnivoice/set-aside/`, never deleted), and only a passed proof writes the install receipt the engine's readiness requires. Text is prepared once by the shared speech pipeline (route `omnivoice`) before any worker |
+| Qwen3-TTS (local, optional, Windows first) | `qwen3_runtime.py`, `qwen3_synth.py`, `qwen3_worker.py`, `qwen3_process.py`, `qwen3_setup.py`, `qwen3_install_ui.py`, `qwen3_clone_setup.py`, `qwen3_clone_setup_ui.py`, `qwen3_models.json`, `data/bundled_clone_transcripts.json`, `engines/qwen3/` | eight voices in their own environment, `.venv-engines/qwen3` since v0.8.2 Phase 5A (built by uv on the app's managed Python from `engines/qwen3/pyproject.toml` + `uv.lock`; an engine an earlier version put in `.venv/engines/qwen3` or `.venv-qwen3` keeps working until the new one is installed to the end); only `qwen3_worker.py` runs inside it. The six clones' owner-approved reference transcripts ship in `data/bundled_clone_transcripts.json`, each bound to its recording's SHA-256 (v0.7.0 P03C); `qwen3_runtime.load_bundle` checks the whole file and narration reads nothing else. `qwen3_clone_setup` is the maintainer's local draft-and-approve workflow, a developer tool since v0.7.0 P03D: its "Developer tools → Reference transcripts" entry and every restricted step exist only with `[development] developer_mode = true` in `config.toml` (shipped `false`); a locally approved text reaches narration only after a deliberate per-voice selection bound to the voice id and the recording and text hashes |
+| OmniVoice (local, optional, Windows + NVIDIA GPU) | `omnivoice_runtime.py`, `omnivoice_synth.py`, `omnivoice_worker.py`, `omnivoice_setup.py`, `omnivoice_manifest.json`, `clone_references.py`, `data/clone_references.json` | six cloned voices (v0.8.0) in their own environment held inside the app's (`.venv/engines/omnivoice`; it moves to `.venv-engines` in v0.8.2 Phase 5B); only `omnivoice_worker.py` runs inside it, offline, one bounded batch of chunks per process. Each voice is conditioned on its own owner-curated recording (`files/Cloned-Voice-Uploads/OmniVoice/`, 44.1 kHz, used whole: at most 10 s, one hash-bound Male 1 exception of 10.227 s) with the owner-written transcript; both are pinned by SHA-256 and listed with all 18 clone references in `data/clone_references.json`, and the recording is only ever read. `omnivoice_manifest.json` pins the 88 wheels (URL, size, SHA-256) and the model snapshot that the optional installer acquires and readiness is judged against. `omnivoice_setup.py` is the fifth component of the existing optional installer (v0.8.0 Phase 3): it installs, adopts (an existing environment holding exactly the pinned set is proved, never rebuilt) or repairs (a broken environment is moved to `files/runtime-data/omnivoice/set-aside/`, never deleted), and only a passed proof writes the install receipt the engine's readiness requires. Text is prepared once by the shared speech pipeline (route `omnivoice`) before any worker |
+
+### Adding or removing an engine (the registry, v0.8.2 Phase 5A)
+
+`engines/registry.py` is the one explicit list of engines (standard library only; no discovery, no plugins, no service
+layer). `../shared/engine_policy.py`, `voice_registry.BACKENDS`, the optional-setup components, labels and defaults, the
+first-run choices, `local_engine_host.ENGINE_NAMES`, `../shared/venv_layout.py`'s engine places and `../shared/release.py`'s
+excluded environment folders and required engine projects are all derived from it. To add an engine:
+
+1. Add one `EngineDefinition` (key, name, platforms, placement, its optional-setup `Component`s, installer, worker,
+   model manifest) to `DEFINITIONS`.
+2. For an independent environment (placement `engine`), add its uv project at `engines/<key>/pyproject.toml`, lock it
+   with `python scripts/shared/uv_runner.py lock --engine <key>` and commit both; it is installed at
+   `.venv-engines/<key>/` through `../shared/engine_env.py` (the one uv wrapper, receipts, identity, retirement) and shipped
+   by the packager automatically.
+3. Write the engine's own modules (installer, worker, synthesis) and voices in `voice_registry.py`.
+4. Run `../../files/tests/test_engine_registry.py`: it pins the released tables, so it names every table the new engine
+   changed; update its expectations deliberately.
+
+Removing an engine is deleting its definition (and its modules); the same test shows what disappears.
 
 ## Text-route baselines
 

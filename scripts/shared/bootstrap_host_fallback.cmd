@@ -94,7 +94,7 @@ if errorlevel 2 (
 if not exist "%DOWNLOADS%" mkdir "%DOWNLOADS%" || exit /b 3
 
 if defined UVOK goto :archive
-call :fetch "%UV_URL%" "%DOWNLOADS%\%UV_ZIP%" %UV_SIZE% %UV_SHA256% "uv package tool" || exit /b 3
+call :fetch UV_URL "%DOWNLOADS%\%UV_ZIP%" %UV_SIZE% %UV_SHA256% "uv package tool" || exit /b 3
 set "STAGE=%DOWNLOADS%\uv-staging"
 if exist "%STAGE%" rmdir /s /q "%STAGE%"
 mkdir "%STAGE%" || exit /b 3
@@ -117,7 +117,7 @@ del /q "%DOWNLOADS%\%UV_ZIP%" 2>nul
 
 :archive
 if not defined NEEDARCHIVE goto :install
-call :fetch "%PY_URL%" "%DOWNLOADS%\%PY_ARCHIVE%" %PY_SIZE% %PY_SHA256% "Python archive" || exit /b 3
+call :fetch PY_URL "%DOWNLOADS%\%PY_ARCHIVE%" %PY_SIZE% %PY_SHA256% "Python archive" || exit /b 3
 if not exist "%MIRROR%\%BUILD_TAG%" mkdir "%MIRROR%\%BUILD_TAG%" || exit /b 3
 move /y "%DOWNLOADS%\%PY_ARCHIVE%" "%MIRRORFILE%" >nul || exit /b 3
 
@@ -199,7 +199,10 @@ call :sha256 "%~1" VERIFYHASH
 if /i not "!VERIFYHASH!"=="%~3" exit /b 1
 exit /b 0
 
-REM  :fetch URL TARGET SIZE SHA256 WHAT  -  reuse a verified earlier copy, else download over HTTPS and verify.
+REM  :fetch URLVAR TARGET SIZE SHA256 WHAT  -  reuse a verified earlier copy, else download over HTTPS and verify.
+REM  URLVAR is the NAME of the variable holding the URL, read below with delayed expansion: a URL passed as a
+REM  CALL argument is expanded a second time, which turned the archive's encoded plus sign into a plain "B" (a
+REM  404 on the first real cold run, v0.8.2 Phase 5A).
 :fetch
 call :verify "%~2" %~3 %~4
 if not errorlevel 1 (
@@ -208,7 +211,7 @@ if not errorlevel 1 (
 )
 del /q "%~2" "%~2.part" 2>nul
 echo Downloading the %~5...
-"%CURL%" --fail --location --proto =https --proto-redir =https --connect-timeout 30 --silent --show-error --output "%~2.part" "%~1"
+"%CURL%" --fail --location --proto =https --proto-redir =https --connect-timeout 30 --silent --show-error --output "%~2.part" "!%~1!"
 if errorlevel 1 (
     del /q "%~2.part" 2>nul
     echo The download did not finish. Check the internet connection and run setup again.

@@ -11,7 +11,7 @@ none can be steered by the computer's own configuration:
 * **Isolation.** :func:`environment` drops every inherited ``UV_*``, ``PIP_*``, ``XDG_*``, ``CONDA_*``, ``PYTHON*``,
   ``VIRTUAL_ENV`` and ``SSL_CERT_*`` setting and sets the contained cache, Python, bin, tool, credential and temporary
   folders, no user configuration, no Windows registry and no automatic Python download (Phase 3A section 2).
-* **Targets.** :func:`check_target` accepts only this copy's own ``.venv`` (and, from Phase 5, ``.venv-engines/<name>``),
+* **Targets.** :func:`check_target` accepts only this copy's own ``.venv`` (and, since Phase 5A, ``.venv-engines/<name>``),
   reached through no link, with the project's ``pyproject.toml`` and ``uv.lock`` beside it. Every call passes
   ``--project`` and ``--python 3.12.15``; uv never picks the parent project or another environment.
 * **Scratch.** :class:`Operation` gives each uv call its own temporary folder (``TEMP``/``TMPDIR`` and the Python
@@ -24,6 +24,7 @@ Developers use the same rules from a terminal::
 
     python scripts/shared/uv_runner.py lock                 # re-lock after editing pyproject.toml
     python scripts/shared/uv_runner.py check-lock           # does uv.lock still match pyproject.toml?
+    python scripts/shared/uv_runner.py lock --engine qwen3  # an engine's own project (scripts/tts/engines/qwen3)
     python scripts/shared/uv_runner.py uv -- tree           # any other uv command, contained
 
 The developer profile (pytest) is chosen with ``bootstrap.py --profile dev``, which records the choice so every later
@@ -37,7 +38,6 @@ import hashlib
 import os
 import re
 import shutil
-import subprocess
 import sys
 import uuid
 from dataclasses import dataclass
@@ -325,10 +325,12 @@ def text_sha256(path) -> Optional[str]:
     return hashlib.sha256(raw.replace(b"\r\n", b"\n")).hexdigest()
 
 
-def lock_identity(root) -> Optional[dict]:
-    """What a receipt binds an environment to: the project definition and its lock."""
-    project = text_sha256(Path(root) / "pyproject.toml")
-    lock = text_sha256(Path(root) / "uv.lock")
+def lock_identity(root, project=None) -> Optional[dict]:
+    """What a receipt binds an environment to: the project definition and its lock (*project*: default the base
+    project at *root*)."""
+    folder = Path(root) if project is None else Path(project)
+    project = text_sha256(folder / "pyproject.toml")
+    lock = text_sha256(folder / "uv.lock")
     if project is None or lock is None:
         return None
     return {"pyproject_sha256": project, "uv_lock_sha256": lock, "uv": UV_VERSION}
@@ -337,6 +339,11 @@ def lock_identity(root) -> Optional[dict]:
 # --------------------------------------------------------------------------------------------------------------------
 #  Environment and scratch
 # --------------------------------------------------------------------------------------------------------------------
+#: What uv prints (lower-cased here) when an offline run needed a file its cache does not hold. uv 0.13.10, seen on the
+#: Phase 4 fresh-copy run: "Network connectivity is disabled, but the requested data wasn't found in the cache: <url>";
+#: and, for metadata, "<package> was not found in the cache". Shared by the base setup and the engine installers.
+OFFLINE_MISSING_MARKERS = ("network connectivity is disabled", "wasn't found in the cache", "not found in the cache")
+
 _DROPPED_PREFIXES = ("UV_", "PIP_", "XDG_", "CONDA_", "PYTHON", "SSL_CERT_")
 _DROPPED_NAMES = frozenset({"VIRTUAL_ENV", "VIRTUAL_ENV_PROMPT", "__PYVENV_LAUNCHER__"})
 
@@ -346,15 +353,24 @@ def _dropped(name: str) -> bool:
     return upper in _DROPPED_NAMES or upper.startswith(_DROPPED_PREFIXES)
 
 
+#: The owner record each operation leaves in its scratch folder: the process id and its creation time (v0.8.2 Phase 5A).
+OWNER_NAME = "owner.json"
+_SCRATCH_NAME = re.compile(r"[0-9a-f]{8}")
+
+
 class Operation:
     """One uv call's own scratch folder: ``files/runtime-data/uv/t/<id>/`` holding ``tmp`` and ``pyc`` (the Python
-    download cache). Removed on exit, and only that folder; nothing else in ``t`` is touched."""
+    download cache) and its owner record. Removed on exit, and only that folder; nothing else in ``t`` is touched. A
+    process killed mid-call leaves its folder (for an engine installed with ``--no-cache``, its partial downloads):
+    :func:`clear_stale_scratch` removes it once that process is provably gone."""
 
     def __init__(self, root) -> None:
         self.root = Path(root)
         self.path = scratch_root(self.root) / uuid.uuid4().hex[:8]
 
     def __enter__(self) -> "Operation":
+        from shared import work_area  # its process identity (ctypes on Windows): only once an operation starts
+
         parent = scratch_root(self.root)
         parent.mkdir(parents=True, exist_ok=True)
         if _unsafe(self.root, parent) is not None:
@@ -362,6 +378,8 @@ class Operation:
         self.path.mkdir()
         (self.path / "tmp").mkdir()
         (self.path / "pyc").mkdir()
+        (self.path / OWNER_NAME).write_text(
+            f'{{"pid": {os.getpid()}, "created": {work_area._own_creation_time() or 0}}}', encoding="utf-8")
         return self
 
     def __exit__(self, *exc) -> None:
@@ -378,6 +396,35 @@ class Operation:
     @property
     def python_cache(self) -> Path:
         return self.path / "pyc"
+
+
+def clear_stale_scratch(root) -> list[str]:
+    """Remove the scratch folders of operations whose process is provably gone (killed or crashed: an orderly exit
+    removes its own), and return their names. A folder whose owner is alive or cannot be checked, that has no owner
+    record, or that is reached through a link is left exactly as it is (``shared.work_area.owner_state``)."""
+    import json
+
+    from shared import work_area
+
+    parent, removed = scratch_root(root), []
+    try:
+        if not parent.is_dir() or _unsafe(root, parent) is not None:
+            return removed
+        entries = list(parent.iterdir())
+    except OSError:
+        return removed
+    for entry in entries:
+        try:
+            if not _SCRATCH_NAME.fullmatch(entry.name) or _unsafe(root, entry) is not None or not entry.is_dir():
+                continue
+            owner = json.loads((entry / OWNER_NAME).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if work_area.owner_state(owner) == work_area.GONE:
+            shutil.rmtree(entry, ignore_errors=True)
+            if not os.path.lexists(entry):
+                removed.append(entry.name)
+    return removed
 
 
 def environment(root, operation: Operation, *, offline: bool = False, env_dir=None,
@@ -435,10 +482,13 @@ def python_install_command(root, *, reinstall: bool = False, platform: Optional[
     return command
 
 
-def venv_command(root, env_dir, *, platform: Optional[str] = None) -> list[str]:
-    """Create an empty environment at *env_dir* on exactly the managed interpreter (no pip: uv installs everything)."""
-    check_target(root, env_dir)
-    return [str(uv_exe(root, platform)), "venv", str(env_dir), "--project", str(project_dir(root)),
+def venv_command(root, env_dir, *, project=None, platform: Optional[str] = None) -> list[str]:
+    """Create an empty environment at *env_dir* on exactly the managed interpreter (no pip: uv installs everything).
+    *project* is the dependency project it belongs to (default: the base project at *root*; an engine's own project
+    from Phase 5A, ``shared.engine_env``)."""
+    check_target(root, env_dir, project=project)
+    project = project_dir(root) if project is None else Path(project)
+    return [str(uv_exe(root, platform)), "venv", str(env_dir), "--project", str(project),
             "--python", PYTHON_VERSION, "--no-python-downloads", *_common()]
 
 
@@ -492,8 +542,9 @@ def cache_prune_command(root, platform: Optional[str] = None) -> list[str]:
     return [str(uv_exe(root, platform)), "cache", "prune", *_common()]
 
 
-def lock_command(root, *, check: bool = False, platform: Optional[str] = None) -> list[str]:
-    command = [str(uv_exe(root, platform)), "lock", "--project", str(project_dir(root)), "--python", PYTHON_VERSION,
+def lock_command(root, *, check: bool = False, project=None, platform: Optional[str] = None) -> list[str]:
+    project = project_dir(root) if project is None else Path(project)
+    command = [str(uv_exe(root, platform)), "lock", "--project", str(project), "--python", PYTHON_VERSION,
                "--no-python-downloads", *_common()]
     if check:
         command.append("--check")
@@ -506,6 +557,8 @@ def lock_command(root, *, check: bool = False, platform: Optional[str] = None) -
 def run(command: Sequence[str], env: Mapping[str, str], *, on_line: Callable[[str], None] = print,
         timeout: Optional[float] = None) -> int:
     """Run one uv command, its output streamed line by line. Returns its exit code (-1 if it could not start)."""
+    import subprocess  # here, not at the top: the pre-venv planner reads this module and stays process-free
+
     kwargs: dict = {}
     if sys.platform == "win32":
         kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -535,8 +588,10 @@ def _main(argv: Optional[Sequence[str]] = None) -> int:
         sys.path.insert(0, str(root / "scripts"))
     parser = argparse.ArgumentParser(description="Run uv for this copy of ACT, contained (developer use).")
     sub = parser.add_subparsers(dest="action", required=True)
-    sub.add_parser("lock", help="re-lock uv.lock after editing pyproject.toml")
-    sub.add_parser("check-lock", help="fail when uv.lock does not match pyproject.toml")
+    for name, text in (("lock", "re-lock uv.lock after editing pyproject.toml"),
+                       ("check-lock", "fail when uv.lock does not match pyproject.toml")):
+        action = sub.add_parser(name, help=text)
+        action.add_argument("--engine", default="", help="an engine with its own project (scripts/tts/engines/<key>)")
     passthrough = sub.add_parser("uv", help="any other uv command, contained (arguments after --)")
     passthrough.add_argument("args", nargs=argparse.REMAINDER)
     args = parser.parse_args(argv)
@@ -546,7 +601,12 @@ def _main(argv: Optional[Sequence[str]] = None) -> int:
         return 2
     with Operation(root) as operation:
         if args.action in ("lock", "check-lock"):
-            command = lock_command(root, check=args.action == "check-lock")
+            project = None
+            if args.engine:
+                from shared import engine_env
+
+                project = engine_env.project_dir(root, args.engine)
+            command = lock_command(root, check=args.action == "check-lock", project=project)
             env = environment(root, operation)
         else:
             # Only the separator itself is dropped; a later "--" belongs to uv (e.g. `uv run -- cmd`).

@@ -17,8 +17,10 @@ transcript, preview, manifest and pin; this module filters what a platform *offe
 toggle and no compatibility mode. Every function takes an explicit ``platform=`` so tests (and the Windows suites run
 on a Mac) can ask about either platform without touching ``sys.platform``.
 
-Standard library only and free of every app import: the first-run setup imports it in the base interpreter before the
-app's environment exists, and ``tts.voice_registry`` imports it.
+Standard library only and free of every app import but the engine registry (``tts.engines.registry``, standard library
+only too): the first-run setup imports it in the base interpreter before the app's environment exists, and
+``tts.voice_registry`` imports it. v0.8.2 Phase 5A: the engine list, the macOS list, the names and the component map are
+derived from that registry, never kept here as a second copy.
 """
 
 from __future__ import annotations
@@ -26,39 +28,31 @@ from __future__ import annotations
 import sys
 from typing import Iterable, Optional
 
+from tts.engines import registry as _registry
+
 EDGE = "edge"
 KOKORO = "kokoro"
 CHATTERBOX = "chatterbox"
 QWEN3 = "qwen3"
 OMNIVOICE = "omnivoice"
 
-#: Every engine a voice may name, in registry order (``tts.voice_registry.BACKENDS``; a test pins that they agree).
-ENGINES: tuple[str, ...] = (EDGE, KOKORO, CHATTERBOX, QWEN3, OMNIVOICE)
+#: Every engine a voice may name, in registry order (``tts.engines.registry``; ``tts.voice_registry.BACKENDS`` is the
+#: same list).
+ENGINES: tuple[str, ...] = _registry.TABLES.engines
 
 #: ``sys.platform`` on macOS.
 MACOS = "darwin"
 
-#: What a Mac offers (owner decisions Q2=A and the P4A acceptance): Edge 5 + Kokoro 9 + OmniVoice 6 = 20 voices.
-MACOS_ENGINES: tuple[str, ...] = (EDGE, KOKORO, OMNIVOICE)
+#: What a Mac offers (owner decisions Q2=A and the P4A acceptance): Edge 5 + Kokoro 9 + OmniVoice 6 = 20 voices. The
+#: engines whose registry definition names macOS.
+MACOS_ENGINES: tuple[str, ...] = _registry.TABLES.macos_engines
 
 #: The names a person reads.
-ENGINE_NAMES: dict[str, str] = {
-    EDGE: "Microsoft Edge TTS",
-    KOKORO: "Kokoro",
-    CHATTERBOX: "Chatterbox Turbo",
-    QWEN3: "Qwen3-TTS",
-    OMNIVOICE: "OmniVoice",
-}
+ENGINE_NAMES: dict[str, str] = dict(_registry.TABLES.names)
 
-#: Each optional-setup component and the engine it installs (``shared.optional_setup_protocol.COMPONENTS``; a test
-#: pins that they agree). Edge has no component: it needs no local model.
-COMPONENT_ENGINES: dict[str, str] = {
-    "kokoro": KOKORO,
-    "chatterbox": CHATTERBOX,
-    "qwen3-customvoice": QWEN3,
-    "qwen3-base": QWEN3,
-    "omnivoice": OMNIVOICE,
-}
+#: Each optional-setup component and the engine it installs (``shared.optional_setup_protocol.COMPONENTS``, from the
+#: same registry). Edge has no component: it needs no local model.
+COMPONENT_ENGINES: dict[str, str] = dict(_registry.TABLES.component_engines)
 
 
 class EngineNotOffered(RuntimeError):

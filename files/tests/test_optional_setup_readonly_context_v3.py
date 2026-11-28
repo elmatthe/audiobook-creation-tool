@@ -69,7 +69,10 @@ def test_main_identity_negative_controls(monkeypatch, field, value):
 
 @pytest.mark.parametrize('field,value', [('home', 'C:/synthetic-wrong-base'),
     ('executable', 'C:/synthetic-wrong.exe'), ('include-system-site-packages', 'true'),
-    ('version', '3.12.0')])
+    ('version', '3.12.0'),
+    # v0.8.2 Phase 5A: a uv-built main .venv (Phase 4) states its version as version_info and marks itself with
+    # ``uv``; a wrong version_info, or neither an executable nor the uv marker, is refused too.
+    ('version_info', '3.12.0'), ('uv', '')])
 def test_changed_cfg_refuses_before_disposable_creation(tmp_path, monkeypatch, field, value):
     from shared import optional_setup_readonly_context_v3 as context
     original = context._pin_file
@@ -79,6 +82,11 @@ def test_changed_cfg_refuses_before_disposable_creation(tmp_path, monkeypatch, f
             if path == context._REPO / '.venv/pyvenv.cfg':
                 values = dict(line.split('=', 1) for line in raw.decode().splitlines() if '=' in line)
                 values = {k.strip(): v.strip() for k, v in values.items()}
+                if field in ('version_info', 'uv'):  # judged in uv's shape, whatever built this checkout's .venv
+                    values.pop('executable', None)
+                    values.pop('version', None)
+                    values.setdefault('uv', '0.13.10')
+                    values.setdefault('version_info', '.'.join(map(str, sys.version_info[:3])))
                 values[field] = value
                 raw = '\n'.join(f'{k} = {v}' for k, v in values.items()).encode()
             yield raw

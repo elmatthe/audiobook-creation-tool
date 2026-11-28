@@ -146,7 +146,8 @@ def _snapshot_pinned(root, canonical, parent, budget, held):
     result = {'parent': [parent_info.st_dev, parent_info.st_ino],
             'parent_cfg': parent_cfg,
             'canonical_exists': exists, 'entries': sorted(entries),
-            'record': record, 'selected_canonical': rt.is_nested(),
+            # v0.8.2 Phase 5A: selected unless the legacy .venv-qwen3 alone is in use (this seam keeps the nested place).
+            'record': record, 'selected_canonical': rt.is_nested() or rt.is_canonical(),
             'path': str(canonical)}
     budget.account({key: value for key, value in result.items() if key != 'entries'})
     return result

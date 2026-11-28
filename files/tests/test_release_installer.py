@@ -75,54 +75,18 @@ def test_the_engine_is_the_reviewed_manifests_89_wheels_with_sox_from_its_pinned
     assert qw.total_bytes() == sum(w.size for w in wheels)
 
 
-@pytest.fixture
-def tiny_wheels(tmp_path, monkeypatch):
-    data = {"a-1.0-py3-none-any.whl": b"alpha" * 10, "b-2.0-py3-none-any.whl": b"beta" * 7}
-    wheels = tuple(qw.Wheel(name.split("-")[0], name, f"https://example.invalid/{name}", len(body),
-                            hashlib.sha256(body).hexdigest()) for name, body in data.items())
-    monkeypatch.setattr(qw, "wheels", lambda: wheels)
-    monkeypatch.setattr(qw, "wheel_dir", lambda: tmp_path / "wheels")
-    return wheels, Served({w.url: data[w.filename] for w in wheels})
-
-
-def test_wheels_are_fetched_verified_recorded_and_never_fetched_twice(tiny_wheels):
-    wheels, served = tiny_wheels
-    assert qw.missing_bytes() == sum(w.size for w in wheels)
-    seen = []
-    expected = qw.missing_bytes()
-    assert qw.fetch(opener=served, progress=lambda d, t, m: seen.append((d, t)), sleep=no_sleep) == expected
-    assert sorted(served.requests) == sorted(w.url for w in wheels)
-    assert qw.missing() == [] and qw.missing_bytes() == 0
-    assert seen[-1] == (sum(w.size for w in wheels),) * 2
-    qw.fetch(opener=lambda r: pytest.fail("a verified wheel was fetched again"))
-
-
-def test_a_same_size_corrupted_wheel_is_found_and_replaced(tiny_wheels):
-    wheels, served = tiny_wheels
-    qw.fetch(opener=served, sleep=no_sleep)
-    target = qw.wheel_dir() / wheels[0].filename
-    target.write_bytes(b"x" * wheels[0].size)  # same size, new mtime: the record no longer vouches for it
-    assert [w.filename for w in qw.missing()] == [wheels[0].filename]
-    qw.fetch(opener=served, sleep=no_sleep)
-    assert hashlib.sha256(target.read_bytes()).hexdigest() == wheels[0].sha256
-
-
-def test_the_install_command_is_offline_hash_checked_and_reads_only_the_verified_wheels(tiny_wheels, tmp_path):
-    wheels, served = tiny_wheels
-    with pytest.raises(su.SetupError):
-        qw.install_command(tmp_path / "python.exe")  # nothing downloaded yet: never a pip run
-    qw.fetch(opener=served, sleep=no_sleep)
-    command, cwd = qw.install_command(tmp_path / "python.exe")
-    assert cwd == qw.wheel_dir()
-    for flag in ("--no-index", "--require-hashes", "--no-deps", "--only-binary=:all:", "--isolated",
-                 "--require-virtualenv", "--no-cache-dir"):
-        assert flag in command
-    assert "--index-url" not in command and "--extra-index-url" not in command
-    from tts import qwen3_packages
-    assert command[1:5] == ["-I", "-B", "-c", qwen3_packages.OFFLINE_BOOTSTRAP]  # network/process refused inside pip
-    for w in wheels:
-        assert f"file:./{w.filename}#sha256={w.sha256}" in command
-    assert (qw.wheel_dir() / qw.LOCK_NAME).read_bytes() == qm.effective_lock(qw.reviewed())
+def test_the_earlier_wheel_store_is_given_back_only_when_it_is_this_apps(tmp_path, monkeypatch):
+    """v0.8.2 Phase 5A: uv installs the engine itself, so the wheel store v0.7.0-v0.8.1 kept between attempts
+    (``files/runtime-data/qwen3/cache/wheels``) is removed after a successful install -- only when its record says it
+    is this app's, and never through a link."""
+    monkeypatch.setattr(rt, "repo_root", lambda: tmp_path)
+    store = qw.earlier_store()
+    store.mkdir(parents=True)
+    (store / "torch-2.10.0+cu128-cp312-cp312-win_amd64.whl").write_bytes(b"part of a wheel")
+    assert qw.discard_earlier_store() is False and store.exists()  # no record: not recognised, left alone
+    (store / qw.EARLIER_RECORD_NAME).write_text("{}", encoding="utf-8")
+    assert qw.discard_earlier_store() is True and not store.exists()
+    assert qw.discard_earlier_store() is False  # nothing there
 
 
 # --------------------------------------------------------------------------- #
@@ -351,12 +315,15 @@ def test_a_skipped_install_abandons_the_run_and_creates_nothing(make_panel, outp
 # --------------------------------------------------------------------------- #
 # The one approved directory layout (owner clarification 2026-10-30)
 # --------------------------------------------------------------------------- #
-def test_every_installer_location_is_inside_dot_venv_or_files_never_a_new_top_level_folder():
+def test_every_installer_location_is_inside_the_approved_environment_folders_or_files():
+    """The owner's 2026-10-30 layout, with the approved A1 sibling folder for independent engine environments
+    (2026-11-27, v0.8.2 Phase 5A): ``.venv-engines/<engine>``, never another new top-level folder."""
     root = rt.repo_root()
-    assert rt.nested_venv_dir() == root / ".venv" / "engines" / "qwen3"  # never qwen3/, engines/ or .venv-qwen3/
+    assert rt.engine_venv_dir() == root / ".venv-engines" / "qwen3"  # never qwen3/, engines/ or .venv-qwen3/
+    assert rt.nested_venv_dir() == root / ".venv" / "engines" / "qwen3"  # the earlier versions' place
     assert rt.parent_venv_dir() == root / ".venv"
-    for folder in (qw.wheel_dir(), assets.hf_hub_root(), assets.record_dir(), rt.models_root(), rt.runtime_dir(),
-                   rt.cache_root(), rt.tmp_root(), proto.exchange_root(root)):
+    for folder in (qw.earlier_store(), assets.hf_hub_root(), assets.record_dir(), rt.models_root(), rt.runtime_dir(),
+                   rt.cache_root(), rt.tmp_root(), rt.set_aside_dir(), proto.exchange_root(root)):
         assert folder.is_relative_to(root / "files"), folder
 
 

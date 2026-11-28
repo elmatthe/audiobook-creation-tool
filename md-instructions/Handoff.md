@@ -7,22 +7,30 @@ why: `Decisions.md` index; what shipped: `Changelog.md` index.
 ## Execution Snapshot
 
 - **Date:** 2026-11-27
-- **Last agent:** Claude Code (Opus 5.5), v0.8.2 Phase 4 native macOS acceptance
-- **Machine:** HOME-MacOS (Apple Silicon), the owner's primary macOS checkout; disposable work only under `files/dev-work/p4m/` (removed)
-- **Branch:** `0.8.2` (long-running, from published v0.8.1). The owner's uncommitted work in the macOS checkout was not touched
-- **Status:** Phase 4 COMPLETE on `0.8.2` (agent-verified, not independently reviewed). **Windows: implemented and verified** (HOME-PC). **macOS: native acceptance done** on candidate `7a45222` (every procedure step PASS after five small corrections made in this checkpoint, D1-D3 confirmed, the census gap closed, one owner-supervised app launch). The corrections touch shared code, so a small **Windows regression is owed on HOME-PC** (below). VERSION stays 0.8.1; nothing merged, tagged or released
-- **Active plan:** `files/plans/Developer-Experience-Upgrade.md` (Revision 9)
-- **Current phase:** Phase 4 complete; **next is the owed Windows regression of the macOS corrections, then Phase 5A on HOME-PC** (engine registry and Qwen3 isolation)
-- **Recommended next execution tier:** HOME-PC: the Windows regression selection below (routine; about 10 minutes), then Phase 5A on its own prompt. Do not start 5A before the owner reviews Phase 4
-- **Last verification:** v0.8.2 Phase 4 macOS acceptance on HOME-MacOS, agent-run, not independent (Verification and Evidence). The last full gate, on 87dd2bf (2026-11-22), is FAIL/BLOCKED and does not describe this candidate
-- **Manual gate:** the owed Windows regression; owner review of Phase 4; owner listening to four regenerated Shadow Slave MP3s; owner decisions D-2 to D-4 and the `files/run-temp/` ignore recommendation; the owner-acceptance items below
-- **Relevant evidence:** macOS gate runs in the HOME-MacOS checkout's ignored `files/dev-work/verification-gate/outputs/`: `2026-11-27_192304_quick_7637`, `…_192316_focused_8404` (FAIL, absent archives), `…_192439_focused_2d89`, `…_192555_focused_5673`, `…_192717_focused_160f`, `…_205510_focused_0dab`, and from the new uv dev environment `…_204744_quick_d393-devclone`, `…_204805_focused_aaa9-devclone` (FAIL, fixed), `…_205121_focused_3c4c-devclone`; Windows runs in `C:\ACT-Dev\files\dev-work\verification-gate\outputs\` (Phase 4 entry below)
-- **Next exact action:** on HOME-PC, fast-forward `C:\ACT-Dev` and run the Windows regression selection (Open Issues, Phase 4); then Phase 5A (engine registry, Qwen3 into `.venv-engines/qwen3` through uv) on its own prompt. The interim heavyweight rule (GATE.md) stays in force. Do not merge, tag or release
+- **Last agent:** Claude Code (Opus 5.5), v0.8.2 Phase 5A (engine registry and Qwen3 isolation)
+- **Machine:** HOME-PC (Windows 11, RTX 5070), development checkout `C:\ACT-Dev`; disposable roots only under `files/run-temp/`
+- **Branch:** `0.8.2` (long-running, from published v0.8.1). The owner's primary checkout and its uncommitted work were not touched
+- **Status:** Phase 5A COMPLETE on Windows on `0.8.2` (agent-verified, not independently reviewed): the owed Phase 4 Windows regression ran, the D-6 cold fallback was proved (one defect fixed), the engine registry and shared engine provisioning exist, and Qwen3 installs through uv into `.venv-engines/qwen3` with an earlier engine kept in use until the new one is proved (one real install, two real interruptions, the library proof). A native **macOS regression of the shared changes is owed** (Qwen3 itself is not offered on macOS). VERSION stays 0.8.1; nothing merged, tagged or released
+- **Active plan:** `files/plans/Developer-Experience-Upgrade.md` (Revision 10)
+- **Current phase:** Phase 5A complete on Windows; **next is Phase 5B (OmniVoice into `.venv-engines/omnivoice`)** on its own prompt, after the owner reviews 5A
+- **Recommended next execution tier:** owner review of 5A; the owed macOS regression (Open Issues, Phase 5A) on HOME-MacOS; optionally the authorized Qwen3 synthesis smoke (Pending Owner Decisions); then 5B on HOME-PC
+- **Last verification:** v0.8.2 Phase 5A on HOME-PC, agent-run, not independent (Verification and Evidence). The last full gate, on 87dd2bf (2026-11-22), is FAIL/BLOCKED and does not describe this candidate
+- **Manual gate:** owner review of 5A (and of Phase 4); the macOS regression; the synthesis-smoke authorization; owner listening to four regenerated Shadow Slave MP3s; owner decisions D-2 to D-4 and the `files/run-temp/` ignore recommendation; the owner-acceptance items below
+- **Relevant evidence:** `C:\ACT-Dev\files\dev-work\verification-gate\outputs\` (the Phase 5A runs are named under Verification and Evidence); native-proof summaries in `C:\ACT-Dev\files\run-temp\n5-ev\` (local, never committed)
+- **Next exact action:** the owner reviews 5A; on HOME-MacOS, fast-forward and run the macOS regression selection (Open Issues, Phase 5A); then Phase 5B on its own prompt. The interim heavyweight rule (GATE.md) stays in force. Do not merge, tag or release
 
 ## In Progress
 
-**Phase 4 (production uv-based base provisioning) is committed on `0.8.2` and accepted natively on Windows and macOS** (agent-verified, not
-independently reviewed). Nothing is in progress; the Windows regression of the macOS corrections is owed (Open Issues).
+**Phase 5A (engine registry and Qwen3 isolation) is committed on `0.8.2`, verified on Windows** (agent-verified, not independently
+reviewed). Nothing is in progress; the macOS regression of the shared changes is owed (Open Issues).
+`scripts/tts/engines/registry.py` is the one explicit list of the five engines (standard library only); `engine_policy`,
+`voice_registry.BACKENDS`, `optional_setup_protocol`, `bootstrap.WINDOWS_OPTIONAL_CHOICES`, `local_engine_host.ENGINE_NAMES`,
+`venv_layout` and `release` derive their tables from it, values unchanged. `scripts/shared/engine_env.py` holds what every
+`.venv-engines/<engine>` shares (place, project, `uv venv`/`uv sync` through `uv_runner`, identity on the managed CPython, RECORD
+check, receipt, retirement of an earlier version's environment). Qwen3 installs only through uv from `scripts/tts/engines/qwen3/`
+(`pyproject.toml` + `uv.lock`, the 89 reviewed v0.8.1 packages, no package cache) into `.venv-engines/qwen3`; it becomes the engine in
+use only when its install record is written, last; an earlier `.venv/engines/qwen3` stays in use until then and is moved whole into
+`files/runtime-data/qwen3/set-aside/` afterwards; `.venv-qwen3` is never moved. OmniVoice, Kokoro and Chatterbox are unchanged (5B-5D).
 The base application environment `ACT_ROOT/.venv` is now provisioned only by uv on both platforms: stage 0 obtains the pinned uv 0.13.10 and
 uv's managed CPython 3.12.15 (PBS 20261009, ACT-owned download metadata) into `files/runtime-data/uv` with consent and hash checks; D-6's
 `curl.exe`/`certutil`/`tar.exe` fallback replaces the PATH-Python fallback; one wrapper (`scripts/shared/uv_runner.py`) runs every uv
@@ -31,23 +39,40 @@ before any download, copy on Windows / clone on macOS, bytecode at install); the
 of the v0.8.1 locks (Kokoro and Chatterbox stay in the base; pytest is the `dev` group and the gate's only pin); the receipt
 `.venv/.act-environment.json` is written only after a direct RECORD check (a missing RECORD is damage) and real imports; a v0.8.1 `.venv`
 is migrated through the set-aside transaction with its engines carried byte for byte and the legacy interpreter kept; one resolver
-(`scripts/shared/app_python.py`) gives the not-yet-migrated Qwen3/OmniVoice installers a valid base on fresh and legacy layouts.
+(`scripts/shared/app_python.py`) gives the not-yet-migrated OmniVoice installer and Qwen3's sealed-package seam a valid base on fresh and
+legacy layouts (Qwen3's production installer no longer uses it since 5A).
 
 ## Open Issues and Blockers
 
 Status words: **FAIL**, **BLOCKED** (could not run), **NOT RUN**, **PENDING** (owner), **UNVERIFIED**. Agent-reported verification is not independent
 review. Items marked (?) could not be proven closed from the record and are kept on purpose.
 
+**Phase 5A (engine registry and Qwen3 isolation; agent-verified on Windows, not independently reviewed)**
+- **macOS regression OWED (HOME-MacOS)** for the shared changes: the registry and its seven consumers (`voice_registry`, `engine_policy`,
+  `optional_setup_protocol`, `bootstrap`, `local_engine_host`, `venv_layout`, `release`), `uv_runner` (owner records, process-free
+  import), `files/tests/conftest.py` (three new guarded paths). Qwen3 is not offered on macOS and nothing about it changed there.
+  `--mode changed --plan` is INCOMPLETE by design (suite-wide `conftest.py`), so run: `verify.py --mode quick`; `verify.py --mode focused`
+  with `test_engine_registry.py`, `test_qwen3_uv_project.py`, `test_uv_provisioning.py`, `test_suite_isolation.py`,
+  `test_venv_recovery.py`, `test_bootstrap_host_macos.py`, `test_local_engine_worker.py`, `test_chatterbox_integration.py`,
+  `test_optional_tts_setup.py`, `test_omnivoice_layout.py`, `test_release_packaging.py`, `test_macos_p1b_containment.py`,
+  `test_epub_retirement.py`, `test_macos_p1b_gate.py`; then one macOS ZIP from `release.py` in a disposable clone (it carries
+  `scripts/tts/engines/qwen3/` as inert data) and one launch of a uv copy to the window (owner-supervised, as in Phase 4).
+- **Not run:** real Qwen3 synthesis on the new environment (no authorization; the smallest smoke is proposed under Pending Owner
+  Decisions); a model load. The library proof ran against the owner's Base `generation_config.json` only.
+- **Kept on purpose (seams below):** the sealed-package seam's pip route; support for an earlier nested or `.venv-qwen3` engine; the
+  parity references; retired engines in set-aside.
+- **Pre-existing, not 5A (proved on a clean `930ade9` worktree):** `test_p05b_isolation.py::test_numba_compiles_and_writes_only_the_contained_cache`
+  and one `test_tts_appearance.py` tallest-notice case (Kokoro Female (Default)) fail when the suite runs directly, outside the gate.
+  `test_macos_p1b_containment.py`'s direct-spawn allow-list lacked `uv_runner.run` since Phase 4 (fixed in 5A).
+- **Not done:** the CLAUDE.md delegation helper `files/dev/qwen_worker.py` does not exist in `C:\ACT-Dev` (see Phase 0A carry-forward);
+  nothing was delegated.
+
 **Phase 4 (uv base provisioning; agent-verified on Windows and, natively, on macOS)**
-- **Windows regression OWED (HOME-PC) for the macOS corrections** (shared code changed after the Windows verification: `bootstrap.py`,
-  `uv_runner.py`, `files/tests/conftest.py`, the skip policy). `--mode changed --plan` is INCOMPLETE by design (suite-wide `conftest.py`;
-  `bootstrap.py` and `uv_runner.py` over the 40-module budget), so run on the pushed commit in `C:\ACT-Dev`: `verify.py --mode quick`;
-  `verify.py --mode focused` with `test_suite_isolation.py`, `test_uv_provisioning.py`, `test_bootstrap_import_validation.py`,
-  `test_venv_recovery.py`, `test_bootstrap_host_macos.py` (32 skips under `native-macos-p1a`), `test_macos_foundation.py`,
-  `test_child_ownership.py`, `test_macos_p1b_gate.py`, `test_verification_coverage.py`, `test_launch_self_heal.py`,
-  `test_first_run_contract.py`, `test_bootstrap_requirements_state.py`, `test_venv_integrity.py`, `test_routine_guard.py`; then
-  `verify.py --mode regression --component setup` (what the changed plan names). Windows native acceptance of the new code is NOT claimed
-  until that runs. Not owed on Windows: the `.command` change (macOS only).
+- **Windows regression DONE (HOME-PC, 5A prompt §2, on unmodified `930ade9`):** quick `2026-11-27_212433_quick_7029` PASS; focused
+  (the 14 named modules) `…_212451_focused_e345` PASS (744 passed, 55 policy skips, scope 14/14); `regression --component setup`
+  `…_212608_regression_183c` FAIL, kept as evidence: ordinary 2,918 passed / 217 skipped and v3-supervisor 75 passed; v3-planning
+  33 failed on a pre-existing harness defect (the controlled read-only context refused uv's `pyvenv.cfg` shape; fixed in 5A); the tree
+  and coverage checks failed because 5A's first edits landed during the run. No application defect. D-6 cold fallback: see 5A.
 - **macOS native acceptance DONE** (candidate `7a45222`, results under Verification and Evidence). Corrected here, each with a regression
   test: the `.command` sent a moved copy (dangling `.venv/bin/python` link) through first-time setup instead of the repair; the test guard
   did not excuse the macOS managed interpreter's first-import stdlib bytecode (every gate run from a new uv dev environment failed); a repair
@@ -62,8 +87,14 @@ review. Items marked (?) could not be proven closed from the record and are kept
   | Seam | Why it stays now | Removal criterion (phase) |
   |---|---|---|
   | Legacy interpreter `files/runtime-data/python` | engines built on it (and a `.venv` not yet migrated) run on it; `app_python.app_env_base` names it only for them | no `pyvenv.cfg` `home` in `.venv` or any engine names it (Phase 6) |
-  | Qwen3 and OmniVoice installers' own route (`-m venv` from the resolved base + their pinned manifests) | transitional rule 1 | the engine installs through uv into `.venv-engines/<engine>` (5A Qwen3, 5B OmniVoice) |
-  | Engines nested in `.venv/engines/*`, carried by `VenvReplacement` | the 2026-11-13 layout governs the current installers | no engine is nested any more (after 5B); then the carry protocol is retired (Phase 6) |
+  | OmniVoice installer's own route (`-m venv` from the resolved base + its pinned manifest) | transitional rule 1 | it installs through uv into `.venv-engines/omnivoice` (5B). **Qwen3: resolved by 5A** |
+  | Engines nested in `.venv/engines/*`, carried by `VenvReplacement` | OmniVoice's current installer; an earlier Qwen3 engine not yet replaced | no engine is nested any more (after 5B); then the carry protocol is retired (Phase 6) |
+  | Qwen3 sealed-package seam (`qwen3_engine_authority`, `optional_setup_authority.acquire_disposable`; no production caller) installs with pip into the nested place | the v3 qualification contracts it was designed for | Phase 6 removes the pip paths |
+  | Support for an earlier Qwen3 engine (`.venv/engines/qwen3`, `.venv-qwen3`): selected while no new engine is installed, carried, protected by Clear Downloaded Data | nothing working is broken by an update (5A item 4) | Phase 6, with the carry protocol |
+  | Retired engines in `files/runtime-data/qwen3/set-aside/nested-qwen3-*` (with `RETIRED-READ-ME.txt`) | the app never deletes a moved environment | the owner deletes them; Phase 6 cleanup offers it with consent |
+  | `scripts/qwen3-requirements.txt` + `qwen3-artifacts.json` as parity references of `engines/qwen3/uv.lock` (`test_qwen3_uv_project.py`), still the source of the stated download size | the PyTorch index publishes no sizes | the first Qwen3 dependency change, at the latest Phase 6 |
+  | v0.7.0-v0.8.1 Qwen3 wheel store `files/runtime-data/qwen3/cache/wheels` and pip cache `…/cache/pip` | removed after a successful uv install (the store only when its `verified.json` shows it is the app's; never through a link) | gone on each copy after its first 5A install |
+  | uv scratch folders under `files/runtime-data/uv/t/` without an `owner.json` (made before 5A) | an owner that cannot be proved gone is left alone | Phase 6 cleanup |
   | `scripts/requirements.txt`, the two v0.8.1 hash locks, `base_packages.py`, `files/dev-tools/lock_base_requirements.py`, the gate's `deps` check | frozen parity reference held equal to `pyproject.toml` by `test_base_packages.py`; the app never installs from them | the first base change that breaks parity (5C/5D), at the latest Phase 6; the `deps` check then moves to `uv lock --check` |
   | Kokoro and Chatterbox (torch 2.6.0 stacks) in the base project | transitional rule 4 | 5C (Kokoro) and 5D (Chatterbox) isolate them |
   | The kept spaCy English model reinstalled by `uv pip install` of its verified wheel after each sync | it belongs to Kokoro | 5C moves it into the Kokoro environment |
@@ -221,6 +252,10 @@ review. Items marked (?) could not be proven closed from the record and are kept
 - **Optional, new (Phase 3B report §12):** retain an OmniVoice package cache on macOS, where clone makes it cheap and gives offline OmniVoice repair (default stays `--no-cache`).
 - **APPROVED (2026-11-27, Phase 4 prompt) D-6:** when PowerShell cannot run, a contained `curl.exe`/`certutil`/`tar.exe` fallback
   (`scripts/shared/bootstrap_host_fallback.cmd`) with pinned hashes and no PATH Python. Implemented in Phase 4.
+- **NEW (Phase 5A): authorize the smallest real Qwen3 synthesis smoke?** Proposed, not run: one CustomVoice preset voice, one short
+  sentence, in a disposable root with a uv-built `.venv-engines/qwen3` (about 3.1 GB download, 5.5 GB on disk, about 6 minutes), the
+  owner's existing CustomVoice model copied in after its hashes are verified (about 4.3 GB; no download), output only in disposable
+  scratch, the root removed afterwards. It would prove a model load and generation on the new environment, which 5A did not.
 - Resolved: D-5 (AI Workspace is local-only), D-7 (v0.8.1 published 2026-11-21T05:45:50Z, both assets).
 - Also awaiting the owner: controlled testing versus independent review of Checkpoints 1–6; supplying the canonical `AI-WORKSPACE.md`; the macOS permissions correction; ACT72-030 and ACT72-064; M4B scan-refusal and junction handling.
 
@@ -253,6 +288,36 @@ review. Items marked (?) could not be proven closed from the record and are kept
 
 ## Verification and Evidence
 
+- **Phase 5A (HOME-PC, `C:\ACT-Dev`, agent-run, not independent).** Phase 4 Windows regression and D-6: under Open Issues (Phase 4)
+  and in the plan's 5A record. **Native proof** in the disposable root `files/run-temp/n5` (a copy of `scripts/`, the managed CPython and
+  uv, a stand-in `.venv`, a legacy nested Qwen3 engine made as v0.8.1 made one, without its packages; removed afterwards; JSON summaries
+  kept in `files/run-temp/n5-ev/`): two production installs killed 20-21 s in, mid-download (fresh and re-sync paths): the legacy engine
+  unchanged and still in use, status ok, the new folder recorded `created`, no receipt, repair offered; the first kill left 422 MB of
+  partial downloads in uv's scratch, which led to the owner-record fix, after which the second kill's scratch was cleared by the next
+  install. **The one authorized full install** through Check and repair: 351.5 s (89 packages downloaded in 4 m 32 s, installed 18.5 s,
+  13,813 files compiled 6.7 s, RECORD check about 19 s, probe about 27 s); engine in use, identity, receipt and RECORD clean; 89/89
+  distributions equal to the reviewed manifest; imports in 4.6 s, torch 2.10.0+cu128, CUDA 12.8 on the RTX 5070, a CUDA kernel run from
+  the engine's own interpreter, its base the managed CPython, no app `.venv` on its path; the nested engine moved whole (identical) to
+  `set-aside/nested-qwen3-<UTC>-<id>/` beside its note; the app's `.venv` unchanged; no package cache; 5.46 GB on disk. **Damage:** a
+  deleted `pydub/playback.py` found read-only by Check and repair (rebuild offered, 3.1 GB stated); clean after restore. **Library proof:**
+  `test_qwen3_calm_harness.py::test_the_real_library_merges_…` PASSED (6.4 s) on that engine with the owner's Base
+  `generation_config.json` (SHA-256 `f1b90b45…` as pinned; read only, copied in). **Direct test runs:** the new modules
+  (`test_engine_registry.py` 16, `test_qwen3_uv_project.py` 12, `test_engine_env.py` 19) and every changed module pass; a direct sweep of
+  the suite (9,815 tests, 40.6 min, kept as evidence in `files/run-temp/p5a/`) found the adaptations still owed, then fixed; its
+  guarded-group failures are direct-run artefacts (those groups run only through the gate) and two failures are pre-existing (Open
+  Issues); a second, targeted sweep of the 103 modules reachable from the late changes (5,402 tests, 18 min): 5,158 passed, 242
+  skipped, only the two pre-existing failures. **Gate** (about 12.5 minutes, on the candidate before
+  these result lines): quick `2026-11-27_235253_quick_4c1e` PASS; `--mode changed --plan` INCOMPLETE by design (346 selectors, 26
+  gaps: the suite-wide `conftest.py` and 20 sources over the 40-module budget; five paths with no policy route: two READMEs, the
+  fallback `.cmd` and the Qwen3 project's `pyproject.toml` and `uv.lock`, which `test_layout_canary.py`, `test_bootstrap_host.py` and
+  `test_qwen3_uv_project.py` cover but the policy does not route (left as is, like the root project in Phase 4); the direct sweeps
+  above ran its ordinary modules); focused `2026-11-27_235425_focused_6188` PASS on the 26 key modules and both guarded
+  groups the Phase 4 regression failed on (1,783 passed, 92 policy-named skips; v3-planning 294 and v3-supervisor 75 passed; scope
+  33/33, tree unchanged; `test_p05b_isolation.py`'s numba test passes here, inside its guarded group); then a quick run on the final tree,
+  these document lines included, before the commit (named in the completion report). **Downloads:**
+  about 3.8 GB (two interrupted installs about 0.85 GB, the full install about 2.9 GB), D-6's uv (twice) and CPython archive about 78 MB. **Disk:** free
+  space on C: never below 18 GB (24 GB before the install). NOT RUN by design: full, qualification, journeys, any R1-R3 replay, model
+  downloads or loads, synthesis, the app's window.
 - **Phase 4 native macOS acceptance (this checkpoint, HOME-MacOS, M4 Pro, macOS 27; agent-run, one owner-supervised launch, not
   independent).** Candidate `7a45222` (fast-forwarded; the owner's uncommitted work identical before and after). The retired procedure ran in
   disposable copies under the ignored `files/dev-work/p4m/` (folder names with spaces and accents), every command timed:
@@ -372,7 +437,8 @@ review. Items marked (?) could not be proven closed from the record and are kept
 
 ## Recent Checkpoints (newest first; cite by `git log`, not by tip)
 
-- Phase 4 macOS acceptance — native verification on HOME-MacOS, five corrections, census, procedure retired (this commit).
+- Phase 5A — engine registry, shared engine provisioning, Qwen3 through uv into `.venv-engines/qwen3`, Phase 4 Windows regression, D-6 cold fallback fix (this commit).
+- 930ade9 Phase 4 macOS acceptance — native verification on HOME-MacOS, five corrections, census, procedure retired.
 - 7a45222 Phase 4 — production uv-based base provisioning, D-6 fallback, D1-D3 gate corrections.
 - a44ad6d Phase 3B — native macOS uv feasibility, owner approvals of the Phase 3A proposals recorded.
 - c988bd3 Phase 3A — Windows uv feasibility: report, example projects, owner proposals.

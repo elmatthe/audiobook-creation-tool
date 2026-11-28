@@ -316,3 +316,28 @@ def test_the_fallback_declines_when_no_one_can_answer_and_downloads_nothing(tmp_
     assert result.returncode == 2, result.stdout + result.stderr
     assert "Nothing was downloaded" in result.stdout and not out.exists()
     assert listing(app) == before
+
+
+def test_the_fallback_hands_curl_each_url_by_variable_name_so_the_encoded_plus_survives():
+    """v0.8.2 Phase 5A, found by the first real cold run of the fallback: the Python archive's URL was passed to
+    ``:fetch`` as a CALL argument, which expands percent signs a second time, so its "%2B" became "B" and the download
+    was a 404. Each URL is now passed by variable NAME and read with delayed expansion."""
+    assert "setlocal EnableExtensions EnableDelayedExpansion" in CMD
+    calls = re.findall(r"^call :fetch (\S+) ", CMD, flags=re.MULTILINE)
+    assert calls == ["UV_URL", "PY_URL"], calls
+    assert '--output "%~2.part" "!%~1!"' in CMD
+    assert not re.search(r"call :\w+ [^\r\n]*%(UV|PY)_URL%", CMD)
+    assert "%%2B" in re.search(r'^set "PY_URL=([^"]+)"', CMD, flags=re.MULTILINE).group(1)
+
+
+@pytest.mark.skipif(not sys.platform.startswith("win"), reason="cmd.exe is needed")
+def test_cmd_really_mangles_a_percent_encoded_url_passed_through_call_and_not_one_passed_by_name(tmp_path):
+    """The trap above, on this machine's cmd.exe: the reason the fallback passes names, not URLs."""
+    probe = tmp_path / "probe.cmd"
+    probe.write_bytes(b'@echo off\r\nsetlocal EnableExtensions EnableDelayedExpansion\r\n'
+                      b'set "URL=https://x/cpython-3.12.15%%2B20261009.tar.gz"\r\n'
+                      b'call :show "%URL%"\r\ncall :byname URL\r\nexit /b 0\r\n'
+                      b':show\r\necho VALUE=%~1\r\nexit /b 0\r\n:byname\r\necho NAME=!%~1!\r\nexit /b 0\r\n')
+    out = subprocess.run(["cmd", "/d", "/c", str(probe)], capture_output=True, text=True, timeout=60).stdout
+    assert "VALUE=https://x/cpython-3.12.15B20261009.tar.gz" in out, out
+    assert "NAME=https://x/cpython-3.12.15%2B20261009.tar.gz" in out, out

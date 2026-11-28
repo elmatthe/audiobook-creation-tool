@@ -229,12 +229,14 @@ def test_pip_is_never_upgraded_and_no_shipped_module_builds_an_unmanaged_pip_com
 
 def test_the_other_pip_users_keep_their_own_contained_policy():
     from shared import spacy_store
-    from tts import qwen3_packages, qwen3_wheels
+    from tts import qwen3_packages, qwen3_setup
 
     spacy = spacy_store.offline_install_command(Path("python.exe"), Path("req.txt"))
     assert {"--isolated", "--no-cache-dir", "--no-index", "--require-hashes"} <= set(spacy)
-    # The Qwen3 engine installs only its own verified wheels (qwen3_wheels.install_command -> _pip_command).
-    assert "qwen3_packages._pip_command(" in inspect.getsource(qwen3_wheels.install_command)
+    # v0.8.2 Phase 5A: the Qwen3 engine is installed by uv from its lock; pip is left only behind the sealed-package
+    # seam (test-only, removed in Phase 6), which installs only its own sealed wheels (pip_command -> _pip_command).
+    assert "qwen3_packages.pip_command(" in inspect.getsource(qwen3_setup._install_sealed_environment)
+    assert "pip_command" not in inspect.getsource(qwen3_setup._install_uv_environment)
     source = inspect.getsource(qwen3_packages._pip_command)
     for flag in ("'--isolated'", "'--no-cache-dir'", "'--no-index'", "'--require-hashes'"):
         assert flag in source, flag
