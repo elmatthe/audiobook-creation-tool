@@ -538,7 +538,13 @@ Every checkpoint follows §2. Each is separately reviewed; sub-checkpoints are i
     49 errors, all in `test_release_packaging.py` (the packager refused the four new engine project files while still untracked) and
     `test_layout_canary.py` (the tts README named the parity test relative to the repository root); guarded v3-planning 85 passed;
     every other check PASS. With the files staged and the path corrected, focused `2026-11-28_055553_focused_28e7` over those two
-    modules PASS (187 passed, 100 s). Aggregate verification about 12 minutes (direct runs about 6, gate runs about 6.3).
+    modules PASS (187 passed, 100 s); the final quick gate on the staged candidate (committed unchanged as 9cd16e8),
+    `2026-11-28_060145_quick_7239`, PASS. Aggregate verification about 12 minutes (direct runs about 6, gate runs about 6.5).
+  - *Distribution:* `release.py` in a disposable LF clone of 9cd16e8 (`core.autocrlf=false`, `core.eol=lf`,
+    under `files/run-temp/p5b/ac`, removed afterwards): the Windows and macOS ZIPs, 215 entries and 12.3 MiB each, both carrying
+    `scripts/tts/engines/{qwen3,omnivoice}/{pyproject.toml,uv.lock}`, `omnivoice_manifest.json` and `omnivoice_packages.json`
+    byte-identical to the commit; no `.venv*`, cache, runtime data, tests, wheels or weights; no CRLF text member. SHA-256 Windows
+    `ebfb054d…a3`, macOS `37759658…51`. Not published; VERSION 0.8.1.
   - *Exit criteria on Windows: met.* Owed: the combined native macOS acceptance (Handoff, Phase 5B, A-D); a model load and real
     synthesis on the new environment (owner authorization); independent review. Legacy paths kept on purpose (Handoff seams): support for
     an earlier nested or sibling engine, `omnivoice_packages.json`, the `nested` placement, the carry protocol (Phase 6).

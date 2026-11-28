@@ -384,7 +384,13 @@ review. Items marked (?) could not be proven closed from the record and are kept
   1,222 passed, 83 skipped, 3 failed + 49 errors, all in `test_release_packaging.py` (`Required engine
   project file missing or not tracked by git` -- the new project files were not yet staged) and `test_layout_canary.py` (the tts
   README's parity-test path); guarded v3-planning 85 passed; every other check PASS. Rerun of those two modules,
-  `2026-11-28_055553_focused_28e7`: PASS (187 passed, 100 s). Aggregate verification about 12 minutes.
+  `2026-11-28_055553_focused_28e7`: PASS (187 passed, 100 s). Final quick gate on the staged candidate (committed unchanged as
+  9cd16e8): `2026-11-28_060145_quick_7239` PASS. Aggregate verification about 12 minutes. **Distribution:**
+  `release.py` in a disposable LF clone of 9cd16e8 (`core.autocrlf=false`, `core.eol=lf`, under `files/run-temp/p5b/ac`,
+  removed afterwards): the Windows and macOS ZIPs, 215 entries and 12.3 MiB each, both carrying
+  `scripts/tts/engines/{qwen3,omnivoice}/{pyproject.toml,uv.lock}`, `omnivoice_manifest.json` and `omnivoice_packages.json`
+  byte-identical to the commit; no `.venv*`, cache, runtime data, tests, wheels or weights; no CRLF text member. SHA-256 Windows
+  `ebfb054d…a3`, macOS `37759658…51`. Not published; VERSION 0.8.1.
   NOT RUN by design: full, qualification, journeys, any R1-R3 replay, the whole guarded groups, model downloads or loads, synthesis, the
   app's window.
 - **Phase 5A (HOME-PC, `C:\ACT-Dev`, agent-run, not independent).** Phase 4 Windows regression and D-6: under Open Issues (Phase 4)
@@ -536,7 +542,7 @@ review. Items marked (?) could not be proven closed from the record and are kept
 
 ## Recent Checkpoints (newest first; cite by `git log`, not by tip)
 
-- Phase 5B — OmniVoice through uv into `.venv-engines/omnivoice` (exact v0.8.1 parity on Windows and macOS), model-only manifest, earlier engine kept until the new one is proved (this commit).
+- 9cd16e8 Phase 5B — OmniVoice through uv into `.venv-engines/omnivoice` (exact v0.8.1 parity on Windows and macOS), model-only manifest, earlier engine kept until the new one is proved; this commit records its final quick gate and disposable archives.
 - d5d8451 + 3403785 Phase 5A — engine registry, shared engine provisioning, Qwen3 through uv into `.venv-engines/qwen3`, Phase 4 Windows regression, D-6 cold fallback fix.
 - 930ade9 Phase 4 macOS acceptance — native verification on HOME-MacOS, five corrections, census, procedure retired.
 - 7a45222 Phase 4 — production uv-based base provisioning, D-6 fallback, D1-D3 gate corrections.
