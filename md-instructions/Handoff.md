@@ -7,21 +7,22 @@ why: `Decisions.md` index; what shipped: `Changelog.md` index.
 ## Execution Snapshot
 
 - **Date:** 2026-11-27
-- **Last agent:** Claude Code (Opus 5.5), v0.8.2 Phase 4 production uv-based base provisioning
-- **Machine:** HOME-PC (Windows 11), development checkout `C:\ACT-Dev` (D-1)
-- **Branch:** `0.8.2` (long-running, from published v0.8.1). The owner's primary checkout and HOME-MacOS's checkout were not touched
-- **Status:** Phase 4 COMMITTED on `0.8.2` (agent-verified, not independently reviewed). **Windows: implemented and verified** (targeted tests, real disposable scenarios, `C:\ACT-Dev` migrated, gate quick and focused PASS apart from one pre-existing census test). **macOS: implemented, native verification PENDING** (`files/plans/ACT-v0.8.2-Phase4-macOS-Verification.md`). VERSION stays 0.8.1; nothing merged, tagged or released
-- **Active plan:** `files/plans/Developer-Experience-Upgrade.md` (Revision 8)
-- **Current phase:** Phase 4 complete on Windows; **next is the native macOS Phase 4 verification on HOME-MacOS, then Phase 5A** (Qwen3)
-- **Recommended next execution tier:** the macOS verification instructions on HOME-MacOS (owner-supervised, they install and download); Phase 5A on its own prompt afterwards. Do not start 5A before the owner reviews Phase 4
-- **Last verification:** v0.8.2 Phase 4 on HOME-PC, agent-run, not independent (details under Verification and Evidence). The last full gate, on 87dd2bf (2026-11-22), is FAIL/BLOCKED and does not describe this candidate
-- **Manual gate:** native macOS Phase 4 verification (owner-supervised); owner review of Phase 4; the Minor findings below; owner listening to four regenerated Shadow Slave MP3s; owner decisions D-2 to D-4 and the `files/run-temp/` ignore recommendation; the owner-acceptance items below
-- **Relevant evidence:** gate runs `2026-11-27_180748_quick_0018`, `…_180905_changed_d5a9` (NOT RUN), `…_180925_focused_2fdc` (FAIL, fixed), `…_182658_focused_1d7c` (PASS), `…_183517_focused_2e4c` (PASS), `…_184526_focused_7d73` (FAIL, pre-existing census) in `C:\ACT-Dev\files\dev-work\verification-gate\outputs\`; scenario logs summarised under Verification and Evidence (the raw logs were disposable and removed); `files/release-history/ACT-v0.8.1-Windows-MacOS-Release-Acceptance.md`
-- **Next exact action:** run `files/plans/ACT-v0.8.2-Phase4-macOS-Verification.md` on HOME-MacOS with the owner; then Phase 5A (engine registry, Qwen3 into `.venv-engines/qwen3` through uv) on its own prompt. The interim heavyweight rule (GATE.md) stays in force. Do not merge, tag or release
+- **Last agent:** Claude Code (Opus 5.5), v0.8.2 Phase 4 native macOS acceptance
+- **Machine:** HOME-MacOS (Apple Silicon), the owner's primary macOS checkout; disposable work only under `files/dev-work/p4m/` (removed)
+- **Branch:** `0.8.2` (long-running, from published v0.8.1). The owner's uncommitted work in the macOS checkout was not touched
+- **Status:** Phase 4 COMPLETE on `0.8.2` (agent-verified, not independently reviewed). **Windows: implemented and verified** (HOME-PC). **macOS: native acceptance done** on candidate `7a45222` (every procedure step PASS after five small corrections made in this checkpoint, D1-D3 confirmed, the census gap closed, one owner-supervised app launch). The corrections touch shared code, so a small **Windows regression is owed on HOME-PC** (below). VERSION stays 0.8.1; nothing merged, tagged or released
+- **Active plan:** `files/plans/Developer-Experience-Upgrade.md` (Revision 9)
+- **Current phase:** Phase 4 complete; **next is the owed Windows regression of the macOS corrections, then Phase 5A on HOME-PC** (engine registry and Qwen3 isolation)
+- **Recommended next execution tier:** HOME-PC: the Windows regression selection below (routine; about 10 minutes), then Phase 5A on its own prompt. Do not start 5A before the owner reviews Phase 4
+- **Last verification:** v0.8.2 Phase 4 macOS acceptance on HOME-MacOS, agent-run, not independent (Verification and Evidence). The last full gate, on 87dd2bf (2026-11-22), is FAIL/BLOCKED and does not describe this candidate
+- **Manual gate:** the owed Windows regression; owner review of Phase 4; owner listening to four regenerated Shadow Slave MP3s; owner decisions D-2 to D-4 and the `files/run-temp/` ignore recommendation; the owner-acceptance items below
+- **Relevant evidence:** macOS gate runs in the HOME-MacOS checkout's ignored `files/dev-work/verification-gate/outputs/`: `2026-11-27_192304_quick_7637`, `…_192316_focused_8404` (FAIL, absent archives), `…_192439_focused_2d89`, `…_192555_focused_5673`, `…_192717_focused_160f`, `…_205510_focused_0dab`, and from the new uv dev environment `…_204744_quick_d393-devclone`, `…_204805_focused_aaa9-devclone` (FAIL, fixed), `…_205121_focused_3c4c-devclone`; Windows runs in `C:\ACT-Dev\files\dev-work\verification-gate\outputs\` (Phase 4 entry below)
+- **Next exact action:** on HOME-PC, fast-forward `C:\ACT-Dev` and run the Windows regression selection (Open Issues, Phase 4); then Phase 5A (engine registry, Qwen3 into `.venv-engines/qwen3` through uv) on its own prompt. The interim heavyweight rule (GATE.md) stays in force. Do not merge, tag or release
 
 ## In Progress
 
-**Phase 4 (production uv-based base provisioning) is committed on `0.8.2`** (agent-verified, not independently reviewed). Nothing is in progress.
+**Phase 4 (production uv-based base provisioning) is committed on `0.8.2` and accepted natively on Windows and macOS** (agent-verified, not
+independently reviewed). Nothing is in progress; the Windows regression of the macOS corrections is owed (Open Issues).
 The base application environment `ACT_ROOT/.venv` is now provisioned only by uv on both platforms: stage 0 obtains the pinned uv 0.13.10 and
 uv's managed CPython 3.12.15 (PBS 20261009, ACT-owned download metadata) into `files/runtime-data/uv` with consent and hash checks; D-6's
 `curl.exe`/`certutil`/`tar.exe` fallback replaces the PATH-Python fallback; one wrapper (`scripts/shared/uv_runner.py`) runs every uv
@@ -37,9 +38,25 @@ is migrated through the set-aside transaction with its engines carried byte for 
 Status words: **FAIL**, **BLOCKED** (could not run), **NOT RUN**, **PENDING** (owner), **UNVERIFIED**. Agent-reported verification is not independent
 review. Items marked (?) could not be proven closed from the record and are kept on purpose.
 
-**Phase 4 (uv base provisioning; agent-verified on Windows, macOS native verification PENDING)**
-- **macOS PENDING:** `bootstrap_host_macos.sh`, the `.command` launcher and the clone link mode are implemented and their tests pass on
-  Windows (POSIX parts by simulation), but nothing of Phase 4 has run on a Mac. Instructions: `files/plans/ACT-v0.8.2-Phase4-macOS-Verification.md`.
+**Phase 4 (uv base provisioning; agent-verified on Windows and, natively, on macOS)**
+- **Windows regression OWED (HOME-PC) for the macOS corrections** (shared code changed after the Windows verification: `bootstrap.py`,
+  `uv_runner.py`, `files/tests/conftest.py`, the skip policy). `--mode changed --plan` is INCOMPLETE by design (suite-wide `conftest.py`;
+  `bootstrap.py` and `uv_runner.py` over the 40-module budget), so run on the pushed commit in `C:\ACT-Dev`: `verify.py --mode quick`;
+  `verify.py --mode focused` with `test_suite_isolation.py`, `test_uv_provisioning.py`, `test_bootstrap_import_validation.py`,
+  `test_venv_recovery.py`, `test_bootstrap_host_macos.py` (32 skips under `native-macos-p1a`), `test_macos_foundation.py`,
+  `test_child_ownership.py`, `test_macos_p1b_gate.py`, `test_verification_coverage.py`, `test_launch_self_heal.py`,
+  `test_first_run_contract.py`, `test_bootstrap_requirements_state.py`, `test_venv_integrity.py`, `test_routine_guard.py`; then
+  `verify.py --mode regression --component setup` (what the changed plan names). Windows native acceptance of the new code is NOT claimed
+  until that runs. Not owed on Windows: the `.command` change (macOS only).
+- **macOS native acceptance DONE** (candidate `7a45222`, results under Verification and Evidence). Corrected here, each with a regression
+  test: the `.command` sent a moved copy (dangling `.venv/bin/python` link) through first-time setup instead of the repair; the test guard
+  did not excuse the macOS managed interpreter's first-import stdlib bytecode (every gate run from a new uv dev environment failed); a repair
+  asked the download question twice; the four Windows minor findings below. Observations, not changed: `--venv-check` takes 1.38 s on macOS,
+  about 1.07 s of it the containment guardian's orderly exit after `main()` (P1A/P5-I; the Mac launcher never calls `--venv-check`); the first
+  launch after setup took 11 s to the window (the one-time Kokoro proof), later preparations 0.45-0.68 s; a repair with downloads refused on
+  a damaged cache downloads nothing and keeps the environment but reinstalls the damaged package from the damaged cache, so the environment
+  stays flagged for repair (no receipt) rather than byte-for-byte as before; the procedure's `.venv/bin/python --venv-check` on a moved copy
+  exits 127 (the link dangles; run the check with the managed interpreter).
 - **Seams (each removed only when its criterion holds; transitional rules 1-8):**
 
   | Seam | Why it stays now | Removal criterion (phase) |
@@ -52,7 +69,9 @@ review. Items marked (?) could not be proven closed from the record and are kept
   | The kept spaCy English model reinstalled by `uv pip install` of its verified wheel after each sync | it belongs to Kokoro | 5C moves it into the Kokoro environment |
   | v0.8.1 `python-packages` store and `pip-cache` under `files/runtime-data` | protected runtime data: no longer used, never deleted by an agent | Phase 6 cleanup, with the owner's consent |
   | A v0.8.1 `.requirements-state.json` stamp | recognised as "not a receipt", so the environment is rebuilt | Phase 6 |
-- **Gate defects D1-D3 (Phase 3B report §7): corrected, Windows-verified, macOS re-check PENDING.** D1 `helpers/winproc.py` treats EPERM like
+- **Gate defects D1-D3 (Phase 3B report §7): corrected, Windows-verified, confirmed natively on macOS** (runs `5673`, `2d89`, `160f`:
+  the ten 3B selectors PASS with cleanup PASS, D2's nine parameters skip by policy, an active run's scratch audited as `active`; census:
+  `ACT.GATE.ROUTINE-EFFECTS` given its native macOS standing, 8 of 8, and `ACT.GATE.SCRATCH` corrected to native). D1 `helpers/winproc.py` treats EPERM like
   ESRCH around both `killpg` calls and polls the group up to `kill_wait` before recording a POSIX survivor; D2 the `m4b-scaling` exit-code
   contract test is Windows-only; D3 `helpers/scratch.py` calls a POSIX owner alive unless `kill(pid, 0)` proves it gone. Tests:
   `test_gate_scratch_exception.py` (`test_on_posix_an_owner_is_alive_unless_its_process_is_gone`,
@@ -62,11 +81,11 @@ review. Items marked (?) could not be proven closed from the record and are kept
   offline-miss text did not match the expected markers; a damaged cached package was "fetched again" from the same damaged unpacked
   archive (`--refresh-package` only revalidates): its cache entries are now removed (`uv cache clean <package>`) after consent; the test
   guard did not excuse first-import stdlib bytecode of the managed interpreter (the legacy one only).
-- **Minor findings for the owner (not changed):** (1) when a rebuild fails before the old environment was touched, the message still says
-  "The environment was rebuilt but its packages could not be installed" (pre-existing v0.8.1 wording; the old environment is intact);
-  (2) the headless first-run summary says "The graphical window needs Tk" on a Python that has Tk (pre-existing); (3) the launch health
-  check samples one file per package, so deep pure-Python damage is found by the import proof (7-day window) or Preferences' Check and
-  repair, not on every launch (by design since v0.7.0).
+- **Minor findings (Windows Phase 4), dispositions in the macOS acceptance:** (1) FIXED: a failed rebuild said "The environment was rebuilt
+  but its packages could not be installed" (seen natively twice); it now says the rebuild could not be done; (2) FIXED: the headless summary
+  follows a real Tk proof of the environment; (3) unchanged by design: the launch health check samples one file per package (deep damage is
+  found by the import proof, 7-day window, or Preferences' Check and repair); (4) FIXED: the developer `uv` passthrough drops only the
+  separator `--`; (5) FIXED: a second module failing to import gets its own targeted reinstall (once per module, none after a failed sync).
 - **Not exercised for real:** the fallback `.cmd` download-and-consent path (`choice.exe`; its decline path is tested); Smart App Control
   against the uv venv launcher on a fresh Windows (HOME-PC ran it without a block); a non-admin account; long paths off.
 
@@ -207,6 +226,13 @@ review. Items marked (?) could not be proven closed from the record and are kept
 
 ## Development Checkout and Evidence Locations
 
+- **HOME-MacOS (Phase 4 macOS acceptance):** the owner's primary macOS checkout keeps its v0.8.1-era `.venv` (legacy interpreter; the gate
+  still runs on it). Kept, ignored: the verified pinned archives `files/temp/bootstrap/uv-aarch64-apple-darwin.tar.gz` and
+  `cpython-3.12.15+20261009-aarch64-apple-darwin-install_only.tar.gz` (39 MB, clones of Phase 3B's; the macOS real-uv stage 0 test needs
+  them), `files/dev-work/uv-3b/` unchanged, the gate runs named in the snapshot. Removed: `files/dev-work/p4m/`. Capabilities used: the
+  agent's built-in shell, file and question tools only; no skill, plugin, MCP server or subagent (two configured MCP servers failed to
+  connect and were not needed).
+
 - **Development checkout (D-1):** `C:\ACT-Dev`, a separate clone on `0.8.2` (upstream `origin/0.8.2`) whose root `.venv/` is, since Phase 4
   (2026-11-27), uv's **dev** profile on the managed CPython 3.12.15 (`files/runtime-data/uv/python/cpython-3.12.15-windows-x86_64-none`): 170
   distributions plus the kept spaCy model, migrated from the v0.8.1 `.venv` through the repair transaction in 72 s (only pytest and its two
@@ -227,7 +253,51 @@ review. Items marked (?) could not be proven closed from the record and are kept
 
 ## Verification and Evidence
 
-- **Phase 4 (this checkpoint, HOME-PC, agent-reported, not independent).** Targeted tests: every module the changes touch, adapted and
+- **Phase 4 native macOS acceptance (this checkpoint, HOME-MacOS, M4 Pro, macOS 27; agent-run, one owner-supervised launch, not
+  independent).** Candidate `7a45222` (fast-forwarded; the owner's uncommitted work identical before and after). The retired procedure ran in
+  disposable copies under the ignored `files/dev-work/p4m/` (folder names with spaces and accents), every command timed:
+  **stage 0 cold** with the real consent prompt answered Yes (a pty helper; an EOF first gave the decline path: exit 2, nothing downloaded):
+  uv 0.13.10 (14.7 MB) and the CPython 3.12.15 archive (24 MiB) downloaded, size- and SHA-256-verified, uv signed by Astral, the interpreter
+  installed from the kept mirror, 6.0 s; Tk 9.0.4 `aqua`, OpenSSL 3.5.9 with a working HTTPS fetch, `arm64`; no `com.apple.quarantine`
+  anywhere. **Cold user-profile setup** (`--headless --skip-kokoro-download`) 44.4 s: offline miss then the online sync, 166 packages
+  prepared 5.7 s, installed 0.44 s, 17,053 files compiled 4.0 s, FFmpeg 9.0.1 (Riedl, Developer ID) and NLTK data; receipt `uv user`, record
+  and imports ok, 166 distributions, no pytest; `pyvenv.cfg` home the managed 3.12.15, `uv = 0.13.10`. **Warm:** stage 0 0.31-0.42 s;
+  `--venv-check` 1.38 s (0.36 s of work, the rest the containment guardian's exit); launch preparation with only the window stubbed
+  0.45-0.68 s. **App launch (owner-supervised):** the owner's first double-click did not reach the test copy (no trace in it); the agent then
+  opened the test copy's `.command` with `open` (LaunchServices, the double-click route) while the owner watched: the window opened on the uv
+  environment 11 s after the start (first launch after setup, one-time Kokoro proof), Terminal closed itself, no prompt; the owner closed
+  the window. **Targeted repair:** `tqdm/__init__.py` removed, `--venv-check` 3, repair offline behind a dead proxy with downloads refused
+  15.3 s, one package reinstalled, interpreter and `pyvenv.cfg` untouched, healthy again. **Cache damage:** one byte of the cached
+  `tqdm/std.py` flipped (the environment's copy is a separate clone): downloads refused, exit 1 in 13.9 s, nothing downloaded, environment kept
+  (the damaged-cache copy reinstalled, receipt withdrawn), message and double question then defective (fixed); downloads allowed 15.2 s:
+  `Removed 42 files (324.0KiB)`, fetched again, every file matches, the cache entry back to its digest. **Relocation:** the folder moved;
+  stage 0 offline behind a dead proxy refreshed the minor-version link (2.2 s); `.venv/bin/python` dangled (exit 127: the launcher defect,
+  fixed); repair offline 38.7 s, 166 packages cloned in 0.97 s, free space changed by 9 MiB for a 1.5 GiB environment, a stand-in engine
+  byte- and mtime-identical. **Interruption:** `home` broken, the repair started in its own session and its process group SIGKILLed 1.7 s in,
+  while `uv sync` ran (uv in a group of its own, ended by the lifeline with the guardian within 1.2 s; nothing of it left); next start
+  "an earlier environment repair did not finish"; recovery restored, rebuilt offline 39.9 s, engine identical. **Legacy:** a v0.8.1 shape
+  (a clone of the legacy interpreter, a pip `.venv` with its `.requirements-state.json`, a nested `-m venv` OmniVoice stand-in);
+  `app_owned_python()` the legacy interpreter; a broken lock rolled back in 2.7 s with the legacy `.venv`, engine and interpreter identical
+  (and, by a seeding mistake, an empty cache with downloads refused: rolled back in 2.4 s, identical); migration offline 34.7 s (166
+  cloned in 0.43 s, 316 MiB of disk for a 1.5 GiB environment), engine (6 files, 3 links) and legacy interpreter (2,032 files) byte- and
+  mtime-identical, the carried engine still runs on the legacy interpreter, `app_owned_python()` now the managed one. No real engine was
+  installed and nothing was synthesised: stand-ins only. **Distribution:** `release.py` from a disposable clone at a local commit of this
+  candidate: both ZIPs; the macOS one has 207 members with `pyproject.toml`, `uv.lock`, the download metadata, stage 0, launcher `0755`
+  LF, nothing excluded; extracted with `ditto`, stage 0 from the verified archives and an offline environment from a copied cache behind a
+  dead proxy: 34.4 s, 166 distributions. **Profiles:** user (no pytest) in every app copy; a new dev clone with the `dev` profile through the
+  repair route, 37.4 s (pytest 9.1.1, iniconfig, pluggy downloaded; 169 distributions; a damaged cache entry it inherited was found by the
+  RECORD proof and fetched again with consent). **Gate** (aggregate about 7.8 min): checkout `.venv` quick `7637` PASS; focused `8404` FAIL
+  (the real-uv test skipped: the pinned archives were absent; the verified 3B archives were cloned into `files/temp/bootstrap/`), `2d89`
+  PASS (243); the ten 3B selectors `5673` PASS (30, 9 policy skips, cleanup PASS, audit `active`); features ROUTINE-EFFECTS + SCRATCH
+  `160f` PASS (160); new dev environment quick `d393` PASS, focused `aaa9` FAIL (the session guard on the managed interpreter's stdlib
+  bytecode; fixed), `3c4c` PASS (789, 15 policy skips, 19/19 scope); final tree in the checkout `0dab` PASS (790, 14 policy skips, 19/19).
+  Direct checks: 8 `test_venv_recovery.py` failures identical on pristine `7a45222` (Windows-only tests, the owed portability drop);
+  the launcher test red on the old `.command`, green on the fix. **Global state** before/after identical (every default uv location, pip and
+  Python caches, `~/.local/bin`, PATH, the checkout's `.venv`, engine and runtime stores). **Downloads** about 0.43 GiB (base wheels about
+  0.34 GiB, FFmpeg pair 54 MB, CPython 24 MiB, uv 14.7 MB, NLTK 4.3 MB, pytest set, two tqdm refetches). **Disk:** `p4m/` reached 12 GiB
+  apparent (APFS clones counted in full); removing it freed 3.5 GiB physical, and the two failed runs' own gate scratch another 1.17 GiB. NOT RUN by design: full,
+  qualification, journeys, real engines, model downloads, synthesis, a standard-user account, a browser-quarantined ZIP.
+- **Phase 4 (HOME-PC, agent-reported, not independent).** Targeted tests: every module the changes touch, adapted and
   re-run directly on the final code, plus the new `test_uv_provisioning.py`. Real disposable scenarios in `C:\ACT-Dev\files\dev-work\p4s\`
   (removed afterwards; their logs summarised here), each with the pinned uv and managed Python, in folders named `Livres été` and
   `Fresh ü copy` (spaces and accents): **fresh cold install** from a test archive built by `release.py` (stage 0 downloads uv 15.6 MB and the
@@ -302,7 +372,8 @@ review. Items marked (?) could not be proven closed from the record and are kept
 
 ## Recent Checkpoints (newest first; cite by `git log`, not by tip)
 
-- Phase 4 — production uv-based base provisioning, D-6 fallback, D1-D3 gate corrections (this commit).
+- Phase 4 macOS acceptance — native verification on HOME-MacOS, five corrections, census, procedure retired (this commit).
+- 7a45222 Phase 4 — production uv-based base provisioning, D-6 fallback, D1-D3 gate corrections.
 - a44ad6d Phase 3B — native macOS uv feasibility, owner approvals of the Phase 3A proposals recorded.
 - c988bd3 Phase 3A — Windows uv feasibility: report, example projects, owner proposals.
 - b1a28d5 Phase 2 — classified repository cleanup, DOC-1 archival, simple manual retention.

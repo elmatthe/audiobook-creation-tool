@@ -240,8 +240,8 @@
       {
         "id": "native-macos-p1a",
         "pattern": "^(native\\ macOS\\ only\\ \\(P1A\\):\\ bash\\ 3\\.2\\ stage\\ 0,\\ POSIX\\ process\\ groups,\\ Mach\\-O\\ and\\ codesign\\ checks)$",
-        "max": 52,
-        "why": "v0.8.x P1A/P1B review: the macOS-native tests of P1A (stage 0 in bash 3.2, POSIX containment, Mach-O, codesign and the adopted Riedl build): 50 marked in test_bootstrap_host_macos.py (29), test_child_ownership.py (16: 10, plus P5-A's 6 tests of ending a group whose leader exited) and test_macos_foundation.py (5), plus the real aac_at decodes of test_macos_xhe_proof.py that skip at run time (1, and the AAC-LC control audiobook test when the owner's local file is present: 52 at most). Their Windows counterparts are the existing Windows suites; nothing Windows ran before is skipped by this rule."
+        "max": 55,
+        "why": "v0.8.x P1A/P1B review: the macOS-native tests of P1A (stage 0 in bash 3.2, POSIX containment, Mach-O, codesign and the adopted Riedl build): 53 marked in test_bootstrap_host_macos.py (32: Phase 4's uv stage 0 grew it from 29 to 31, and the Phase 4 macOS acceptance added the launcher's moved-copy repair route), test_child_ownership.py (16: 10, plus P5-A's 6 tests of ending a group whose leader exited) and test_macos_foundation.py (5), plus the real aac_at decodes of test_macos_xhe_proof.py that skip at run time (1, and the AAC-LC control audiobook test when the owner's local file is present: 55 at most). Their Windows counterparts are the existing Windows suites; nothing Windows ran before is skipped by this rule."
       },
       {
         "id": "native-macos-p1b",

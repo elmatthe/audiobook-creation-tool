@@ -24342,7 +24342,7 @@
         "The base environment is installed only by `uv sync --locked` of the root pyproject.toml and uv.lock (one lock for Windows x86-64 and Apple Silicon macOS), with the pinned uv 0.13.10 on exactly the managed CPython 3.12.15, an explicit user or dev profile, link mode copy on Windows and clone on macOS (never a hard link), and bytecode compiled at install",
         "Every locked artifact carries its SHA-256, the two source-only builds are hash-pinned too, and uv refuses a file whose hash differs; the lock is a parity translation of the v0.8.1 hash locks (same releases, same hashes)",
         "Every uv call runs through scripts/shared/uv_runner.py: inherited UV_/PIP_/PYTHON*/SSL_CERT_ and activation settings are dropped, uv's cache, Python downloads and scratch stay inside the app folder, and a sync targets only .venv or an engine environment under .venv-engines",
-        "A sync runs offline from the persistent repair cache (files/runtime-data/uvc) first; only when the cache lacks a file is the person asked, once and on the main thread, and a yes syncs online once; a no, no one to ask, or any other failure downloads nothing",
+        "A sync runs offline from the persistent repair cache (files/runtime-data/uvc) first; only when the cache lacks a file is the person asked, once and on the main thread (a person's answer stands for the rest of that process), and a yes syncs online once; a no, no one to ask, or any other failure downloads nothing",
         "A package whose kept files are themselves damaged is fetched again only after consent, and only after its cache entries are removed (uv cache clean <package>), since a revalidation alone reinstalls the same damaged unpacked files; a no removes and downloads nothing",
         "The cache is tidied (uv cache prune) only after a real successful sync, never after a failed one",
         "The dev profile adds the dev group, whose one pytest pin is the gate's only pytest pin; a chosen profile is kept by every sync and never inferred from pytest",
@@ -26115,7 +26115,7 @@
       ],
       "contracts": [
         "Run without its scripts/ folder beside it (Gatekeeper App Translocation or a copied .command), it explains how to move the folder and keeps the window open",
-        "With an executable .venv/bin/python it runs --launch-only in the foreground; exit 3 takes the repair route and a present but unrunnable interpreter is also repaired",
+        "With an executable .venv/bin/python it runs --launch-only in the foreground; exit 3 takes the repair route and a present but unrunnable interpreter is also repaired, including a .venv/bin/python link left dangling by a moved or copied folder (v0.8.2 Phase 4 macOS acceptance)",
         "First run and repair run stage 0 (bootstrap_host_macos.sh, bash 3.2), which proves or, with consent, downloads the app's own Python, and setup then runs on that interpreter only: no Python on PATH, no Homebrew, no login password and no headless fallback (v0.8.x P1A, D1/D2)",
         "After a successful launch a detached helper closes the Terminal window without the 'terminate running processes' prompt"
       ],
@@ -29242,7 +29242,7 @@
   ],
   "source_review": {
     "Setup_and_Run-audiobook-creation-tool.bat": "11f57d7a996d1ad7e49d5f90646e745dd1e317fb32a1a78b10b72d1300b2c3ec",
-    "Setup_and_Run-audiobook-creation-tool.command": "6cd08e79f9e89b5323367147b1d05b17353572e2613465db5053e492bee8ee18",
+    "Setup_and_Run-audiobook-creation-tool.command": "f5fc6c1a36f5aac90e1edf6abadb38330d979c94ee6aadec2d9eefe6866e529d",
     "scripts/artwork/__init__.py": "f80bd6a1c3c51bd518d6aecc063e654d4c629de6dc85c627483bda87485fb400",
     "scripts/artwork/cover_resizer.py": "54e6a6242a774e63abdef4c499ca1665ece7395e8d744b6a4f7b5874262c6214",
     "scripts/artwork/m4b_artwork.py": "3e509b1be7fcf736bc1509042531dedb4eaeb566195e897e6f6adc0e3bbc1b81",
@@ -29291,7 +29291,7 @@
     "scripts/shared/base_packages.py": "488605d6f4dc545c1809c07fc6587810cbf1c272fdc65b5a3563c7052ff7729d",
     "scripts/shared/book_workspace.py": "1d9f91bf97d33ca45af9ee344286dfb803a790ccac683aeb03acaf042e35e43b",
     "scripts/shared/book_workspace_ui.py": "e6eca05cecd79854b412af6d4d9c3469dbcb5ac614d9fd44752b0cc7103fb553",
-    "scripts/shared/bootstrap.py": "2f663f904be74e2b0d2b31c23e5f7ab1e1735b643dac675a6d0fb145028dccf2",
+    "scripts/shared/bootstrap.py": "472360788dc76121809cb103172e96ffc112d78a9104f86adfb69739af68c497",
     "scripts/shared/bootstrap_host.ps1": "612bf139092e955f4b6ee16a3ee533a086fb68a0790f771311b1c768c83f4fd5",
     "scripts/shared/bootstrap_host_fallback.cmd": "45e335ea28856ec4974e570cd41fb612b81f11bf617f217346fbf1411ed5f341",
     "scripts/shared/bootstrap_host_macos.sh": "62d1fdae0c84438aee60da85ed5974652b0d4c80b87625c72ca92f5ffcecc973",
@@ -29343,7 +29343,7 @@
     "scripts/shared/spacy_store.py": "089d966bc82296250c97fa98014ea8a269945f1a237064b24d26a050dd4d42f2",
     "scripts/shared/subprocess_utils.py": "0448a626eb11ca69e6be944810c7c412b12d77787aa991809b49707b119d1a3d",
     "scripts/shared/ui_theme.py": "6c60ddc9dbc0768e4fef051c38daa7e9979d790471c560cf4a56c1b58d46d2ef",
-    "scripts/shared/uv_runner.py": "ce3331911779eb647d8f7b8f61dac1ca820ac0e42c330767bd913e29dcd3fee9",
+    "scripts/shared/uv_runner.py": "ddf6f88997713c93c9cdd0b7fd8387debb0d3af3c310d77976683a58b72eddbc",
     "scripts/shared/venv_integrity.py": "5230492addc4a0c00c37cc0e3b6094648b521a92f4791ec63aa7b55c35e1adec",
     "scripts/shared/venv_layout.py": "b474c32339b41b79025234bc22c07b286992e74c48572eeea357de473d1aa86b",
     "scripts/shared/version.py": "ebe5a97fa55cc98347f8a9d3a9d8e4238b36ea6373cac1cc08761ab98149a67f",
@@ -32365,6 +32365,14 @@
         "class": "native",
         "why": "its routine tests run natively on macOS and pass"
       },
+      "ACT.GATE.ROUTINE-EFFECTS": {
+        "tests": {
+          "pass": 8
+        },
+        "skipped_by": {},
+        "class": "native",
+        "why": "v0.8.2 Phase 4 macOS (HOME-MacOS, run 2026-11-27_192717_focused_160f): the feature was created in Phase 1A-1, after the P1B census, and never received a macOS standing; its 8 behaviour tests run natively on macOS and pass (the routine guard is installed by conftest.py in every pytest process on both platforms)"
+      },
       "ACT.GATE.GUARDED": {
         "tests": {
           "pass": 3
@@ -32434,15 +32442,11 @@
       },
       "ACT.GATE.SCRATCH": {
         "tests": {
-          "pass": 3,
-          "fail": 1
+          "pass": 4
         },
         "skipped_by": {},
-        "failing": [
-          "files/tests/test_gate_scratch_exception.py::test_a_child_whose_owner_process_still_runs_is_active_and_one_whose_owner_ended_is_abandoned"
-        ],
-        "class": "native-with-failures",
-        "why": "its tests run natively; 1 fail on macOS, all of them failing before P1B too (baseline)"
+        "class": "native",
+        "why": "its routine tests run natively on macOS and pass; the one P1B baseline failure (no POSIX owner liveness, D3) was corrected in v0.8.2 Phase 4 and passes natively (run 2026-11-27_192717_focused_160f)"
       },
       "ACT.GATE.VISUAL-BASELINES": {
         "tests": {

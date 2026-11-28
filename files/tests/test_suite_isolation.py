@@ -283,6 +283,73 @@ def test_a_new_cache_folder_in_a_nested_managed_stdlib_package_is_excused(tmp_pa
     assert conftest._fingerprint_named("the real runtime data", root) == before
 
 
+def _managed_like_macos(root):
+    """v0.8.2 Phase 4 macOS acceptance: uv's managed interpreter in the Apple Silicon layout (``lib/python3.12``, the cache
+    tag named by ``lib/libpython3.12.dylib``), beside the Windows-shaped legacy folder of ``_runtime_data_like``."""
+    home = root.joinpath(*conftest._MANAGED_PYTHON_PARTS_MACOS)
+    stdlib = home / "lib" / "python3.12"
+    (stdlib / "json" / "__pycache__").mkdir(parents=True)
+    (stdlib / "json" / "decoder.py").write_text("x", encoding="utf-8")
+    (stdlib / "site-packages" / "pip" / "__pycache__").mkdir(parents=True)
+    (stdlib / "site-packages" / "pip" / "util.py").write_text("x", encoding="utf-8")
+    (home / "lib" / "libpython3.12.dylib").write_bytes(b"dylib")
+    return home
+
+
+def test_the_macos_managed_interpreter_folder_is_the_pinned_one():
+    from shared import uv_runner
+
+    assert conftest._MANAGED_PYTHON_PARTS_MACOS == ("uv", "python", uv_runner.pins("darwin").python_key)
+    assert conftest._MANAGED_MINOR_LINK_PARTS_MACOS == ("uv", "python", uv_runner.pins("darwin").python_minor_key)
+
+
+def test_the_macos_managed_pythons_own_first_import_bytecode_is_excused_and_nothing_else(tmp_path):
+    """Found natively: from a new uv dev environment on HOME-MacOS, a test's ``-m venv`` made the managed interpreter
+    compile its standard library (``venv``, ``ensurepip``, ``xmlrpc`` ...) and the session guard failed the run."""
+    root = _runtime_data_like(tmp_path)
+    home = _managed_like_macos(root)
+    assert conftest._bundled_cache_tag(root) == "cpython-312"
+    before = conftest._fingerprint_named("the real runtime data", root)
+    stdlib = home / "lib" / "python3.12"
+    (stdlib / "json" / "__pycache__" / "decoder.cpython-312.pyc").write_bytes(b"x")
+    (stdlib / "xmlrpc").mkdir()
+    (stdlib / "xmlrpc" / "client.py").write_text("x", encoding="utf-8")
+    after_source = conftest._fingerprint_named("the real runtime data", root)
+    assert after_source != before, "a new source file is not bytecode"
+    (stdlib / "xmlrpc" / "__pycache__").mkdir()
+    (stdlib / "xmlrpc" / "__pycache__" / "client.cpython-312.pyc").write_bytes(b"x")
+    assert conftest._fingerprint_named("the real runtime data", root) == after_source
+    (stdlib / "site-packages" / "pip" / "__pycache__" / "util.cpython-312.pyc").write_bytes(b"x")
+    assert conftest._fingerprint_named("the real runtime data", root) != after_source, "site-packages is never excused"
+
+
+def test_macos_bytecode_seen_through_uvs_minor_version_link_is_excused_and_a_foreign_tag_is_not(tmp_path):
+    root = _runtime_data_like(tmp_path)
+    home = _managed_like_macos(root)
+    link = root.joinpath(*conftest._MANAGED_MINOR_LINK_PARTS_MACOS)
+    if sys.platform == "win32":
+        import _winapi
+
+        _winapi.CreateJunction(str(home), str(link))
+    else:
+        link.symlink_to(home, target_is_directory=True)
+    before = conftest._fingerprint_named("the real runtime data", root)
+    cache = home / "lib" / "python3.12" / "json" / "__pycache__"
+    (cache / "decoder.cpython-312.pyc").write_bytes(b"x")
+    assert conftest._fingerprint_named("the real runtime data", root) == before
+    (cache / "decoder.cpython-313.pyc").write_bytes(b"x")
+    assert conftest._fingerprint_named("the real runtime data", root) != before, "another interpreter's tag counts"
+
+
+def test_a_macos_managed_interpreter_disagreeing_on_the_tag_excuses_nothing(tmp_path):
+    root = _runtime_data_like(tmp_path)
+    home = _managed_like_macos(root)
+    (home / "lib" / "libpython3.12.dylib").rename(home / "lib" / "libpython3.13.dylib")
+    assert conftest._bundled_cache_tag(root) is None
+    (home / "lib" / "libpython3.13.dylib").unlink()
+    assert conftest._bundled_cache_tag(root) is None, "a present interpreter folder naming no tag excuses nothing"
+
+
 def test_the_two_interpreters_must_agree_on_the_cache_tag(tmp_path):
     root = _runtime_data_like(tmp_path)
     home = _managed_like(root)

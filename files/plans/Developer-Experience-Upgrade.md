@@ -10,9 +10,13 @@
 > **Phase 3A completed (2026-11-27):** Windows uv feasibility on HOME-PC, agent-verified; the record is under Phase 3 and the full report is `files/plans/ACT-v0.8.2-Phase3A-Windows-uv-Feasibility.md`. A1, A2, A4/D-8 and the uv pin await the owner; nothing in production changed. No revision of requirements.
 > **Revision 7 (2026-11-27, Phase 3B): owner approvals of the Phase 3A proposals recorded, and native macOS feasibility completed on HOME-MacOS** (agent-verified). Approved: uv 0.13.10 (subject to native macOS compatibility: proved); A2 (exact pinned CPython/PBS build through ACT-owned download metadata); A1 (independent sibling engine environments `ACT_ROOT/.venv-engines/<engine>/`, the base stays `ACT_ROOT/.venv/`; the engine part of the 2026-11-13 nested layout is superseded); A4/D-8 (Windows `copy`, base repair cache retained, no persistent Qwen3/OmniVoice package cache by default; macOS `clone` subject to native proof: proved); bytecode compiled at install; the Windows OmniVoice installation proof moves to 5B; native macOS feasibility before Phase 4 (done). Offline-repair limits for engines whose artifacts are not retained stay documented. The 3B record is under Phase 3; the report is `files/plans/ACT-v0.8.2-Phase3B-macOS-uv-Feasibility.md`. Phase 4 is next.
 
-> **Revision 8 (2026-11-27, Phase 4): production uv-based base provisioning implemented** (agent-verified on Windows; native macOS verification
-> pending, `files/plans/ACT-v0.8.2-Phase4-macOS-Verification.md`). The owner approved D-6 (a contained `curl.exe`/`certutil`/`tar.exe`
-> fallback, no PATH Python) in the Phase 4 prompt. The record is under Phase 4; the next step is the macOS verification, then Phase 5A.
+> **Revision 8 (2026-11-27, Phase 4): production uv-based base provisioning implemented** (agent-verified on Windows). The owner approved
+> D-6 (a contained `curl.exe`/`certutil`/`tar.exe` fallback, no PATH Python) in the Phase 4 prompt. The record is under Phase 4.
+> **Revision 9 (2026-11-27, Phase 4 native macOS acceptance on HOME-MacOS):** the macOS verification procedure ran (agent-run, owner-supervised
+> app launch, not independent): every step PASS after five small corrections (the moved-copy launcher route, the test guard's macOS stdlib
+> bytecode, a person's download answer asked once, and two message fixes), D1-D3 confirmed natively, the census gap closed. The temporary
+> procedure file was retired after its results were recorded (Phase 4 record, `Handoff.md`). **Phase 4 is complete; next is Phase 5A on
+> HOME-PC**, after the small Windows regression the macOS corrections owe (Handoff).
 > **Revision 5 amendment R1 (2026-11-25):** Phase 1A-1 failed independent review; the R1 remediation corrected its contracts without changing this architecture (record under 1A-1).
 > **Revision 5 amendment R3 (2026-11-27):** the R2 remediation failed its independent review; R3 corrected six bounded groups (startup and launch admission, synthetic outputs and stage 0, independent accounting and explained stops, privacy, the Qwen3 selfcheck, documentation) without changing this architecture (record under 1A-1).
 > **Revision 5 amendment R2 (2026-11-26):** the R1 remediation failed its independent review; after a compatibility discovery and planning stop, the owner decided D-R2-1 to D-R2-5 and R2 corrected the remaining contracts without changing this architecture (record under 1A-1).
@@ -421,10 +425,24 @@ Every checkpoint follows §2. Each is separately reviewed; sub-checkpoints are i
   missing RECORD is damage), the five resolver consumers, `release.py` (ships `pyproject.toml` and `uv.lock`), the gate (pytest pin source,
   D1-D3). **Exit criteria on Windows: met** (base env only by uv; legacy engine route proved on the fresh and the legacy layout; migration
   and rebuild leave a disposable engine and the legacy interpreter byte- and mtime-identical; the test archive carries the base project and
-  lock; seams with removal criteria in `Handoff.md`). **macOS: implemented, PENDING native verification.** Real-run defects found and fixed:
+  lock; seams with removal criteria in `Handoff.md`). Real-run defects found and fixed:
   stage 0 garbled a Unicode folder name (pre-existing), uv's real offline-miss wording, `--refresh-package` reused a damaged unpacked archive
   (now `uv cache clean <package>` after consent), the test guard's stdlib-bytecode exception missed the managed interpreter. Evidence:
   `Handoff.md` "Verification and Evidence", Phase 4.
+- **Record, macOS (Revision 9, 2026-11-27, HOME-MacOS, Apple Silicon; agent-run, one owner-supervised app launch, not independent).**
+  Candidate `7a45222` plus this checkpoint's corrections. The temporary procedure (`ACT-v0.8.2-Phase4-macOS-Verification.md`, now retired)
+  ran in disposable copies under `files/dev-work/p4m/` (folders `Livres été`, `Moved été`, a legacy-shaped copy, a new dev clone, a
+  distribution extract): cold consented stage 0 (pinned uv and CPython 3.12.15 downloaded and verified, 6.0 s; Tk 9.0.4 aqua, OpenSSL 3.5.9,
+  no quarantine), cold user-profile setup 44.4 s, warm stage 0 0.3-0.4 s, the real launcher's window (owner-supervised), APFS clone,
+  offline targeted repair, damaged-cache recovery with consent, offline relocation, interrupted-repair recovery, legacy v0.8.1 migration with
+  a rolled-back failure, the legacy engine and interpreter byte- and mtime-identical, the legacy OmniVoice interpreter resolution before and
+  after migration, no global writes, a complete distribution archive that installs offline, and the gate from a new uv dev environment.
+  **Exit criteria on macOS: met.** Native defects found and fixed: the `.command` sent a moved copy (its `.venv/bin/python` is uv's absolute
+  link, left dangling) through first-time setup instead of the repair; the test guard did not excuse the macOS managed interpreter's own
+  first-import stdlib bytecode (a new uv dev environment failed every gate run that starts its base interpreter); a repair asked the same
+  download question twice; plus the Windows-reported minor findings (rebuild wording, headless Tk summary, `--` passthrough, the import retry).
+  Census: `ACT.GATE.ROUTINE-EFFECTS` given its native macOS standing, `ACT.GATE.SCRATCH` corrected to native (D3). Owed: a small Windows
+  regression on HOME-PC (Handoff). Phase 4 is complete; Phase 5A is next.
 
 ### 5A — Engine registry and shared provisioning/worker foundations; migrate Qwen3
 

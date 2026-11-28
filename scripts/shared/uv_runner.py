@@ -549,7 +549,8 @@ def _main(argv: Optional[Sequence[str]] = None) -> int:
             command = lock_command(root, check=args.action == "check-lock")
             env = environment(root, operation)
         else:
-            extra = [arg for arg in args.args if arg != "--"] if args.args[:1] == ["--"] else list(args.args)
+            # Only the separator itself is dropped; a later "--" belongs to uv (e.g. `uv run -- cmd`).
+            extra = list(args.args[1:]) if args.args[:1] == ["--"] else list(args.args)
             command = [str(uv_exe(root)), *extra]
             env = environment(root, operation)
         return run(command, env)

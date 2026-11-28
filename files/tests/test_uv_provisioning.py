@@ -507,6 +507,29 @@ def test_a_worker_thread_never_creates_tk_and_asks_through_the_window_that_owns_
     assert bootstrap._ask_download_consent(lambda line: None, "why") is True, "setup itself already consented"
 
 
+def test_a_persons_answer_is_asked_once_per_process_and_a_no_without_anyone_to_ask_is_not_kept(monkeypatch):
+    """Found natively on HOME-MacOS (Phase 4, damaged-cache repair with downloads refused): the in-place repair asked,
+    the rebuild route that followed asked the same question again. A person's answer now stands for the process; a No
+    given only because no window could ask is not remembered, so a later window still asks."""
+    import threading
+
+    monkeypatch.setattr(bootstrap, "_DOWNLOAD_ALLOWED", None)
+    asked: list[str] = []
+
+    def on_worker(asker):
+        monkeypatch.setattr(bootstrap, "_CONSENT_ASKER", asker)
+        result: list[bool] = []
+        worker = threading.Thread(target=lambda: result.append(bootstrap._ask_download_consent(lambda line: None, "x")))
+        worker.start()
+        worker.join(10)
+        return result[0]
+
+    assert on_worker(None) is False and bootstrap._DOWNLOAD_ALLOWED is None, "nobody answered: nothing is kept"
+    assert on_worker(lambda question: asked.append(question) or False) is False
+    assert on_worker(lambda question: asked.append(question) or True) is False, "the person's No stands"
+    assert len(asked) == 1, "asked exactly once"
+
+
 # --------------------------------------------------------------------------- #
 # H. A damaged package is reinstalled in place before anything is rebuilt
 # --------------------------------------------------------------------------- #
@@ -554,3 +577,49 @@ def test_other_reasons_go_straight_to_the_rebuild(repair_route, monkeypatch, rea
     repair_route.verdicts.append(bootstrap.VenvHealth(bootstrap.VENV_REPAIRABLE, reason, "x", executes=True))
     bootstrap.repair_venv(_Log(), headless=True)
     assert repair_route.repaired == [] and repair_route.rebuilt == ["rebuild"]
+
+
+# --------------------------------------------------------------------------- #
+# Small Phase 4 corrections found on HOME-PC, closed on HOME-MacOS
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize("argv, expected", [
+    (["uv", "--", "run", "--", "python", "-V"], ["run", "--", "python", "-V"]),
+    (["uv", "run", "--", "python", "-V"], ["run", "--", "python", "-V"]),
+    (["uv", "--", "--version"], ["--version"]),
+])
+def test_the_developer_passthrough_drops_only_the_separator(monkeypatch, argv, expected):
+    """Minor finding 3: every "--" used to be stripped once the first was the separator, so `uv run -- cmd` lost the
+    one uv needs. Nothing runs: uv's start is recorded, and the operation scratch is a stand-in."""
+    started: list[list[str]] = []
+
+    class _Operation:
+        def __init__(self, root):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(uv_runner, "uv_problem", lambda root, platform=None: "")
+    monkeypatch.setattr(uv_runner, "Operation", _Operation)
+    monkeypatch.setattr(uv_runner, "environment", lambda root, operation, **kw: {})
+    monkeypatch.setattr(uv_runner, "run", lambda command, env, **kw: started.append(list(command)) or 0)
+    assert uv_runner._main(argv) == 0
+    assert started[0][1:] == expected
+
+
+@pytest.mark.parametrize("tk_works", [True, False])
+def test_the_headless_summary_says_what_the_environment_really_has(monkeypatch, tk_works):
+    """Minor finding 2: headless setup always said the window "needs Tk, which is not available", also on a Python whose
+    Tk works (seen natively on HOME-MacOS, Phase 4). The summary now follows a real Tk proof of the environment."""
+    lines: list[str] = []
+    monkeypatch.setattr(bootstrap, "LOG", SimpleNamespace(line=lines.append, close=lambda: None))
+    monkeypatch.setattr(bootstrap, "run_setup", lambda progress, log, headless: (True, "Setup complete."))
+    monkeypatch.setattr(bootstrap, "_tcl_tk_ok", lambda py: tk_works)
+    assert bootstrap._run_headless(skip_kokoro=True) == 0
+    text = "\n".join(lines)
+    assert "Tk is unavailable" not in text
+    assert ("needs Tk" in text) is (not tk_works)
+    assert ("The app window can start" in text) is tk_works

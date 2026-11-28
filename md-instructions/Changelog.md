@@ -31,7 +31,7 @@ down moved unchanged, byte for byte, to [v0.6.7 to v0.7.3](../files/documentatio
 
 ## [0.8.2] - unreleased (development branch `0.8.2`; nothing is tagged, merged or published)
 
-**Changed (setup and repair install the app with uv, v0.8.2 Phase 4, 2026-11-27; verified on Windows, macOS verification pending)**
+**Changed (setup and repair install the app with uv, v0.8.2 Phase 4, 2026-11-27; verified natively on Windows and macOS)**
 - The app's own Python is now uv's managed CPython 3.12.15, kept in `files/runtime-data/uv` with the pinned uv 0.13.10; setup asks before
   downloading them, checks both against pinned hashes and installs nothing on the computer.
 - The app's packages come from one locked project (`pyproject.toml` and `uv.lock`, both now in the release ZIP) and are installed from a
@@ -43,10 +43,18 @@ down moved unchanged, byte for byte, to [v0.6.7 to v0.7.3](../files/documentatio
 
 **Fixed (v0.8.2 Phase 4)**
 - Windows first-run setup failed in a folder whose name has accented letters (for example `Livres été`).
+- macOS: a copy of the app that was moved or copied to another folder ran first-time setup again on its next start; it is now repaired in
+  place, keeping its voice engines (Phase 4 macOS acceptance).
+- A repair that you allowed no downloads for asked the same download question a second time; your answer now stands for that start.
+- A repair whose new environment could not get its packages said the environment "was rebuilt"; it now says the rebuild could not be
+  done, and whether the previous environment was put back. A headless setup no longer claims Tk is missing when it works.
+- When two required packages fail to import after setup, each one now gets its own targeted reinstall (once each).
 
 **Changed (development, v0.8.2 Phase 4)**
 - Developers choose the dev profile with `python scripts/shared/bootstrap.py --profile dev`; the gate reads its pytest pin from
-  `pyproject.toml`'s `dev` group. Gate corrections D1-D3 (macOS process-group cleanup, a Windows-only contract test, POSIX scratch ownership).
+  `pyproject.toml`'s `dev` group. Gate corrections D1-D3 (macOS process-group cleanup, a Windows-only contract test, POSIX scratch ownership), confirmed on macOS.
+  The developer `uv` passthrough keeps a later `--` (only the separator is dropped). On macOS a new uv dev environment runs the gate (the
+  test guard excuses its interpreter's own standard-library bytecode).
 
 **Changed (repository cleanup, v0.8.2 Phase 2, 2026-11-27; the app is unchanged)**
 - The long history documents are split, unchanged: Decisions entries from before v0.8.0 and Changelog sections from 0.7.3 down now live in

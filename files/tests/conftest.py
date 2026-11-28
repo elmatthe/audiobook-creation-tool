@@ -288,9 +288,19 @@ _MANAGED_PYTHON_PARTS = ("uv", "python", "cpython-3.12.15-windows-x86_64-none")
 #: uv's minor-version junction beside it (``WINDOWS.python_minor_key``), which points at that same folder. The walk follows
 #: links, so the same first-import bytecode is also seen through it (found by the Phase 4 focused run).
 _MANAGED_MINOR_LINK_PARTS = ("uv", "python", "cpython-3.12-windows-x86_64-none")
+#: v0.8.2 Phase 4 macOS acceptance: the same two names on Apple Silicon (``MACOS.python_key`` / ``python_minor_key``).
+#: The Windows-only names left a Mac checkout whose dev ``.venv`` is uv's failing the session guard on the managed
+#: interpreter's own first-import stdlib bytecode (found natively from a new uv dev environment on HOME-MacOS).
+_MANAGED_PYTHON_PARTS_MACOS = ("uv", "python", "cpython-3.12.15-macos-aarch64-none")
+_MANAGED_MINOR_LINK_PARTS_MACOS = ("uv", "python", "cpython-3.12-macos-aarch64-none")
 #: The standard-library folders whose first-import bytecode is excused: the legacy ``python/Lib`` (v0.7.0 to v0.8.1,
-#: still the base of engines built on it) and the managed interpreter's ``Lib``, by its own name and through uv's link.
-_STDLIB_PREFIXES = (("python", "Lib"), (*_MANAGED_PYTHON_PARTS, "Lib"), (*_MANAGED_MINOR_LINK_PARTS, "Lib"))
+#: still the base of engines built on it) and the managed interpreter's ``Lib``, by its own name and through uv's link;
+#: on macOS the managed interpreter's ``lib/python3.12``, likewise.
+_STDLIB_PREFIXES = (("python", "Lib"), (*_MANAGED_PYTHON_PARTS, "Lib"), (*_MANAGED_MINOR_LINK_PARTS, "Lib"),
+                    (*_MANAGED_PYTHON_PARTS_MACOS, "lib", "python3.12"),
+                    (*_MANAGED_MINOR_LINK_PARTS_MACOS, "lib", "python3.12"))
+#: The macOS interpreter names its cache tag in its shared library (``lib/libpython3.12.dylib``), Windows in its DLL.
+_PYTHON_DYLIB = re.compile(r"libpython3\.(\d+)\.dylib")
 
 
 def _bundled_cache_tag(root: Path):
@@ -299,15 +309,23 @@ def _bundled_cache_tag(root: Path):
     Read from the bundled interpreter's own DLL name, not from the interpreter running the tests, so a test Python of
     another version cannot make the wrong cache look right. No DLL means no tag, and then nothing is excused. v0.8.2
     Phase 4: both of the copy's own interpreter folders (legacy and managed) are read; each one present must hold
-    exactly one DLL, and they must agree, or nothing is excused.
+    exactly one DLL, and they must agree, or nothing is excused. macOS (Phase 4 macOS acceptance): an interpreter folder
+    names its tag by ``lib/libpython3.N.dylib`` instead; the macOS managed folder is read too, under the same rules.
     """
     tags: set = set()
-    for folder in (Path(root) / "python", Path(root).joinpath(*_MANAGED_PYTHON_PARTS)):
-        try:
-            with _REAL_SCANDIR(folder) as entries:
-                found = sorted(match.group(1) for entry in entries if entry.is_file()
-                               for match in [_PYTHON_DLL.fullmatch(entry.name)] if match)
-        except OSError:
+    for folder in (Path(root) / "python", Path(root).joinpath(*_MANAGED_PYTHON_PARTS),
+                   Path(root).joinpath(*_MANAGED_PYTHON_PARTS_MACOS)):
+        found: list = []
+        present = False
+        for place, pattern in ((folder, _PYTHON_DLL), (folder / "lib", _PYTHON_DYLIB)):
+            try:
+                with _REAL_SCANDIR(place) as entries:
+                    present = present or place == folder
+                    found += [match.group(1) for entry in entries if entry.is_file()
+                              for match in [pattern.fullmatch(entry.name)] if match]
+            except OSError:
+                continue
+        if not present:
             continue
         if len(found) != 1:
             return None

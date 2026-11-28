@@ -573,3 +573,45 @@ def test_the_real_uv_installs_the_real_pinned_python_offline_and_it_works(app):
     assert proof.stdout.split()[1:] == ["aqua", "arm64", "3.12.15"], proof.stdout + proof.stderr
     assert (app.python_home / "BUILD").read_text().strip() == uv_runner.PYTHON_BUILD
     assert app.leftovers() == []
+
+
+# --------------------------------------------------------------------------- #
+#  The launcher's route for a moved copy (v0.8.2 Phase 4, found natively)
+# --------------------------------------------------------------------------- #
+LAUNCHER = REPO_ROOT / "Setup_and_Run-audiobook-creation-tool.command"
+
+
+def _launcher_sandbox(root: Path, venv_python_link: str | None) -> Path:
+    """The real launcher beside a stand-in stage 0 (it names a stand-in app Python) and that Python, which records the
+    arguments it was started with. Nothing real is set up or launched."""
+    shared = root / "scripts" / "shared"
+    shared.mkdir(parents=True)
+    shutil.copy2(LAUNCHER, root / LAUNCHER.name)
+    record = root.parent / "app-python.args"
+    fake_python = root.parent / "fake python3.12"
+    fake_python.write_text(f"#!/bin/bash\nprintf '%s\\n' \"$*\" >> {shlex.quote(str(record))}\nexit 0\n")
+    fake_python.chmod(0o755)
+    (shared / STAGE0.name).write_text(
+        "#!/bin/bash\n"
+        '[ "$1" = --out-file ] || exit 3\n'
+        'mkdir -p "$(dirname "$2")" && printf \'%s\' ' + shlex.quote(str(fake_python)) + ' > "$2"\n')
+    if venv_python_link is not None:
+        (root / ".venv" / "bin").mkdir(parents=True)
+        (root / ".venv" / "bin" / "python").symlink_to(venv_python_link)
+    return record
+
+
+def test_a_moved_copy_whose_environment_python_link_dangles_is_repaired_not_set_up_again(tmp_path):
+    """uv's macOS environment links .venv/bin/python to the app Python's absolute path. After the folder is moved that
+    link dangles, so both [ -x ] and [ -e ] are false and the launcher used to run first-time setup on an installed
+    copy. It must take the bounded --repair-venv route; a copy with no environment at all still gets first-time setup."""
+    moved = tmp_path / "moved" / "ACT été"
+    moved_record = _launcher_sandbox(moved, str(tmp_path / "old place" / "python3.12"))
+    fresh = tmp_path / "fresh" / "ACT"
+    fresh_record = _launcher_sandbox(fresh, None)
+    for root in (moved, fresh):
+        done = subprocess.run(["/bin/bash", str(root / LAUNCHER.name)], capture_output=True, text=True, timeout=60,
+                              stdin=subprocess.DEVNULL, env={"PATH": "/usr/bin:/bin", "HOME": str(tmp_path)})
+        assert done.returncode == 0, done.stdout + done.stderr
+    assert moved_record.read_text().splitlines() == ["scripts/shared/bootstrap.py --repair-venv"]
+    assert fresh_record.read_text().splitlines() == ["scripts/shared/bootstrap.py"]

@@ -35,6 +35,7 @@ not listed is history, recoverable here and through Git.
 - 2026-11-22 — v0.8.2: Windows excuses the `files/dev-work/` "no colliding test basename" skip, and only that one.
 
 **Setup, environment and packaging**
+- 2026-11-27 — v0.8.2 Phase 4 macOS acceptance: a dangling `.venv/bin/python` link takes the repair route; a person's download answer stands for the process; the test guard excuses the macOS managed interpreter's stdlib bytecode; census standings for ROUTINE-EFFECTS and SCRATCH.
 - 2026-11-27 — v0.8.2 Phase 4: the base environment is provisioned only by uv (one wrapper, one locked base project, offline-first repair cache, receipts after RECORD and import proof); D-6 fallback approved and implemented; the legacy interpreter stays for engines through one resolver (supersedes 2026-10-31's local-store route for the base).
 - 2026-11-27 — v0.8.2 Phase 3B (macOS uv feasibility) and the owner's approvals: uv 0.13.10, A2 exact pinned build, A1 sibling engine environments `.venv-engines/<engine>/` (supersedes the engine part of 2026-11-13), A4/D-8 Windows copy and macOS clone, base repair cache kept, no GPU-engine cache by default, bytecode at install.
 - 2026-11-27 — v0.8.2 Phase 3A (Windows uv feasibility): uv 0.13.10 and an ACT-owned CPython 3.12.15+20261009 download pin reproduce today's interpreter and every locked artifact; A1 (siblings recommended), A2, A4/D-8 (copy) proposed to the owner.
@@ -83,6 +84,35 @@ entries moved unchanged, byte for byte and in their original order, to two per-e
 12 November 2026, with the eight late-appended entries at its end) and [v0.5.0 to v0.6.6](../files/documentation-history/decisions/Decisions-v0.5.0-to-v0.6.6.md)
 (July to September 2026). The ordering breaks above are in those files. The whole file before the split:
 `git show dabb02d:md-instructions/Decisions.md`.
+
+## 2026-11-27 — v0.8.2 Phase 4 macOS acceptance: corrections found natively on HOME-MacOS
+
+**Context.** The Phase 4 macOS verification procedure ran natively (agent-run, one owner-supervised app launch; evidence in `Handoff.md`).
+It found defects that the Windows run could not see; each was corrected in the smallest place, with a regression test.
+
+1. **A `.venv/bin/python` that is a link leading nowhere counts as present** in `Setup_and_Run-audiobook-creation-tool.command` (`[ -e ] ||
+   [ -L ]`). uv's macOS environment links it to the app Python's absolute path, so a moved or copied folder leaves it dangling; `[ -e ]`
+   alone sent that installed copy through first-time setup. It now takes `--repair-venv`, which rebuilds offline and carries the engines.
+   Windows is unaffected (its `python.exe` is a real file).
+2. **A person's download answer stands for the rest of that process** (`bootstrap._ask_download_consent`). A repair whose in-place attempt
+   was refused continues on the rebuild route, which reached the same question again. A No given only because nothing could ask (no
+   window, no console) is not remembered.
+3. **The test guard excuses the macOS managed interpreter's own first-import standard-library bytecode** (`conftest.py`:
+   `cpython-3.12.15-macos-aarch64-none/lib/python3.12` and uv's minor-version link, the tag read from `lib/libpython3.12.dylib`), exactly as
+   it already did on Windows. Without it every gate run from a new uv dev environment on a Mac failed once a test started its base
+   interpreter. Site-packages, foreign tags, links and anything else still count.
+4. **Census:** `ACT.GATE.ROUTINE-EFFECTS` (created in 1A-1 after the P1B census) gets its native macOS standing from a native run (8 of 8
+   pass); `ACT.GATE.SCRATCH` moves from native-with-failures to native (its one failure was D3). No other standing was touched.
+5. Smaller: the failed-rebuild wording, the headless Tk summary, the developer `--` passthrough and a bounded per-module import retry (one
+   targeted reinstall per failing module, none after a failed sync); the P1A skip ceiling raised to the counted 55.
+
+**Why.** A moved install must be repaired, not reinstalled; one question per start; the dev environment Phase 4 prescribes must be able to
+run the gate on both platforms.
+
+**Not changed.** VERSION 0.8.1; the containment guardian's ~1 s orderly exit after `--venv-check` (the Mac launcher does not call it); the
+launch health check's sampling (by design). Nothing merged, tagged or released.
+
+— Claude Code (Opus 5.5) under the owner's Phase 4 macOS acceptance prompt.
 
 ## 2026-11-27 — v0.8.2 Phase 4: the base environment is provisioned only by uv; D-6 approved and implemented; the legacy interpreter stays for engines through one resolver
 

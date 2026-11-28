@@ -86,7 +86,7 @@ files/
 - **Entry.** `Setup_and_Run-audiobook-creation-tool.bat/.command` runs a fast health check (about 150 ms) and launches the GUI; an unhealthy
   environment goes to repair. Windows launches on the venv's `python.exe` with a hidden console; `pythonw.exe` is never started because Smart App
   Control blocks it (Decisions 2026-11-18).
-- **Provisioning (v0.8.2 Phase 4; Windows verified, macOS native verification pending).** Stage 0 (`bootstrap_host.ps1` /
+- **Provisioning (v0.8.2 Phase 4; verified natively on Windows and macOS).** Stage 0 (`bootstrap_host.ps1` /
   `bootstrap_host_macos.sh`; when PowerShell cannot run, `bootstrap_host_fallback.cmd` with Windows' own curl, certutil and tar, owner
   decision D-6) obtains, with consent and pinned hashes, uv 0.13.10 and uv's managed CPython 3.12.15 (python-build-standalone 20261009,
   through ACT's own download metadata) into `files/runtime-data/uv`; nothing is installed on the computer and no Python found on it is used.
@@ -181,9 +181,9 @@ unknown paths and ACL-locked folders. Retention rules for agents' scratch and ga
 
 ## 11. Direction (Approved future; none of it is built)
 
-The active plan `files/plans/Developer-Experience-Upgrade.md` (Revision 8) sets the v0.8.2 direction: Phases 0 to 3 are done (documentation,
-the simplified verification gate, cleanup, uv feasibility on Windows and macOS); **Phase 4, base provisioning through uv, is implemented**
-(above; macOS native verification pending). Still to come: 5 an engine registry with Qwen3 and OmniVoice migrated to `.venv-engines/` and
+The active plan `files/plans/Developer-Experience-Upgrade.md` (Revision 9) sets the v0.8.2 direction: Phases 0 to 3 are done (documentation,
+the simplified verification gate, cleanup, uv feasibility on Windows and macOS); **Phase 4, base provisioning through uv, is done**
+(above; accepted natively on Windows and macOS). Still to come: 5 an engine registry with Qwen3 and OmniVoice migrated to `.venv-engines/` and
 Kokoro and Chatterbox Turbo **isolated** into their own environments, 6 migration and legacy retirement, 7 user-facing documentation and
 deterministic distributions (VERSION becomes 0.8.2 only then), 8 performance and native qualification readiness, 9 independent Codex review.
 **Not implemented today**: engine environments under `.venv-engines/`, isolated Kokoro or isolated Chatterbox on Windows. Do not duplicate
@@ -199,7 +199,8 @@ the plan here.
   `WORKSPACE-SCALING` features carry a pending macOS standing; no clean Apple Silicon Mac with 16 GB or more has been available.
 - **Security software.** Smart App Control blocks unsigned natives (sklearn `.pyd`, FFmpeg, `pythonw.exe`); a fresh venv can pull unsigned
   transitive wheels. WinError 206 appears on over-deep paths.
-- **uv provisioning (Phase 4).** Not yet run on a Mac; the PowerShell-blocked fallback's download path and a non-admin Windows account are
+- **uv provisioning (Phase 4).** One Mac only (HOME-MacOS, administrator; no standard user, fresh account or real browser-quarantined
+  ZIP); a moved Mac copy is repaired on its next start (its environment's interpreter link dangles until then); the PowerShell-blocked fallback's download path and a non-admin Windows account are
   untested; the launch health check samples one file per package, so deep pure-Python damage is found by the import proof (7-day window) or
   Preferences' Check and repair. A repair cache costs about 2 GB beside the 2.1 GB environment.
 - **Engines.** Two app copies can run Qwen3 and OmniVoice on one GPU together; OmniVoice outputs can reach full scale; Qwen3 is English-only

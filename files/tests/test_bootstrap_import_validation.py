@@ -101,6 +101,52 @@ def test_a_real_import_failure_reinstalls_within_the_lock(env, monkeypatch):
     assert _pip_calls(calls) == [], "no pip is ever started"
 
 
+def _imports(monkeypatch, broken: set):
+    """``_probe_import`` stand-in: the modules in *broken* fail until something reinstalls their distribution."""
+    monkeypatch.setattr(bootstrap, "_probe_import", lambda py, mod, timeout=30: mod not in broken)
+
+
+def test_a_second_failing_module_gets_its_own_targeted_reinstall(env, monkeypatch):
+    """v0.8.2 Phase 4 (minor finding 4): the first reinstall used to stop every later one, so a second module whose
+    cause lay in another distribution was reported broken without ever being repaired."""
+    monkeypatch.setattr(bootstrap, "REQUIRED_IMPORTS", ["nltk", "PIL", "fitz"])
+    broken = {"nltk", "PIL"}
+    _imports(monkeypatch, broken)
+    monkeypatch.setattr(bootstrap.venv_integrity, "record_damage", lambda venv, **kw: {})
+    synced: list[tuple] = []
+
+    def sync(log, reinstall=(), refresh=()):
+        synced.append(tuple(reinstall))
+        broken.difference_update({"nltk": "nltk", "pillow": "PIL"}.get(name, "") for name in reinstall)
+        return True
+
+    monkeypatch.setattr(bootstrap, "sync_base_packages", sync)
+    assert bootstrap.validate_installed_packages(_Log()) is True
+    assert synced == [("nltk",), ("pillow",)], "one targeted reinstall each, nothing for the module that imports"
+
+
+def test_the_retry_is_bounded_a_reinstalled_distribution_and_a_failed_sync_end_it(env, monkeypatch):
+    """Bounded by construction: never a second reinstall of the same distribution, and none at all after a sync has
+    failed (it would fail again and ask the same download question again)."""
+    monkeypatch.setattr(bootstrap, "REQUIRED_IMPORTS", ["nltk", "PIL", "fitz"])
+    _imports(monkeypatch, {"nltk", "PIL", "fitz"})
+    monkeypatch.setattr(bootstrap.venv_integrity, "record_damage", lambda venv, **kw: {"pillow": "x is missing"})
+    synced: list[tuple] = []
+    monkeypatch.setattr(bootstrap, "sync_base_packages",
+                        lambda log, reinstall=(), refresh=(): synced.append(tuple(reinstall)) or True)
+    log = _Log()
+    assert bootstrap.validate_installed_packages(log) is False
+    assert synced == [("nltk", "pillow"), ("pymupdf", "pillow")], "PIL's pillow was already reinstalled with nltk"
+
+    synced.clear()
+    monkeypatch.setattr(bootstrap, "sync_base_packages",
+                        lambda log, reinstall=(), refresh=(): synced.append(tuple(reinstall)) and False)
+    log = _Log()
+    assert bootstrap.validate_installed_packages(log) is False
+    assert synced == [("nltk", "pillow")], "a failed sync ends the retries"
+    assert sum("a reinstall has already failed" in line for line in log.lines) == 2
+
+
 def test_a_hung_import_is_still_a_failure_after_the_full_window(env, monkeypatch):
     _fake_run(monkeypatch, import_seconds=bootstrap.IMPORT_PROBE_TIMEOUT_S + 1)
     assert bootstrap.validate_installed_packages(_Log()) is False

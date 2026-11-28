@@ -131,9 +131,13 @@ if [ -x ".venv/bin/python" ]; then
         echo
         exit 1
     fi
-elif [ -e ".venv/bin/python" ]; then
+elif [ -e ".venv/bin/python" ] || [ -L ".venv/bin/python" ]; then
     # Present but not runnable at all. Bootstrap cannot report this from inside
     # itself, because it never gets to start, so the launcher has to notice.
+    # A link counts even when it leads nowhere: the environment's python is an
+    # absolute link to the app's own Python, so after the app folder is moved
+    # or copied it dangles, and [ -e ] alone would send a moved install through
+    # first-time setup instead of the repair (v0.8.2 Phase 4, found natively).
     NEEDS_VENV_REPAIR=1
 fi
 

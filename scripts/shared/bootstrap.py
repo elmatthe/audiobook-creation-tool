@@ -676,7 +676,12 @@ CONSENT_TITLE = "Audiobook Creation Tool - download components"
 
 
 def _ask_download_consent(log: Callable[[str], None], why: str) -> bool:
-    """Ask once before going online. A window when Tk works, the console when there is one, else no."""
+    """Ask once before going online. A window when Tk works, the console when there is one, else no.
+
+    A person's answer stands for the rest of this process (v0.8.2 Phase 4, found natively on HOME-MacOS): a repair
+    whose in-place attempt was refused goes on to the rebuild route, which reached the same question again, so a
+    person who said No was asked twice in one repair. A No only because nothing could ask is not remembered."""
+    global _DOWNLOAD_ALLOWED
     if _DOWNLOAD_ALLOWED is not None:
         return _DOWNLOAD_ALLOWED
     question = (f"{why}\n\nDownload them now ({BASE_DOWNLOAD_ESTIMATE} at most, from the Python Package Index; kept "
@@ -684,8 +689,11 @@ def _ask_download_consent(log: Callable[[str], None], why: str) -> bool:
     answer: Optional[bool] = None
     if threading.current_thread() is not threading.main_thread():
         asker = _CONSENT_ASKER
+        if asker is None:
+            log("  Download declined; nothing was downloaded (no window could ask).")
+            return False
         try:
-            answer = bool(asker(question)) if asker is not None else False
+            answer = bool(asker(question))
         except Exception:  # noqa: BLE001 - no answer is a No
             answer = False
     else:
@@ -705,7 +713,9 @@ def _ask_download_consent(log: Callable[[str], None], why: str) -> bool:
         try:
             answer = input(question + " [y/N] ").strip().lower().startswith("y")
         except (EOFError, OSError):
-            answer = False
+            answer = None
+    if answer is not None:
+        _DOWNLOAD_ALLOWED = answer  # a person answered: not asked again in this process
     log("  Download " + ("allowed." if answer else "declined; nothing was downloaded."))
     return bool(answer)
 
@@ -2609,14 +2619,19 @@ def validate_installed_packages(log: SetupLog) -> bool:
 
     An installer exiting 0 does not guarantee a package imports (a partial wheel, an ABI
     mismatch, a clobbered install). Probe each import explicitly and try one
-    targeted locked reinstall (v0.8.2 Phase 4: ``uv sync --reinstall-package``) before giving up. Returns True if all
-    import.
+    targeted locked reinstall (v0.8.2 Phase 4: ``uv sync --reinstall-package``) per failing module before giving up.
+    Returns True if all import.
+
+    Bounded by construction: at most one reinstall per required module (a fixed, short list), never a second for a
+    distribution already reinstalled, and none at all once a reinstall has failed -- a failed sync (no cached files,
+    downloads refused) would only fail again, asking the same download question each time.
     """
     py = venv_python()
     log.line("Verifying required packages import…")
     venv_ver = _interp_version_argv([str(py)])
     failed: list[str] = []
-    whole_lock_reinstalled = False
+    reinstalled: set[str] = set()
+    sync_failed = False
     for mod in REQUIRED_IMPORTS:
         if mod in _GATED_BELOW_313 and not _is_kokoro_compatible(venv_ver):
             log.line(f"  '{mod}' is gated to Python <3.13 — skipping on this venv.")
@@ -2624,15 +2639,19 @@ def validate_installed_packages(log: SetupLog) -> bool:
         if _probe_import(py, mod, timeout=IMPORT_PROBE_TIMEOUT_S):
             continue
         dist = _PIP_NAME.get(mod, mod)
-        if whole_lock_reinstalled:
-            log.line(f"  [!!] '{mod}' failed to import (its packages were just reinstalled).")
-        else:
-            log.line(f"  [!!] '{mod}' failed to import — reinstalling {dist}…")
-            # v0.8.2 Phase 4: one targeted, locked uv reinstall of the module's distribution plus every package whose
-            # files no longer match their RECORD (the cause may be any package below it), offline first.
-            damaged = tuple(sorted(venv_integrity.record_damage(VENV_DIR)))
-            whole_lock_reinstalled = sync_base_packages(log.line, reinstall=(dist, *damaged))
-        if not _probe_import(py, mod, timeout=IMPORT_PROBE_TIMEOUT_S):
+        if sync_failed or dist in reinstalled:
+            log.line(f"  [!!] '{mod}' failed to import (" + ("a reinstall has already failed)." if sync_failed else
+                                                          "its packages were just reinstalled)."))
+            failed.append(mod)
+            continue
+        log.line(f"  [!!] '{mod}' failed to import — reinstalling {dist}…")
+        # v0.8.2 Phase 4: a targeted, locked uv reinstall of the module's distribution plus every package whose files
+        # no longer match their RECORD (the cause may be any package below it), offline first. A second module that
+        # fails afterwards gets its own (minor finding 4): its cause may lie in a different distribution.
+        damaged = tuple(sorted(venv_integrity.record_damage(VENV_DIR)))
+        reinstalled.update((dist, *damaged))
+        sync_failed = not sync_base_packages(log.line, reinstall=(dist, *damaged))
+        if sync_failed or not _probe_import(py, mod, timeout=IMPORT_PROBE_TIMEOUT_S):
             failed.append(mod)
     if failed:
         log.line("  WARNING: these packages still fail to import: "
@@ -2836,10 +2855,12 @@ def repair_venv(log: SetupLog, *, headless: bool = False) -> tuple[bool, str]:
         else:
             ok, reason = reconcile_requirements(log)
             if not ok:
+                # v0.8.2 Phase 4 (minor finding 1): never "was rebuilt" -- a replacement whose packages did not
+                # install or import never takes over, and the rollback below says what became of the old one.
                 failure = (
-                    "The environment was rebuilt but its packages could not be "
-                    "imported." if reason == RECONCILE_IMPORT_FAILED else
-                    "The environment was rebuilt but its packages could not be "
+                    "The environment could not be rebuilt: its packages installed but could "
+                    "not be imported." if reason == RECONCILE_IMPORT_FAILED else
+                    "The environment could not be rebuilt: its packages could not be "
                     "installed.")
 
         if failure is None:
@@ -4694,7 +4715,7 @@ def _run_headless(skip_kokoro: bool) -> int:
     Used when the launcher could not set up a GUI-capable Python. No optional voice is installed here: that needs the
     review screen and a person's confirmation, so this unattended path never downloads a model.
     """
-    LOG.line("Running headless setup (no GUI dialog — Tk is unavailable).")
+    LOG.line("Running headless setup (no setup window).")
 
     def progress(step: int, message: str) -> None:
         LOG.line(f"[step {step}] {message}")
@@ -4702,11 +4723,18 @@ def _run_headless(skip_kokoro: bool) -> int:
     ok, final = run_setup(progress, LOG, headless=True)
     LOG.line(final)
     if ok:
-        LOG.line("Setup finished. The graphical window needs Tk, which is not "
-                 "available in this Python. To enable it: " + (
-                     "run Setup_and_Run-audiobook-creation-tool.command again (it replaces the app's own Python if "
-                     "it cannot start Tk)." if IS_MAC else
-                     "install Tk support (macOS: brew install python-tk@3.12) and run setup again."))
+        # v0.8.2 Phase 4 (minor finding 2): headless is also chosen where Tk works (qualification, remote setup), so
+        # the summary says what the environment really has instead of always claiming Tk is missing.
+        if _tcl_tk_ok(venv_python()):
+            LOG.line("Setup finished. The app window can start: run Setup_and_Run-audiobook-creation-tool"
+                     + (".command." if IS_MAC else ".bat."))
+        else:
+            LOG.line("Setup finished. The graphical window needs Tk, which this environment cannot start. "
+                     "To enable it: " + (
+                         "run Setup_and_Run-audiobook-creation-tool.command again (it replaces the app's own Python "
+                         "if it cannot start Tk)." if IS_MAC else
+                         "run Setup_and_Run-audiobook-creation-tool.bat again (it replaces the app's own Python if "
+                         "it cannot start Tk)."))
     LOG.close()
     return 0 if ok else 1
 

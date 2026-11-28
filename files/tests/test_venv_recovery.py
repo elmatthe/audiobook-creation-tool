@@ -413,6 +413,26 @@ def test_a_repair_run_installs_no_ffmpeg(env, monkeypatch):
     assert touched == []
 
 
+@pytest.mark.parametrize("reason, says", [(bootstrap.RECONCILE_PIP_FAILED, "could not be installed"),
+                                          (bootstrap.RECONCILE_IMPORT_FAILED, "could not be imported")])
+def test_a_rebuild_whose_packages_fail_never_says_the_environment_was_rebuilt(env, monkeypatch, reason, says):
+    """v0.8.2 Phase 4 (minor finding 1): a replacement whose packages did not install or import never takes over, so
+    the message must not claim a rebuild; it says the rebuild could not be done, and why."""
+    monkeypatch.setattr(bootstrap, "find_suitable_python", lambda log, prefer_tk=True: ["py", "-3.12"])
+    monkeypatch.setattr(bootstrap, "_interp_version_argv", lambda argv: (3, 12))
+    monkeypatch.setattr(bootstrap, "_create_validated_venv", lambda argv, log, headless, txn=None: True)
+    monkeypatch.setattr(bootstrap, "reconcile_requirements", lambda log: (False, reason))
+    monkeypatch.setattr(bootstrap, "assess_venv_health",
+                        lambda **kw: bootstrap.VenvHealth(bootstrap.VENV_HEALTHY, "ok", "ok",
+                                                          version=(3, 12), ssl=True, tk=True, executes=True))
+
+    ok, message = bootstrap.repair_venv(_Log())
+
+    assert ok is False
+    assert "was rebuilt" not in message
+    assert message.startswith("The environment could not be rebuilt:") and says in message
+
+
 def test_a_package_problem_does_not_rebuild_the_environment(env, monkeypatch):
     """Phase 1 owns packages. A missing module is not an environment failure."""
     rebuilt: list[str] = []

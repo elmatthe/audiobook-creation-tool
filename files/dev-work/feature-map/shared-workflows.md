@@ -560,7 +560,7 @@ Everything that gets the Audiobook Creation Tool onto a computer, starts it, kee
 - **Behaviour:**
   - Without its `scripts/` folder beside it (Gatekeeper App Translocation, or the `.command` copied out on its own), it explains how to move the folder and keeps the window open.
   - With a runnable `.venv`, it runs `--launch-only` in the foreground. A detached helper (`close_terminal.py`) then closes the Terminal window without the "terminate running processes" prompt.
-  - Exit 3, or a present but unrunnable interpreter, takes the repair route.
+  - Exit 3, or a present but unrunnable interpreter, takes the repair route. A `.venv/bin/python` link that leads nowhere counts as present: uv links it to the app Python's absolute path, so after the folder is moved or copied it dangles, and the moved copy is repaired rather than set up from scratch (v0.8.2 Phase 4 macOS acceptance).
   - First run and repair (v0.8.x P1A, owner decisions D1/D2; v0.8.2 Phase 4): it runs stage 0, `scripts/shared/bootstrap_host_macos.sh` (bash 3.2), which proves or, with consent, downloads and verifies the pinned uv and the app's own Python archive and installs it with uv into `files/runtime-data/uv/python`, writes that interpreter's path to `files/temp/bootstrap/selected-python.txt`, and then runs setup on it. It never looks for a Python on PATH, never runs Homebrew and never asks for the Mac login password; there is no headless fallback.
 - **Differences:** unlike Windows, a cancelled setup (exit 2) is also reported as "did not complete".
 
