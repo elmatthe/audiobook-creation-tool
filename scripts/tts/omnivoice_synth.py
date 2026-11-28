@@ -1,7 +1,7 @@
 """omnivoice_synth.py — OmniVoice conversion for ACT: prepare the text once, supervise bounded workers, assemble, encode once.
 
 The application-side half of the OmniVoice engine (plan section 4). The model runs in ``omnivoice_worker.py`` inside the
-engine's own environment (``.venv/engines/omnivoice``); this module imports numpy and soundfile (application dependencies) and nothing of torch or
+engine's own environment (``.venv-engines/omnivoice``; ``omnivoice_runtime.venv_dir``); this module imports numpy and soundfile (application dependencies) and nothing of torch or
 OmniVoice, so the GUI process never loads the model stack. It reuses the Qwen3 engine's engine-neutral parts -- the
 verified sentence planner and its source spans, the local-engine assembly, the shared final-tail policy, the one encode
 and the atomic publication, and the Job Object process containment -- and keeps its own words, limits and supervision.
@@ -490,7 +490,8 @@ def run_worker(job: dict, job_dir: Path, *, name: str, python: Path, script: Pat
 
 #: Said once a damaged engine has been recorded as such (``ov.reject_ready_engine``): the repair is now really offered.
 REPAIR_OFFERED_NOTE = (" The engine's installed files are damaged. Start the conversion again and choose Install & "
-                       "Continue: the app keeps the damaged environment aside and builds and checks a fresh one.")
+                       "Continue: the app builds and checks a fresh one (an environment it did not make is moved aside, never "
+                       "deleted).")
 
 
 def failure_message(terminal: dict, *, repair_offered: bool = False) -> str:

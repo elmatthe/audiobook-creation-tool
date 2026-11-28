@@ -31,6 +31,19 @@ down moved unchanged, byte for byte, to [v0.6.7 to v0.7.3](../files/documentatio
 
 ## [0.8.2] - unreleased (development branch `0.8.2`; nothing is tagged, merged or published)
 
+**Changed (the OmniVoice voices get their own uv-built environment, v0.8.2 Phase 5B, 2026-11-28; Windows, agent-verified)**
+- The OmniVoice voice engine is now installed by uv into its own folder beside the app's environment, `.venv-engines\omnivoice`, from a
+  locked project that ships with the app (`scripts/tts/engines/omnivoice/`). It installs exactly the same packages as v0.8.1: 88 on
+  Windows (torch 2.8.0 with CUDA 12.8 from PyTorch's own index) and 86 on an Apple Silicon Mac (torch 2.8.0 from PyPI), the same versions
+  and file hashes. No package cache is kept, so each install downloads about 3.7 GB of packages, as stated before it starts, and needs
+  about twice the environment's size free while it runs. The model, its files, licences and voices are unchanged.
+- If an earlier version installed the engine (`.venv\engines\omnivoice`), it keeps working, unchanged, until the new one has installed
+  completely and passed its checks. It is then moved, whole, into `files\runtime-data\omnivoice\set-aside\` with a note (delete it there
+  when you like). An install that is interrupted or fails never replaces a working engine; Install & Continue finishes it.
+- Every installed OmniVoice file is checked against its package's record before the engine is used.
+- The model's integrity list (`omnivoice_manifest.json`) now holds only the model and its licences; the v0.8.1 package lists stay in
+  `omnivoice_packages.json` as a reference the lock is tested against and as the source of the download size.
+
 **Changed (the Qwen3 voices get their own uv-built environment, v0.8.2 Phase 5A, 2026-11-27; Windows, agent-verified)**
 - The Qwen3 voice engine is now installed by uv into its own folder beside the app's environment, `.venv-engines\qwen3`, from a locked
   project that ships with the app (`scripts/tts/engines/qwen3/`). It installs exactly the same 89 packages as v0.8.1 (torch 2.10.0 with

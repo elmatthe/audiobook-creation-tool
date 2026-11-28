@@ -1,22 +1,25 @@
-"""v0.8.0 Phase 3 -- OmniVoice as the fifth component of the EXISTING optional-voice installer.
+"""v0.8.0 Phase 3 / v0.8.2 Phase 5B -- OmniVoice as the fifth component of the EXISTING optional-voice installer.
 
-One more component in the same protocol, planner, consent, worker, acquirer and panel -- no second installer. These
-tests prove: the five-component contract (the four earlier ones unchanged); honest plans (installed, missing, partial,
-unchecked, unfinished, broken, busy, unsupported, unverified, bad bundle); the licence and hardware disclosure before
-any consent; consent bound to the plan (stale terms refused, nothing fetched beyond the confirmed budget or outside the
-pinned sources, no cross-component installs); the adoption of an existing environment WITHOUT a receipt -- proved,
-never rebuilt, never downloaded again, then recorded; repair that moves a broken environment aside and never deletes
-what the app did not make; offline failures and cancellation that never claim success; and the first-run window's
+One more component in the same protocol, planner, consent, worker, acquirer and panel -- no second installer. Since
+v0.8.2 Phase 5B its packages come from its own locked uv project (``scripts/tts/engines/omnivoice``), synced by uv into
+``.venv-engines/omnivoice``; the model still comes through the model door. These tests prove: the five-component
+contract (the four earlier ones unchanged); honest plans (installed, missing, partial, unchecked, unfinished, broken,
+busy, unsupported, unverified, bad bundle); the licence and hardware disclosure before any consent; consent bound to the
+plan (stale terms refused, nothing fetched beyond the confirmed budget or outside the pinned sources, no
+cross-component installs); the adoption of an existing uv environment WITHOUT a receipt -- RECORD-checked and proved,
+never rebuilt, never downloaded again, then recorded; repair that removes only what this app built and moves anything
+else aside, never deleting it; offline failures and cancellation that never claim success; and the first-run window's
 fifth checkbox.
 
-Nothing here reaches the internet, runs pip or loads a model. The OmniVoice manifest is a tiny stand-in served by a
-loopback hub (``test_qwen3_setup.Hub``); venv, pip and the worker's proof are a fake runner; the repository is the
-Qwen3 runtime sandbox (``test_optional_tts_setup.world``); the GPU is a caller fact. Every test is refused, at the write
-itself, any write to the real installation (``production_writes_refused``).
+Nothing here reaches the internet, runs uv or loads a model. The OmniVoice model manifest is a tiny stand-in served by
+a loopback hub (``test_qwen3_setup.Hub``); ``uv venv``, ``uv sync`` and the worker's proof are a fake runner; the
+repository is the Qwen3 runtime sandbox (``test_optional_tts_setup.world``); the GPU is a caller fact. Every test is
+refused, at the write itself, any write to the real installation (``production_writes_refused``).
 """
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import os
@@ -28,6 +31,7 @@ from pathlib import Path
 
 import pytest
 
+from shared import engine_env
 from shared import optional_setup_client as client
 from shared import optional_setup_protocol as proto
 from shared import venv_layout
@@ -43,6 +47,7 @@ from tts import qwen3_setup as su
 from tts import voice_install
 from test_optional_tts_setup import (SESSION, K, component, fig, probes_are_explicit, run_main, sandbox,  # noqa: F401
                                      tiny_assets, tripwire, unit, world)
+from test_qwen3_runtime import make_uv_engine
 from test_qwen3_setup import Hub, no_sleep, opener
 
 pytestmark = pytest.mark.usefixtures("production_writes_refused")
@@ -58,38 +63,81 @@ WHEEL_BYTES = sum(len(b) for b in WHEELS.values())
 MODEL_BYTES = sum(len(b) for b in MODEL_FILES.values())
 ENV_BYTES = 5_000  # the stand-in for the measured environment size
 MARGIN = osu.OMNIVOICE_DISK_MARGIN_BYTES
+#: v0.8.2 Phase 5B: the engine's uv project in the sandbox (tiny stand-ins; the real lock's parity is
+#: test_omnivoice_uv_project.py's).
+ENGINE_PYPROJECT = b'[project]\nname = "act-omnivoice-engine"\nversion = "0.0.0"\nrequires-python = "==3.12.*"\n'
+ENGINE_LOCK = b'version = 1\nrevision = 5\nrequires-python = "==3.12.*"\n# omnivoice\n'
 
 
 # --------------------------------------------------------------------------- #
-# The sandbox: a tiny OmniVoice manifest on a loopback hub, a fake runner, and a base Python outside the app
+# The sandbox: a tiny OmniVoice model and package list, model files on a loopback hub, a fake uv and worker
 # --------------------------------------------------------------------------- #
-def make_env(folder: Path, base: Path, pins=PINS) -> None:
-    """A stand-in environment: the layout ``omnivoice_runtime`` reads (pyvenv.cfg, interpreter, dist-info listing)."""
-    (folder / "Scripts").mkdir(parents=True, exist_ok=True)
-    (folder / "Scripts" / "python.exe").write_bytes(b"venv launcher")
-    (folder / "pyvenv.cfg").write_text(
-        f"home = {base.parent}\ninclude-system-site-packages = false\nversion = 3.12.10\nexecutable = {base}\n"
-        f"command = {base} -m venv {folder}\n", encoding="utf-8")
+def make_project(root: Path) -> Path:
+    """``scripts/tts/engines/omnivoice`` with a tiny ``pyproject.toml`` and ``uv.lock`` (bytes: LF everywhere)."""
+    project = root / "scripts" / "tts" / "engines" / "omnivoice"
+    project.mkdir(parents=True, exist_ok=True)
+    (project / "pyproject.toml").write_bytes(ENGINE_PYPROJECT)
+    (project / "uv.lock").write_bytes(ENGINE_LOCK)
+    return project
+
+
+def _record_hash(path: Path) -> str:
+    return "sha256=" + base64.urlsafe_b64encode(hashlib.sha256(path.read_bytes()).digest()).rstrip(b"=").decode()
+
+
+def add_dist(folder: Path, name: str, version: str) -> Path:
+    """One installed distribution as uv leaves it: a package file and a dist-info whose RECORD lists it (and its own
+    METADATA) by size and SHA-256, so the installer's RECORD check passes until a test damages a file."""
     site = ov.site_packages(folder)
-    site.mkdir(parents=True, exist_ok=True)
+    package = site / name.replace("-", "_")
+    package.mkdir(parents=True, exist_ok=True)
+    (package / "__init__.py").write_bytes(f"# {name} {version}\n".encode())
+    dist = site / f"{name.replace('-', '_')}-{version}.dist-info"
+    dist.mkdir(exist_ok=True)
+    (dist / "METADATA").write_text(f"Metadata-Version: 2.1\nName: {name}\nVersion: {version}\n", encoding="utf-8")
+    rows = [f"{package.name}/__init__.py,{_record_hash(package / '__init__.py')},{(package / '__init__.py').stat().st_size}",
+            f"{dist.name}/METADATA,{_record_hash(dist / 'METADATA')},{(dist / 'METADATA').stat().st_size}",
+            f"{dist.name}/RECORD,,"]
+    (dist / "RECORD").write_text("\n".join(rows) + "\n", encoding="utf-8")
+    return dist
+
+
+def make_env(folder: Path, base: Path | None = None, pins=PINS) -> Path:
+    """A stand-in environment holding *pins*. Without *base*: as ``uv venv`` builds ``.venv-engines/omnivoice`` on this
+    copy's managed CPython. With *base*: as v0.8.0-v0.8.1's ``python -m venv`` built the nested engine (or the early
+    sibling) from that base interpreter."""
+    if base is None:
+        make_uv_engine(folder, rt.repo_root())
+    else:
+        (folder / "Scripts").mkdir(parents=True, exist_ok=True)
+        (folder / "Scripts" / "python.exe").write_bytes(b"venv launcher")
+        (folder / "pyvenv.cfg").write_text(
+            f"home = {base.parent}\ninclude-system-site-packages = false\nversion = 3.12.10\nexecutable = {base}\n"
+            f"command = {base} -m venv {folder}\n", encoding="utf-8")
+    ov.site_packages(folder).mkdir(parents=True, exist_ok=True)
     for name, version in pins:
-        (site / f"{name.replace('-', '_')}-{version}.dist-info").mkdir(exist_ok=True)
+        add_dist(folder, name, version)
+    return folder
 
 
 class FakeRunner:
-    """The base-interpreter check, ``python -m venv``, offline pip and the worker's ``probe`` job, faked.
+    """``uv venv``, ``uv sync`` and the worker's ``probe`` job, faked.
 
-    pip installs exactly the lock it is handed (a dist-info per line); the probe answers as configured. ``hang``
-    ("pip" or "probe") waits for the cancel; ``sac`` makes the next probes fail the way Smart App Control does."""
+    ``uv venv`` makes uv's environment at the path it is given; ``uv sync`` installs the pinned set (``sync_pins``) into
+    the environment its ``UV_PROJECT_ENVIRONMENT`` names; the probe answers as configured. ``hang`` ("sync" or "probe")
+    waits for the cancel; ``sac`` makes the next probes fail the way Smart App Control does."""
 
     def __init__(self, base: Path):
         self.base = base
         self.commands: list[list[str]] = []
+        self.envs: list[dict] = []
         self.probe_jobs: list[dict] = []
         self.probe_failure: tuple[str, str] | None = None
-        self.fail_pip = False
+        self.fail_sync = False
+        self.fail_venv = False
         self.hang: str | None = None
         self.sac = 0
+        self.sync_pins = PINS
 
     def _wait_for_cancel(self, cancel_check) -> None:
         deadline = time.monotonic() + 10
@@ -98,39 +146,44 @@ class FakeRunner:
             time.sleep(0.01)
         raise su.SetupCancelled()
 
+    @staticmethod
+    def _uv(cmd, verb: str) -> bool:
+        return Path(cmd[0]).name.lower() in ("uv.exe", "uv") and len(cmd) > 1 and cmd[1] == verb
+
     def kinds(self) -> list[str]:
-        out = []
-        for cmd in self.commands:
-            out.append("venv" if cmd[1:4] == ["-I", "-m", "venv"] else "pip" if ovs.OFFLINE_PIP in cmd else "probe")
-        return out
+        return ["venv" if self._uv(cmd, "venv") else "sync" if self._uv(cmd, "sync") else "probe"
+                for cmd in self.commands]
 
     def __call__(self, cmd, *, env, cwd, on_line, cancel_check=None):
         cmd = [str(c) for c in cmd]
-        if cmd[1:3] == ["-I", "-c"] and ovs._BASE_PROBE_MARK in cmd[3]:
-            on_line(ovs._BASE_PROBE_MARK + json.dumps({
-                "version": [3, 12, 10], "implementation": "cpython", "prefix": str(Path(cmd[0]).parent),
-                "base_prefix": str(Path(cmd[0]).parent), "executable": cmd[0]}))
-            return 0
         self.commands.append(cmd)
-        if cmd[1:4] == ["-I", "-m", "venv"]:
-            make_env(Path(cmd[4]), Path(cmd[0]), pins=())
-            return 0
-        if ovs.OFFLINE_PIP in cmd:
-            assert "--no-index" in cmd and "--require-hashes" in cmd and "--no-deps" in cmd and "--only-binary=:all:" in cmd
-            if self.hang == "pip":
-                self._wait_for_cancel(cancel_check)
-            if self.fail_pip:
-                on_line("ERROR: THESE PACKAGES DO NOT MATCH THE HASHES")
+        self.envs.append(env)
+        if self._uv(cmd, "venv"):
+            if self.fail_venv:
+                on_line("error: venv exploded")
                 return 1
-            env_dir = Path(cmd[0]).parents[1]
-            for line in Path(cmd[cmd.index("-r") + 1]).read_text(encoding="utf-8").splitlines():
-                name, version = line.split(" ", 1)[0].split("==")
-                (ov.site_packages(env_dir) / f"{name.replace('-', '_')}-{version}.dist-info").mkdir()
+            make_uv_engine(Path(cmd[2]), rt.repo_root())
+            return 0
+        if self._uv(cmd, "sync"):
+            assert "--locked" in cmd and "--no-cache" in cmd and "--no-dev" in cmd and "--compile-bytecode" in cmd, cmd
+            assert "--offline" not in cmd and "--upgrade" not in cmd, cmd
+            on_line("Resolved 91 packages in 2ms")
+            on_line("Downloading torch (3.1GiB)")
+            if self.hang == "sync":
+                self._wait_for_cancel(cancel_check)
+            if self.fail_sync:
+                on_line("error: Failed to fetch: `https://download.pytorch.org/whl/cu128/torch-2.8.0%2Bcu128.whl`")
+                return 1
+            folder = Path(env["UV_PROJECT_ENVIRONMENT"])
+            for name, version in self.sync_pins:
+                add_dist(folder, name, version)
+            on_line(f"Installed {len(self.sync_pins)} packages in 17.02s")
             return 0
         assert cmd[1] == "-I" and cmd[2] == str(ov.worker_script()), cmd
         job = json.loads(Path(cmd[3]).read_text(encoding="utf-8"))
         assert ow.job_problems(job, {"HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1"}) == [], job
         assert env["HF_HUB_OFFLINE"] == "1" and env["TRANSFORMERS_OFFLINE"] == "1"
+        assert venv_layout.same_path(Path(cmd[0]).parents[1], job["environment"]), "the proof runs in the engine it names"
         self.probe_jobs.append(job)
         if self.hang == "probe":
             self._wait_for_cancel(cancel_check)
@@ -166,6 +219,17 @@ class FakeGuard:
         pass
 
 
+def write_nested_receipt(folder: Path, **over) -> dict:
+    """The version-2 receipt v0.8.0-v0.8.1 wrote for a proved nested engine (``.venv/engines/omnivoice``)."""
+    record = {"schema": ov.RECEIPT_SCHEMA, "version": ov.NESTED_RECEIPT_VERSION, "stage": ov.STAGE_INSTALLED,
+              "path": os.path.normpath(os.path.abspath(folder)), "packages_sha256": ov.packages_sha256(),
+              "omnivoice": "0.2.1", "origin": ov.ORIGIN_INSTALLED, "base": venv_layout.base_identity(folder),
+              "probe": {}, "probe_ok": True, **over}
+    ov.nested_receipt_path().parent.mkdir(parents=True, exist_ok=True)
+    ov.nested_receipt_path().write_text(json.dumps(record), encoding="utf-8")
+    return record
+
+
 class Omni:
     def __init__(self, root: Path, hub: Hub, base: Path, monkeypatch):
         self.root, self.hub, self.base, self.mp = root, hub, base, monkeypatch
@@ -173,8 +237,15 @@ class Omni:
 
     # -- state ---------------------------------------------------------------------------------------------------
     def env(self, pins=PINS) -> Path:
-        make_env(ov.venv_dir(), self.base, pins)
-        return ov.venv_dir()
+        """``.venv-engines/omnivoice`` as uv builds it, holding *pins* (no receipt)."""
+        return make_env(ov.engine_venv_dir(), pins=pins)
+
+    def nested(self, pins=PINS, *, receipt=True) -> Path:
+        """An engine v0.8.0-v0.8.1 installed and proved at ``.venv/engines/omnivoice`` (pip, from the base Python)."""
+        folder = make_env(ov.nested_venv_dir(), self.base, pins)
+        if receipt:
+            write_nested_receipt(folder)
+        return folder
 
     def model(self, *, without=(), record=True, wrong=()) -> Path:
         for name, data in MODEL_FILES.items():
@@ -188,9 +259,11 @@ class Omni:
         return ov.model_dir()
 
     def receipt(self, stage=ov.STAGE_INSTALLED, **fields):
+        """``.venv-engines/omnivoice``'s install receipt at *stage*; an installed one also gets the receipt inside the
+        environment that a RECORD check and a proof would have written."""
         if stage == ov.STAGE_INSTALLED:
-            fields = {"origin": ov.ORIGIN_INSTALLED, "base": venv_layout.base_identity(ov.venv_dir()), "probe": {},
-                      "probe_ok": True, **fields}
+            engine_env.write_receipt(self.root, ov.ENGINE_KEY, health={"record": "ok", "probe": {}})
+            fields = {"origin": ov.ORIGIN_INSTALLED, "probe": {}, "probe_ok": True, **fields}
         return ov.write_receipt(stage, **fields)
 
     def tree(self, folder: Path) -> dict:
@@ -223,8 +296,7 @@ class Omni:
 
 @pytest.fixture
 def omni(world, tmp_path_factory, monkeypatch):
-    files = {f"/wheels/{name}": data for name, data in WHEELS.items()}
-    files.update({f"/k2-fsa/OmniVoice/resolve/{'c' * 40}/{name}": data for name, data in MODEL_FILES.items()})
+    files = {f"/k2-fsa/OmniVoice/resolve/{'c' * 40}/{name}": data for name, data in MODEL_FILES.items()}
     for pinned in (assets.kokoro_set(),):  # Kokoro's stand-ins, for the two-component installs
         for name, (size, _) in pinned.files.items():
             files[f"/{pinned.repo}/resolve/{pinned.revision}/{name}"] = b"k" * size
@@ -232,24 +304,28 @@ def omni(world, tmp_path_factory, monkeypatch):
     base_url = f"http://127.0.0.1:{hub.port}"
     real = json.loads(ov.manifest_path().read_text(encoding="utf-8"))
     manifest = {
-        "schema": "act-omnivoice-engine", "version": 1, "engine": {"omnivoice": "0.2.1"},
+        "schema": "act-omnivoice-engine", "version": 2, "engine": {"omnivoice": "0.2.1"},
         "licenses": real["licenses"], "license_documents": real["license_documents"],
         "model": {"repo": "k2-fsa/OmniVoice", "revision": "c" * 40,
                   "url_template": base_url + "/{repo}/resolve/{revision}/{path}",
                   "load_required": ["config.json", "audio_tokenizer/config.json"],
                   "files": {n: {"size": len(b), "sha256": hashlib.sha256(b).hexdigest()} for n, b in MODEL_FILES.items()}},
+    }
+    packages = {
+        "schema": "act-omnivoice-packages", "version": 1,
         "packages": [[n, v] for n, v in PINS],
-        "wheels": [{"name": n, "version": v, "filename": f, "url": f"{base_url}/wheels/{f}", "size": len(WHEELS[f]),
-                    "sha256": hashlib.sha256(WHEELS[f]).hexdigest()}
+        "wheels": [{"name": n, "version": v, "filename": f, "url": f"https://files.pythonhosted.org/packages/{f}",
+                    "size": len(WHEELS[f]), "sha256": hashlib.sha256(WHEELS[f]).hexdigest()}
                    for (n, v), f in zip(PINS, WHEELS)],
         "installed_bytes": {"environment": ENV_BYTES},
     }
     monkeypatch.setattr(ov, "load_manifest", lambda: manifest)
+    monkeypatch.setattr(ov, "load_packages", lambda: packages)
     monkeypatch.setattr(ov, "reference_status", lambda voice: (True, "ok"))
     monkeypatch.setattr(su, "HUB_URL", base_url + "/{repo}/resolve/{revision}/{path}")
-    base = tmp_path_factory.mktemp("base-python") / "python.exe"  # outside the sandboxed app folder
-    base.write_bytes(b"base interpreter")
-    monkeypatch.setattr(ov, "app_base_python", lambda: base)
+    make_project(world)  # scripts/tts/engines/omnivoice: the engine's uv project
+    base = tmp_path_factory.mktemp("base-python") / "python.exe"  # outside the sandboxed app folder: an earlier
+    base.write_bytes(b"base interpreter")  # version's engines were built from it
     monkeypatch.setattr(ov, "MachineGuard", FakeGuard)
     FakeGuard.held, FakeGuard.refuse = 0, False
     yield Omni(world, hub, base, monkeypatch)
@@ -305,20 +381,31 @@ def test_selections_with_omnivoice_are_canonical_and_round_trip_through_the_exis
 # B. First-run planning (pre-venv): manifest figures, no heavy imports, the real shipped manifest
 # =========================================================================== #
 def test_the_shipped_manifest_pins_every_wheel_and_model_file_exactly_as_phase_1_verified_them():
+    """v0.8.2 Phase 5B: the model manifest holds the model and its licences only; the package list moved, unchanged, to
+    ``omnivoice_packages.json`` (the lock's parity reference and download sizes)."""
     manifest = json.loads(ov.manifest_path().read_text(encoding="utf-8"))
-    assert ov.manifest_problems(manifest) == []
+    packages = json.loads(ov.packages_path().read_text(encoding="utf-8"))
+    assert ov.manifest_problems(manifest) == [] and ov.packages_problems(packages) == []
+    assert not {"packages", "wheels", "darwin_arm64", "installed_bytes"} & set(manifest), "no packages in the model's"
+    assert not {"model", "licenses", "license_documents"} & set(packages), "no model in the packages' list"
     dev = json.loads((REPO / "files" / "dev-tools" / "omnivoice_p1_manifest.json").read_text(encoding="utf-8"))
-    assert [(w["name"], w["version"], w["url"], w["size"], w["sha256"]) for w in manifest["wheels"]] == \
+    assert [(w["name"], w["version"], w["url"], w["size"], w["sha256"]) for w in packages["wheels"]] == \
         [(w["name"], w["version"], w["url"], w["size"], w["sha256"]) for w in
-         sorted(dev["wheels"], key=lambda w: [p[0] for p in manifest["packages"]].index(w["name"]))]
-    assert len(manifest["wheels"]) == 88 and sum(w["size"] for w in manifest["wheels"]) == 3_663_315_198
+         sorted(dev["wheels"], key=lambda w: [p[0] for p in packages["packages"]].index(w["name"]))]
+    assert len(packages["wheels"]) == 88 and sum(w["size"] for w in packages["wheels"]) == 3_663_315_198
+    assert len(packages["darwin_arm64"]["wheels"]) == 86
     files = manifest["model"]["files"]
     assert all(dev["model"]["files"][n]["sha256"] == e["sha256"] for n, e in files.items())
     assert sum(e["size"] for e in files.values()) == 3_267_467_171  # Phase 1's 3,267,470,260 less two .gitattributes
     assert manifest["model"]["url_template"] == ov.HUB_URL_TEMPLATE
-    assert all(w["url"].startswith(ov.WHEEL_HOSTS) for w in manifest["wheels"])
-    assert "dev-tools" not in json.dumps(manifest), "a customer install never depends on developer-only files"
+    assert all(w["url"].startswith(ov.WHEEL_HOSTS) for w in packages["wheels"])
+    for data in (manifest, packages):
+        assert "dev-tools" not in json.dumps(data), "a customer install never depends on developer-only files"
     assert "annual active users" in manifest["licenses"]["audio_tokenizer"]  # what audio_tokenizer/LICENSE says
+    assert manifest["engine"] == packages["engine"] and manifest["engine"]["omnivoice"] == "0.2.1"
+    # the identities receipts and consents were bound to before the move are unchanged by it
+    assert ov.packages_sha256() == "6f0b2580a0d5" + ov.packages_sha256()[12:]
+    assert ov.model_manifest_sha256().startswith("1fda8c175cb3")
 
 
 def test_the_pre_venv_estimate_is_the_manifest_upper_bound_and_proves_nothing():
@@ -327,9 +414,12 @@ def test_the_pre_venv_estimate_is_the_manifest_upper_bound_and_proves_nothing():
     assert data["acquire_units"] == [ENGINE, MODEL]
     assert data["totals"]["download"] == fig(6_930_782_369, proto.MANIFEST)
     assert data["totals"]["disk"] == fig(ov.engine_installed_bytes() + 3_267_467_171, proto.APPROXIMATE)
-    assert data["totals"]["temp"] == fig(3_663_315_198 + MARGIN, proto.MANIFEST)
+    # uv unpacks the downloads in its own temporary folder before it copies them in: about the environment again
+    assert data["totals"]["temp"] == fig(ov.install_temp_bytes() + MARGIN, proto.APPROXIMATE)
     assert client.estimate_texts([OV]) == {OV: "6.9 GB"}
     assert data["disclosures"][OV]["summary"] and "checked before anything is downloaded" in data["hardware"]["omnivoice"]
+    assert unit(data, ENGINE)["source"] == osu.omnivoice_engine_source()
+    assert osu.omnivoice_engine_source().startswith("uv-lock:scripts/tts/engines/omnivoice/uv.lock@sha256:")
 
 
 def test_the_pre_venv_estimate_offers_nothing_on_another_platform(monkeypatch):
@@ -349,10 +439,12 @@ def test_nothing_installed_plans_the_full_pinned_download_and_disk(omni, tripwir
     assert (entry["readiness"], entry["consent_scope"]) == (proto.MISSING, proto.SCOPE_INSTALL)
     assert data["acquire_units"] == [ENGINE, MODEL]
     assert unit(data, ENGINE)["source"] == osu.omnivoice_engine_source()
+    assert unit(data, ENGINE)["source"].startswith("uv-lock:scripts/tts/engines/omnivoice/uv.lock@sha256:")
     assert unit(data, MODEL)["source"].startswith("hf:k2-fsa/OmniVoice@" + "c" * 40 + "#manifest-sha256:")
     assert data["totals"]["download"] == fig(WHEEL_BYTES + MODEL_BYTES, proto.MANIFEST)
     assert data["totals"]["disk"] == fig(ENV_BYTES + MODEL_BYTES, proto.APPROXIMATE)
-    assert data["totals"]["temp"] == fig(WHEEL_BYTES + MARGIN, proto.MANIFEST)
+    assert data["totals"]["temp"] == fig(ENV_BYTES + MARGIN, proto.APPROXIMATE)
+    assert "downloaded and installed by uv" in unit(data, ENGINE)["note"]
     assert omni.fetched() == [] and tripwire == []
 
 
@@ -414,7 +506,7 @@ def test_an_existing_environment_without_a_receipt_is_planned_as_an_adoption_tha
 
 @pytest.mark.parametrize("how, expected", [
     ("wrong-version", "1 at another version: torch"), ("extra", "not part of it: openai-whisper"),
-    ("other-python", "another Python than the app's own"), ("not-isolated", "not isolated"),
+    ("other-python", "not built by uv"), ("not-isolated", "not isolated"),
 ])
 def test_an_environment_that_is_not_the_pinned_one_is_damaged_never_adopted(omni, tmp_path, how, expected):
     if how == "wrong-version":
@@ -425,10 +517,10 @@ def test_an_environment_that_is_not_the_pinned_one_is_damaged_never_adopted(omni
         other = tmp_path / "other" / "python.exe"
         other.parent.mkdir()
         other.write_bytes(b"x")
-        make_env(ov.venv_dir(), other)
+        make_env(ov.engine_venv_dir(), other)  # python -m venv from another interpreter, not uv on the managed one
     else:
         omni.env()
-        cfg = ov.venv_dir() / "pyvenv.cfg"
+        cfg = ov.engine_venv_dir() / "pyvenv.cfg"
         cfg.write_text(cfg.read_text(encoding="utf-8").replace("= false", "= true"), encoding="utf-8")
     omni.model()
     data = omni.plan()
@@ -447,15 +539,18 @@ def test_an_unfinished_install_by_this_app_is_damaged_and_says_so(omni):
     assert unit(data, ENGINE)["note"] == osu.UNFINISHED_NOTE
 
 
-def test_a_receipt_for_another_folder_or_a_changed_base_python_never_vouches(omni):
+def test_a_receipt_for_another_folder_or_another_lock_never_vouches(omni):
     omni.env()
     omni.model()
     omni.receipt(path=str(omni.root / "elsewhere"))
     assert ov.read_receipt() == {} and ov.assess_engine().state == ov.ENGINE_UNCHECKED
     omni.receipt()
     assert ov.assess_engine().state == ov.ENGINE_READY
-    omni.base.write_bytes(b"base interpreter, upgraded in place")  # its size changes: the base identity changes
+    lock = ov.project_dir() / "uv.lock"
+    lock.write_bytes(lock.read_bytes() + b"# another version of the lock\n")
     assert ov.assess_engine().state == ov.ENGINE_UNCHECKED, "re-proved (adopted again), never trusted unchanged"
+    data = omni.plan()
+    assert unit(data, ENGINE)["download"] == fig(0, proto.EXACT), "the same packages: nothing is downloaded again"
 
 
 def test_no_gpu_is_unsupported_unchecked_gpu_is_unverified_and_neither_can_be_consented(omni):
@@ -607,18 +702,17 @@ def test_a_plan_whose_component_is_not_acquirable_has_no_consent_at_all(omni):
         client.consent_for(omni.plan(gpu=None))
 
 
-def test_the_byte_budget_stops_a_download_larger_than_was_confirmed(omni, monkeypatch):
-    shown = omni.plan()
-    real = ov.wheel_bytes
-    monkeypatch.setattr(ov, "wheel_bytes", lambda: (0, WHEEL_BYTES))  # the plan understates the download ...
-    understated = omni.plan()
-    monkeypatch.setattr(ov, "wheel_bytes", real)  # ... but the wheels are really missing
-    assert understated["totals"]["download"]["bytes"] < shown["totals"]["download"]["bytes"]
-    acq = omni.acquirer()
-    report = acq.acquire(understated, osu.consent_for(understated), progress=lambda p: None, cancel_check=lambda: False)
-    assert not report.completed and "more than" in report.detail
-    assert not any(p.startswith("/wheels/") for p in omni.fetched()), "refused before a wheel request was sent"
-    assert ov.read_receipt() == {} and not ov.venv_dir().exists()
+def test_the_engine_s_packages_never_pass_through_the_model_door(omni):
+    """v0.8.2 Phase 5B: uv fetches the locked packages itself; the scoped opener only ever serves the model files, so the
+    byte budget is the model's and no package URL is ever opened through it."""
+    code, result = omni.install()
+    assert result["state"] == proto.SUCCEEDED, result
+    assert sorted(omni.fetched()) == sorted(f"/k2-fsa/OmniVoice/resolve/{'c' * 40}/{n}" for n in MODEL_FILES)
+    (sync,) = [cmd for cmd in omni.runner.commands if FakeRunner._uv(cmd, "sync")]
+    assert sync == [str(c) for c in engine_env.sync_command(omni.root, ov.ENGINE_KEY)]
+    env = omni.runner.envs[omni.runner.commands.index(sync)]
+    assert venv_layout.same_path(env["UV_PROJECT_ENVIRONMENT"], ov.engine_venv_dir())
+    assert env["UV_NO_CONFIG"] == "1" and "UV_OFFLINE" not in env
 
 
 def test_a_source_the_build_does_not_approve_is_refused_before_anything_happens(omni):
@@ -642,15 +736,15 @@ def test_the_scoped_opener_refuses_any_url_outside_the_pinned_files(omni):
     assert omni.fetched() == []
 
 
-def test_a_wrong_download_is_never_installed_or_recorded(omni):
-    path = f"/wheels/{next(iter(WHEELS))}"
+def test_a_wrong_model_download_is_never_installed_or_recorded(omni):
+    path = f"/k2-fsa/OmniVoice/resolve/{'c' * 40}/model.safetensors"
     omni.hub.wrong_bytes.add(path)
     code, result = omni.install()
     assert result["state"] == proto.FAILED and result["error"]["code"] == proto.ACQUISITION_FAILED
     # the corrupt file is refused by its hash; fetching it again would exceed the confirmed bytes, so it stops there
-    assert next(iter(WHEELS)) in result["error"]["message"] and "Nothing more was downloaded" in result["error"]["message"]
-    assert ov.read_receipt() == {} and not ov.venv_dir().exists() and "pip" not in omni.runner.kinds()
-    assert not (ov.wheel_cache_dir() / next(iter(WHEELS))).exists(), "a file that failed its hash is never kept"
+    assert "model.safetensors" in result["error"]["message"]
+    assert ov.read_receipt() == {} and not ov.engine_venv_dir().exists() and omni.runner.commands == []
+    assert not (ov.model_dir() / "model.safetensors").exists(), "a file that failed its hash is never kept"
 
 
 def test_an_omnivoice_only_consent_changes_nothing_of_any_other_component(omni):
@@ -673,20 +767,23 @@ def test_a_kokoro_only_consent_never_touches_omnivoice(omni):
 # =========================================================================== #
 # C/9. New installation, repeat launch, offline, interruption
 # =========================================================================== #
-def test_a_fresh_install_fetches_the_pinned_files_builds_offline_proves_and_only_then_records(omni):
+def test_a_fresh_install_fetches_the_model_builds_with_uv_proves_and_only_then_records(omni):
     code, result = omni.install()
     assert result["state"] == proto.SUCCEEDED and result["verified"] == [OV], result
-    assert sorted(omni.fetched()) == sorted([f"/wheels/{n}" for n in WHEELS] +
-                                            [f"/k2-fsa/OmniVoice/resolve/{'c' * 40}/{n}" for n in MODEL_FILES])
-    assert omni.runner.kinds() == ["venv", "pip", "probe"]
+    assert sorted(omni.fetched()) == sorted(f"/k2-fsa/OmniVoice/resolve/{'c' * 40}/{n}" for n in MODEL_FILES)
+    assert omni.runner.kinds() == ["venv", "sync", "probe"]
+    assert omni.runner.commands[0] == [str(c) for c in engine_env.venv_command(omni.root, ov.ENGINE_KEY)]
     receipt = ov.read_receipt()
     assert receipt["stage"] == ov.STAGE_INSTALLED and receipt["origin"] == ov.ORIGIN_INSTALLED
-    assert receipt["probe_ok"] is True and receipt["packages_sha256"] == ov.packages_sha256()
+    assert receipt["probe_ok"] is True and receipt["lock"] == ov.lock_identity()
+    assert engine_env.receipt_problem(omni.root, ov.ENGINE_KEY) == "", "the environment's own receipt is current"
     assert ov.environment_status() == (True, "ok") and ov.model_status() == (True, "ok")
-    assert not any((ov.wheel_cache_dir() / n).exists() for n in WHEELS), "the wheels' space is given back"
+    assert ov.venv_dir() == ov.engine_venv_dir() and not os.path.lexists(ov.nested_venv_dir())
     job = omni.runner.probe_jobs[0]
     assert job["kind"] == "probe" and job["device"] == "cuda" and job["model_dir"] == str(ov.model_dir())
+    assert venv_layout.same_path(job["environment"], ov.engine_venv_dir())
     assert FakeGuard.held == 1, "the proof takes the machine-wide model guard"
+    assert not ov.set_aside_root().exists(), "nothing to move aside"
 
 
 def test_relaunching_after_an_install_downloads_and_runs_nothing(omni):
@@ -740,8 +837,8 @@ def test_a_cancel_during_a_download_is_cancelled_keeps_verified_files_and_the_re
     assert resumed and resumed[0]["range"], "the interrupted file resumes from its kept .part"
 
 
-def test_a_cancel_during_pip_leaves_an_unfinished_environment_that_a_repair_finishes_without_downloading(omni):
-    omni.runner.hang = "pip"
+def test_a_cancel_during_the_sync_leaves_an_unfinished_environment_that_a_repair_syncs_again(omni):
+    omni.runner.hang = "sync"
     cancel = threading.Event()
     acq = omni.acquirer()
     shown = omni.plan()
@@ -750,16 +847,19 @@ def test_a_cancel_during_pip_leaves_an_unfinished_environment_that_a_repair_fini
     report = acq.acquire(shown, osu.consent_for(shown), progress=lambda p: None, cancel_check=cancel.is_set)
     timer.cancel()
     assert not report.completed and report.detail == "cancelled"
-    assert ov.read_receipt()["stage"] == ov.STAGE_CREATING and not ov.environment_status()[0]
+    assert ov.read_receipt()["stage"] == ov.STAGE_CREATED and not ov.environment_status()[0]
+    assert ov.assess_engine().state == ov.ENGINE_INCOMPLETE
     data = omni.plan()
     assert component(data, OV)["readiness"] == proto.DAMAGED and unit(data, ENGINE)["note"] == osu.UNFINISHED_NOTE
-    assert unit(data, ENGINE)["download"] == fig(0, proto.MANIFEST), "the verified wheels were kept"
+    assert unit(data, ENGINE)["download"] == fig(WHEEL_BYTES, proto.MANIFEST), "no package cache: at most all again"
     omni.runner.hang = None
-    fetched = len(omni.hub.requests)
+    fetched, created = len(omni.hub.requests), omni.tree(ov.engine_venv_dir())["pyvenv.cfg"]
     code, result = omni.install(plan=data)
     assert result["state"] == proto.SUCCEEDED, result
-    assert len(omni.hub.requests) == fetched, "nothing downloaded twice"
-    assert not ov.set_aside_root().exists(), "an environment this app left unfinished is removed, not set aside"
+    assert len(omni.hub.requests) == fetched, "the verified model is never fetched twice"
+    assert omni.runner.kinds()[-2:] == ["sync", "probe"] and "venv" not in omni.runner.kinds()[1:]
+    assert omni.tree(ov.engine_venv_dir())["pyvenv.cfg"] == created, "synced again in place, never rebuilt"
+    assert not ov.set_aside_root().exists()
 
 
 def test_a_cancel_during_the_proof_records_nothing(omni):
@@ -782,16 +882,29 @@ def test_a_cancel_during_the_proof_records_nothing(omni):
 def test_a_healthy_unreceipted_environment_is_adopted_without_downloading_rebuilding_or_changing_it(omni, tripwire):
     omni.env()
     omni.model()
-    env_before, model_before = omni.tree(ov.venv_dir()), omni.tree(ov.model_dir())
+    model_before = omni.tree(ov.model_dir())
+    env_before = {k: v for k, v in omni.tree(ov.engine_venv_dir()).items() if not k.endswith(".act-environment.json")}
     code, result = omni.install()
     assert result["state"] == proto.SUCCEEDED and result["verified"] == [OV], result
     assert omni.fetched() == [], "nothing downloaded"
-    assert omni.runner.kinds() == ["probe"], "no venv, no pip: only the proof"
-    assert omni.tree(ov.venv_dir()) == env_before and omni.tree(ov.model_dir()) == model_before
+    assert omni.runner.kinds() == ["probe"], "no uv venv, no uv sync: a RECORD check and the proof"
+    after = {k: v for k, v in omni.tree(ov.engine_venv_dir()).items() if not k.endswith(".act-environment.json")}
+    assert after == env_before and omni.tree(ov.model_dir()) == model_before
     receipt = ov.read_receipt()
-    assert receipt["origin"] == ov.ORIGIN_ADOPTED and receipt["base"] == venv_layout.base_identity(ov.venv_dir())
+    assert receipt["origin"] == ov.ORIGIN_ADOPTED and receipt["lock"] == ov.lock_identity()
     assert ov.environment_status() == (True, "ok")
     assert not ov.set_aside_root().exists() and not ov.wheel_cache_dir().exists()
+
+
+def test_a_damaged_file_in_an_unreceipted_environment_is_found_before_the_proof_and_never_adopted(omni):
+    omni.env()
+    omni.model()
+    (ov.site_packages(ov.engine_venv_dir()) / "torch" / "__init__.py").write_bytes(b"# changed\n")
+    code, result = omni.install()
+    assert result["state"] == proto.FAILED and "do not match their records" in result["error"]["message"]
+    assert omni.runner.kinds() == [], "the proof never runs on files that are not the installed ones"
+    assert ov.read_receipt()["stage"] == ov.STAGE_REJECTED and ov.read_receipt()["origin"] == ov.ORIGIN_ADOPTED
+    assert (component(omni.plan(), OV)["readiness"], ov.assess_engine().state) == (proto.DAMAGED, ov.ENGINE_BROKEN)
 
 
 def test_a_genuinely_broken_unreceipted_environment_is_not_adopted_and_a_repair_is_offered_then_kept(omni):
@@ -800,18 +913,18 @@ def test_a_genuinely_broken_unreceipted_environment_is_not_adopted_and_a_repair_
     omni.runner.probe_failure = ("import", "ImportError: DLL load failed while importing _C")
     code, result = omni.install()
     assert result["state"] == proto.FAILED and "DLL load failed" in result["error"]["message"]
-    assert ov.read_receipt()["stage"] == ov.STAGE_REJECTED and ov.venv_dir().is_dir()
+    assert ov.read_receipt()["stage"] == ov.STAGE_REJECTED and ov.engine_venv_dir().is_dir()
     data = omni.plan()
     entry = component(data, OV)
     assert (entry["readiness"], entry["consent_scope"]) == (proto.DAMAGED, proto.SCOPE_REPAIR)
     assert "checked and does not work" in entry["reason"]
-    old = omni.tree(ov.venv_dir())
+    old = omni.tree(ov.engine_venv_dir())
     omni.runner.probe_failure = None
     code, result = omni.install(plan=data)
     assert result["state"] == proto.SUCCEEDED, result
     (moved,) = list(ov.set_aside_root().iterdir())
-    assert omni.tree(moved) == old, "the old environment is kept whole, never deleted"
-    assert ov.read_receipt()["origin"] == ov.ORIGIN_INSTALLED
+    assert omni.tree(moved) == old, "an environment this app did not build is kept whole, never deleted"
+    assert ov.read_receipt()["origin"] == ov.ORIGIN_INSTALLED and omni.runner.kinds()[-3:] == ["venv", "sync", "probe"]
 
 
 @pytest.mark.parametrize("stage", ["gpu", "load", "timeout"])
@@ -858,14 +971,17 @@ def test_an_engine_that_changed_after_the_plan_is_refused_and_unchanged(omni):
     assert omni.fetched() == [] and omni.runner.commands == []
 
 
-def test_only_an_environment_this_app_left_unfinished_is_ever_removed(omni):
+def test_only_an_environment_this_app_built_is_ever_removed(omni):
     omni.env()
-    with pytest.raises(ovs.OmniVoiceSetupError):
-        ovs.remove_unfinished_engine()
-    assert ov.venv_dir().is_dir()
-    omni.receipt(ov.STAGE_CREATING, base_python=str(omni.base))
-    ovs.remove_unfinished_engine()
-    assert not ov.venv_dir().exists()
+    with pytest.raises(ovs.OmniVoiceSetupError, match="did not build it"):
+        ovs.remove_own_engine()
+    omni.receipt(ov.STAGE_REJECTED, origin=ov.ORIGIN_ADOPTED, reason="found broken")
+    with pytest.raises(ovs.OmniVoiceSetupError, match="did not build it"):
+        ovs.remove_own_engine()  # found and adopted, then proved broken: still not this app's to delete
+    assert ov.engine_venv_dir().is_dir()
+    omni.receipt(ov.STAGE_CREATING)
+    ovs.remove_own_engine()
+    assert not ov.engine_venv_dir().exists() and ov.read_receipt() == {}
 
 
 def test_installs_are_refused_while_omnivoice_is_converting_or_another_install_runs(omni):

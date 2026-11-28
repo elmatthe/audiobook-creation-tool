@@ -43,10 +43,11 @@ launch does. The report names exactly what was completed; the
 lifecycle then decides, by a fresh plan and health proof, what actually works.
 
 v0.8.0 Phase 3: OmniVoice (``omnivoice-engine``, ``omnivoice-model``) goes through ``tts.omnivoice_setup`` -- the same
-opener and byte budget, its own locks (``setup.lock`` then OmniVoice's ``inference.lock``, no engine running). Its wheels
-and model files may come only from the URLs of the shipped manifest; an existing environment holding exactly the pinned
-set is adopted after a proof and never downloaded again; a broken one is rebuilt only under repair consent, and moved
-aside, never deleted.
+opener and byte budget, its own locks (``setup.lock`` then OmniVoice's ``inference.lock``, no engine running). Its model
+files may come only from the URLs of the shipped manifest; since v0.8.2 Phase 5B uv installs its locked packages into
+``.venv-engines/omnivoice`` itself. An environment there that uv built and that holds exactly the pinned set is adopted
+after a RECORD check and a proof, never downloaded again; a broken one is rebuilt only under repair consent; an earlier
+version's engine is moved aside once the new one is proved, never deleted.
 """
 
 from __future__ import annotations
@@ -489,15 +490,17 @@ class RealAcquirer:
             elif unit_id.split(":", 1)[1] in ok_keys:
                 done.append(unit_id)
 
-    # -- OmniVoice, through tts.omnivoice_setup (v0.8.0 Phase 3) ------------------------------------------------------
+    # -- OmniVoice, through tts.omnivoice_setup (v0.8.0 Phase 3; uv since v0.8.2 Phase 5B) ------------------------
     def _acquire_omnivoice(self, plan, wanted, units, done, failures, progress, cancel_check) -> None:
-        """Adopt, install or repair the engine and fetch the model -- exactly what the plan (made moments ago in this
-        same worker, and covered by the spent consent) said -- then prove the engine and only then record it ready.
+        """Adopt, install or repair the engine at ``.venv-engines/omnivoice`` and fetch the model -- exactly what the
+        plan (made moments ago in this same worker, and covered by the spent consent) said -- then prove the engine and
+        only then record it ready; an earlier engine is retired only after that.
 
-        The engine's current state must still be the one planned (adopt or install = missing, repair = damaged), and a
-        repair needs repair consent; otherwise nothing is changed. A proof that shows an existing environment broken is
-        recorded so the next plan offers a repair; any other failure keeps everything as it is (verified downloads
-        included, so a retry fetches nothing twice)."""
+        The engine's current state must still be the one planned (adopt or install = missing, repair = damaged;
+        ``omnivoice_runtime.assess_install``), and a repair needs repair consent; otherwise nothing is changed. uv
+        fetches the engine's locked packages itself (the opener serves the model files only). A proof that shows the
+        engine broken is recorded so the next plan offers a repair; any other failure keeps everything as it is
+        (verified model files included, so a retry fetches nothing twice)."""
         from tts import omnivoice_runtime as ov
         from tts import omnivoice_setup as ovs
 
@@ -513,7 +516,7 @@ class RealAcquirer:
             return
         mode = None
         try:
-            assessment = ov.assess_engine()
+            assessment = ov.assess_install()
             mode = ovs.engine_mode(assessment)
             if engine_unit in wanted:
                 planned = units[engine_unit]
@@ -528,51 +531,46 @@ class RealAcquirer:
             elif assessment.state != ov.ENGINE_READY:
                 raise AcquisitionRefused("the OmniVoice engine is not ready and was not part of this confirmation")
             if engine_unit in wanted and mode in (ovs.MODE_INSTALL, ovs.MODE_REPAIR):
-                # The engine is built inside the app's own .venv: if that cannot happen here (the parent is missing,
-                # linked or half-way through a repair, or this copy is too deep), say so before anything is fetched.
+                # If the engine cannot be built here (this copy is too deep, or its uv or project is not ready), say so
+                # before anything is fetched.
                 blocked = ovs.build_problem()
                 if blocked:
                     raise ovs.OmniVoiceSetupError(blocked)
             allowed = [ov.model_url(name) for name in ov.model_spec()["files"]] if model_unit in wanted else []
-            if engine_unit in wanted and mode != ovs.MODE_ADOPT:
-                allowed += [wheel.url for wheel in ov.wheels()]
-            opener = self._opener(allowed)
+            opener = self._opener(allowed)  # model files only: uv fetches the engine's locked packages itself
             if model_unit in wanted:
                 ovs.acquire_model(opener=opener, progress=progress, cancel_check=cancel_check,
                                   allow_replace=scope == proto.SCOPE_REPAIR, sleep=self.sleep)
                 done.append(model_unit)
             if engine_unit in wanted and mode in (ovs.MODE_INSTALL, ovs.MODE_REPAIR):
-                ovs.fetch_wheels(opener=opener, progress=progress, cancel_check=cancel_check, sleep=self.sleep)
-                if mode == ovs.MODE_REPAIR:
-                    if assessment.state == ov.ENGINE_INCOMPLETE:
-                        ovs.remove_unfinished_engine()
-                    else:
-                        moved = ovs.set_aside_engine()
-                        progress({"unit": engine_unit, "step": "install", "done": 0, "total": 0,
-                                  "message": f"The old OmniVoice environment was kept at {rt.shown_path(moved)}"})
                 ovs.build_engine(runner=self._run, progress=progress, cancel_check=cancel_check)
+            elif engine_unit in wanted and mode == ovs.MODE_ADOPT:
+                ovs.adopt_engine(progress=progress)
             if not ov.model_recorded():
                 raise ovs.OmniVoiceSetupError("the OmniVoice model is not verified, so the engine cannot be checked")
+            # The engine unit proves the new engine before it is the one in use; a model alone is proved with the
+            # engine already in use (which is not changed or re-recorded).
+            folder = ov.engine_venv_dir() if engine_unit in wanted else ov.venv_dir()
             try:
-                probe = ovs.prove(runner=self._run, progress=progress, cancel_check=cancel_check)
+                probe = ovs.prove(runner=self._run, progress=progress, cancel_check=cancel_check, folder=folder)
             except ovs.ProofFailed as exc:
-                # An existing environment that the proof shows broken -- one never checked before, or one the receipt
-                # still called ready -- is recorded as such, so the next plan offers its repair.
-                if ovs.speaks_against_environment(exc) and \
-                        ov.assess_engine().state in (ov.ENGINE_UNCHECKED, ov.ENGINE_READY):
-                    ovs.record_rejected(str(exc))
+                # An engine the proof shows broken -- the new one, or the one in use that its receipt still called
+                # ready -- is recorded as such, so the next plan offers its repair.
+                if ovs.speaks_against_environment(exc):
+                    if engine_unit in wanted:
+                        ovs.record_rejected(str(exc), built=mode != ovs.MODE_ADOPT)
+                    else:
+                        ov.reject_ready_engine(str(exc))
                 raise
-            origin = {ovs.MODE_ADOPT: ov.ORIGIN_ADOPTED, ovs.MODE_INSTALL: ov.ORIGIN_INSTALLED,
-                      ovs.MODE_REPAIR: ov.ORIGIN_INSTALLED}.get(mode) if engine_unit in wanted else \
-                ov.read_receipt().get("origin", ov.ORIGIN_INSTALLED)
-            ovs.record_proved(origin, probe)
             if engine_unit in wanted:
-                if mode in (ovs.MODE_INSTALL, ovs.MODE_REPAIR):
-                    ovs.discard_wheels()
+                ovs.record_proved(ov.ORIGIN_ADOPTED if mode == ovs.MODE_ADOPT else ov.ORIGIN_INSTALLED, probe)
                 done.append(engine_unit)
-            # Unified .venv layout (owner decision 2026-11-13): an earlier sibling .venv-omnivoice is retired only
-            # here -- the nested engine is proved and recorded, still under the install lock -- and is moved, whole,
-            # to set-aside, never deleted. Failing to move it undoes nothing: it is not used either way, and it is said.
+            # The earlier engines are retired only here -- the new one is proved and recorded, still under the install
+            # lock -- and are moved, whole, to set-aside, never deleted. Failing to move one undoes nothing: it is not
+            # used either way, and it is said.
+            if ov.is_canonical() and ov.assess_engine().state == ov.ENGINE_READY:
+                ovs.retire_nested(progress)
+                ovs.discard_wheels()
             try:
                 retired = ovs.retire_legacy()
             except (ovs.OmniVoiceSetupError, ov.OmniVoiceUnavailable, OSError) as exc:

@@ -7,16 +7,18 @@ intact, and what a person should be told when they are not. It imports nothing h
 never downloads, and never raises for a missing asset -- a missing asset is a status with a sentence fit for a
 non-technical user.
 
-**Where the environment is (owner decision 2026-11-13, unified ``.venv`` layout; it supersedes the sibling of plan
-section 4).** One place only: ``.venv/engines/omnivoice`` (:func:`venv_dir`), an environment of its own -- its own
-interpreter, built directly from the app's base Python, never from the parent's -- held inside the app's ``.venv``
-beside Qwen3's, and protected through the parent's repairs by the same mechanism (``shared.venv_layout``,
-``shared.engine_lease``). Nothing is ever installed into or run from anywhere else. The earlier sibling
-``.venv-omnivoice`` (:func:`legacy_venv_dir`) is only *recognised* (:func:`assess_legacy`): it is never a runtime
-target, never adopted and never moved to the new path -- a Windows environment cannot be relocated -- so the engine is
-built again at the nested path from the pinned wheels, proved, and only then is the sibling retired, whole, to a
-set-aside folder (``tts.omnivoice_setup.retire_legacy``). Its old receipt (:func:`legacy_receipt_path`) is another file
-than the nested engine's (:func:`receipt_path`) and is never rewritten, so it can never vouch for the new one.
+**Where the environment is (v0.8.2 Phase 5B, approved A1).** New installs go to ``.venv-engines/omnivoice``
+(:func:`engine_venv_dir`), an independent environment beside the app's ``.venv``, built by uv on this copy's managed
+CPython 3.12.15 from the engine's locked project ``scripts/tts/engines/omnivoice`` (``shared.engine_env`` through
+``shared.uv_runner``; ``tts.omnivoice_setup``). From v0.8.0 to v0.8.1 the engine lived inside the app's ``.venv``, at
+``.venv/engines/omnivoice`` (:func:`nested_venv_dir`, pip-built from the base Python, carried through the parent's
+repairs by ``shared.venv_layout``/``shared.engine_lease``): such an engine keeps working, untouched, until a new one has
+been installed and proved, and is then moved whole to ``files/runtime-data/omnivoice/set-aside/`` (never deleted).
+:func:`venv_dir` names the engine in use. The earlier sibling ``.venv-omnivoice`` (:func:`legacy_venv_dir`) is only
+*recognised* (:func:`assess_legacy`): never a runtime target, never adopted and never moved to a new path -- a Windows
+environment cannot be relocated -- and retired, whole, once a new engine is proved
+(``tts.omnivoice_setup.retire_legacy``). Each place has its own receipt file (:func:`receipt_path`,
+:func:`nested_receipt_path`, :func:`legacy_receipt_path`), so a receipt can never vouch for another place's engine.
 
 The six voices are conditioned on **their own** owner-curated recordings, ``files/Cloned-Voice-Uploads/OmniVoice/
 OmniVoice - <Voice>.wav``, used whole -- never cropped again -- with the owner-written transcripts as reference text
@@ -37,12 +39,14 @@ pinned set that no receipt vouches for -- one whose proof was interrupted -- is 
 broken: the installer adopts it after the same proof, without downloading or replacing anything
 (:func:`assess_engine`).
 
-**Platforms (macOS P4B).** Windows runs the engine exactly as released: an NVIDIA GPU, CUDA, float16, the 88 wheels at
-the top of the manifest. An Apple Silicon Mac runs the same pinned engine and model in the configurations the owner
-accepted after the P4A experiment (Decisions, 2026-11-16): the Apple GPU (MPS) in float32 by default, or the CPU in
-float32 when ``config.toml`` says so (``[tts] omnivoice_device = "cpu"``); MPS float16 is never offered. Its wheels are
-the manifest's ``darwin_arm64`` set (the same upstream lock, 86 PyPI wheels). :func:`device_policy` is the one answer to
-"which device and dtype", and nothing ever falls back from one device to another on its own.
+**Platforms (macOS P4B).** Windows runs the engine exactly as released: an NVIDIA GPU, CUDA, float16, the 88 packages
+of the Windows set (torch 2.8.0+cu128). An Apple Silicon Mac runs the same pinned engine and model in the configurations
+the owner accepted after the P4A experiment (Decisions, 2026-11-16): the Apple GPU (MPS) in float32 by default, or the
+CPU in float32 when ``config.toml`` says so (``[tts] omnivoice_device = "cpu"``); MPS float16 is never offered. Its
+packages are the ``darwin_arm64`` set (the same upstream lock, 86 PyPI wheels). Both sets are one ``uv.lock`` since
+v0.8.2 Phase 5B; ``omnivoice_packages.json`` keeps the v0.8.1 lists as its parity reference and download sizes, and
+``omnivoice_manifest.json`` holds the model and its licences only. :func:`device_policy` is the one answer to "which
+device and dtype", and nothing ever falls back from one device to another on its own.
 """
 
 from __future__ import annotations
@@ -153,27 +157,75 @@ def runtime_dir() -> Path:
 
 
 def parent_venv_dir() -> Path:
-    """The application's own environment, ``.venv``, which holds the engine's (and Qwen3's)."""
+    """The application's own environment, ``.venv`` (which held the engine from v0.8.0 to v0.8.1)."""
     return repo_root() / ".venv"
 
 
+#: The engine's key in the engine registry (``tts.engines.registry``) and ``shared.engine_env``.
+ENGINE_KEY = "omnivoice"
+
+
+def engine_venv_dir() -> Path:
+    """``.venv-engines/omnivoice`` (v0.8.2 Phase 5B, approved A1): where the engine is installed, always, by uv. An
+    independent environment beside the app's ``.venv``, never inside it."""
+    return repo_root().joinpath(*venv_layout.ENGINE_OMNIVOICE.split("/"))
+
+
+def project_dir() -> Path:
+    """``scripts/tts/engines/omnivoice``: the engine's dependency project (``pyproject.toml`` + ``uv.lock``)."""
+    from tts.engines import registry
+
+    return repo_root().joinpath(*registry.OMNIVOICE.project.split("/"))
+
+
 def nested_venv_dir() -> Path:
-    """``.venv/engines/omnivoice``: where the engine is installed, always. An independent environment of its own."""
+    """``.venv/engines/omnivoice``: where v0.8.0 to v0.8.1 installed the engine (pip, inside the app's ``.venv``). Used
+    while no newer engine is installed; never installed into by this version's installer. Once a new engine has passed
+    its checks it is moved, whole, to ``files/runtime-data/omnivoice/set-aside/`` (kept for the owner to delete)."""
     return repo_root().joinpath(*venv_layout.NESTED_OMNIVOICE.split("/"))
 
 
 def legacy_venv_dir() -> Path:
     """``.venv-omnivoice``: where the first v0.8.0 development builds installed the engine. Never used, never installed
-    into, never deleted; only recognised (:func:`assess_legacy`) and, once the nested engine is proved, retired."""
+    into, never deleted; only recognised (:func:`assess_legacy`) and, once a new engine is proved, retired."""
     return repo_root() / venv_layout.LEGACY_OMNIVOICE
 
 
-def venv_dir() -> Path:
-    """The engine environment the app uses: ``.venv/engines/omnivoice``, whatever state it is in.
+def engine_installed() -> bool:
+    """Whether the receipt says ``.venv-engines/omnivoice`` finished installing (its last step, after every check)."""
+    return read_receipt().get("stage") == STAGE_INSTALLED
 
-    The one runtime path. Nothing chooses between it and the earlier sibling: a damaged engine here is reported as
-    damaged, never hidden behind (or replaced at run time by) ``.venv-omnivoice``."""
-    return nested_venv_dir()
+
+def venv_dir() -> Path:
+    """The engine environment the app uses.
+
+    * ``.venv-engines/omnivoice`` once its install has finished (its receipt says so) -- whatever state it is in later,
+      so a damaged engine is reported as damaged instead of being hidden behind an older one -- and whenever no earlier
+      engine is at ``.venv/engines/omnivoice``;
+    * otherwise that earlier engine: a working engine keeps working while its replacement is being built, and when that
+      build fails or is interrupted.
+
+    The sibling ``.venv-omnivoice`` is never chosen."""
+    canonical, nested = engine_venv_dir(), nested_venv_dir()
+    try:
+        earlier = os.path.lexists(nested)
+        present = os.path.lexists(canonical)
+    except OSError:
+        return canonical
+    if not earlier or (present and engine_installed()):
+        return canonical
+    return nested
+
+
+def is_canonical(folder: Optional[Path] = None) -> bool:
+    """Whether *folder* (default: the one in use) is the engine's own place, ``.venv-engines/omnivoice``."""
+    return venv_layout.same_path(venv_dir() if folder is None else folder, engine_venv_dir())
+
+
+def judges_nested() -> bool:
+    """Whether :func:`assess_install` is judging an earlier nested engine: one is in use and nothing of this version's
+    own (no folder, no receipt) is in ``.venv-engines/omnivoice`` yet."""
+    return not is_canonical() and _assess_canonical().state == ENGINE_ABSENT
 
 
 def shown_path(folder: Path) -> str:
@@ -221,8 +273,15 @@ def engine_lock_path() -> Path:
 
 
 def receipt_path() -> Path:
-    """The nested engine's install receipt: written only after the installer proved the environment (and model) work.
-    Outside the parent ``.venv``, so a repair that replaces the parent neither loses it nor carries a stale one in."""
+    """``.venv-engines/omnivoice``'s install receipt (version 3, v0.8.2 Phase 5B): ``creating`` before the environment
+    is made, ``installed`` only after the installer proved it (and the model) work, ``rejected`` once proved not to.
+    Outside the environment, so an interrupted build is always known to be this app's own."""
+    return runtime_dir() / "uv-engine-receipt.json"
+
+
+def nested_receipt_path() -> Path:
+    """The receipt v0.8.0 to v0.8.1 wrote for the nested engine ``.venv/engines/omnivoice`` (version 2). Read to judge
+    that engine while it is still the one in use; written only to record that it was proved broken."""
     return runtime_dir() / "engine-receipt.json"
 
 
@@ -233,7 +292,9 @@ def legacy_receipt_path() -> Path:
 
 
 def wheel_cache_dir() -> Path:
-    """Where the installer keeps the verified wheels while it installs (removed after a proved install)."""
+    """Where the v0.8.0-v0.8.1 installer kept its verified wheels while it installed. Not used since v0.8.2 Phase 5B
+    (uv downloads the locked packages itself, keeping none); a leftover of an interrupted earlier install is removed once
+    a new engine is proved (``tts.omnivoice_setup.discard_wheels``)."""
     return runtime_dir() / "cache" / "wheels"
 
 
@@ -249,7 +310,13 @@ def worker_script() -> Path:
 
 
 def manifest_path() -> Path:
+    """The model-integrity manifest: the engine version, the pinned model snapshot and its licences."""
     return Path(__file__).resolve().with_name("omnivoice_manifest.json")
+
+
+def packages_path() -> Path:
+    """The v0.8.1 package sets, kept as ``uv.lock``'s parity reference and for their download sizes (v0.8.2 Phase 5B)."""
+    return Path(__file__).resolve().with_name("omnivoice_packages.json")
 
 
 def refuse_link(folder: Path) -> None:
@@ -311,26 +378,42 @@ _HEX64 = re.compile(r"[0-9a-f]{64}")
 _MANIFEST_CACHE: dict = {}
 
 
-def load_manifest() -> dict:
-    """The tracked manifest (``tts/omnivoice_manifest.json``), validated. ``OmniVoiceUnavailable`` if it is not usable."""
-    path = manifest_path()
+_PACKAGES_CACHE: dict = {}
+
+
+def _load_validated(path: Path, cache: dict, check: Callable[[object], list[str]]) -> dict:
     try:
         stamp = (path.stat().st_size, path.stat().st_mtime_ns)
-        if _MANIFEST_CACHE.get("stamp") != stamp:
+        if cache.get("stamp") != stamp:
             data = json.loads(path.read_text(encoding="utf-8"))
-            problems = manifest_problems(data)
+            problems = check(data)
             if problems:
                 raise OmniVoiceUnavailable(f"The OmniVoice engine list shipped with the app is damaged ({problems[0]}).")
-            _MANIFEST_CACHE.update(stamp=stamp, data=data)
+            cache.update(stamp=stamp, data=data)
     except (OSError, ValueError) as exc:
         raise OmniVoiceUnavailable(f"The OmniVoice engine list shipped with the app could not be read ({exc}).") from exc
-    return _MANIFEST_CACHE["data"]
+    return cache["data"]
+
+
+def load_manifest() -> dict:
+    """The model-integrity manifest (``tts/omnivoice_manifest.json``), validated. ``OmniVoiceUnavailable`` if it is not
+    usable."""
+    return _load_validated(manifest_path(), _MANIFEST_CACHE, manifest_problems)
+
+
+def load_packages() -> dict:
+    """The v0.8.1 package sets (``tts/omnivoice_packages.json``), validated: ``uv.lock``'s parity reference and download
+    sizes, and the pinned set an earlier version's engine is judged by. Nothing is installed from it."""
+    return _load_validated(packages_path(), _PACKAGES_CACHE, packages_problems)
 
 
 def manifest_problems(data: object) -> list[str]:
+    """Why *data* is not the model-integrity manifest (version 2: the model and its licences, no packages)."""
     problems: list[str] = []
-    if not isinstance(data, dict) or data.get("schema") != "act-omnivoice-engine" or data.get("version") != 1:
-        return ["not an act-omnivoice-engine manifest, version 1"]
+    if not isinstance(data, dict) or data.get("schema") != "act-omnivoice-engine" or data.get("version") != 2:
+        return ["not an act-omnivoice-engine manifest, version 2"]
+    if any(key in data for key in ("packages", "wheels", DARWIN_SET)):
+        problems.append("the model manifest lists packages (they belong in omnivoice_packages.json)")
     model = data.get("model") or {}
     if model.get("repo") != "k2-fsa/OmniVoice" or not _HEX40.fullmatch(str(model.get("revision", ""))):
         problems.append("the model is not k2-fsa/OmniVoice at a pinned commit")
@@ -350,14 +433,25 @@ def manifest_problems(data: object) -> list[str]:
     if not required or any(name not in files for name in required) \
             or not any(name.startswith("audio_tokenizer/") for name in required):
         problems.append("the files the load needs (the audio tokenizer included) are not all pinned")
+    if (data.get("engine") or {}).get("omnivoice") != "0.2.1":
+        problems.append("the engine is not omnivoice 0.2.1")
+    if model.get("url_template") != HUB_URL_TEMPLATE:
+        problems.append("the model is not fetched from its pinned revision on the Hugging Face Hub")
+    return problems
+
+
+def packages_problems(data: object) -> list[str]:
+    """Why *data* is not the package reference: each platform's set exactly pinned, every wheel by name, file, host,
+    size and SHA-256 (Windows: PyPI and PyTorch's CUDA 12.8 index; the Mac: PyPI alone)."""
+    problems: list[str] = []
+    if not isinstance(data, dict) or data.get("schema") != "act-omnivoice-packages" or data.get("version") != 1:
+        return ["not an act-omnivoice-packages list, version 1"]
     packages = data.get("packages")
     if not isinstance(packages, list) or not packages or not all(
             isinstance(p, list) and len(p) == 2 and all(isinstance(x, str) and x for x in p) for p in packages):
         problems.append("the package set is not a list of [name, version] pins")
     elif len({canonical_name(p[0]) for p in packages}) != len(packages):
         problems.append("a package is pinned twice")
-    if (data.get("engine") or {}).get("omnivoice") != "0.2.1":
-        problems.append("the engine is not omnivoice 0.2.1")
     problems += _wheel_problems(data)
     darwin = data.get(DARWIN_SET)
     if darwin is not None:  # macOS P4B: the Mac's own package set, from PyPI only
@@ -371,8 +465,6 @@ def manifest_problems(data: object) -> list[str]:
             elif len({canonical_name(p[0]) for p in packages}) != len(packages):
                 problems.append("a Mac package is pinned twice")
             problems += [f"the Mac package set: {p}" for p in _wheel_problems(darwin, hosts=PYPI_HOSTS)]
-    if model.get("url_template") != HUB_URL_TEMPLATE:
-        problems.append("the model is not fetched from its pinned revision on the Hugging Face Hub")
     return problems
 
 
@@ -435,9 +527,9 @@ def canonical_name(name: str) -> str:
 
 
 def package_set() -> dict:
-    """The pinned package set of THIS platform: the manifest's top level on Windows (unchanged since v0.8.0), its
+    """The v0.8.1 package set of THIS platform (``omnivoice_packages.json``): its top level on Windows, its
     ``darwin_arm64`` set on a Mac. ``packages`` and ``wheels`` are read from here, never from the other platform's."""
-    data = load_manifest()
+    data = load_packages()
     if _system() == "darwin":
         darwin = data.get(DARWIN_SET)
         if not isinstance(darwin, dict):
@@ -447,6 +539,8 @@ def package_set() -> dict:
 
 
 def pinned_packages() -> dict[str, str]:
+    """``{canonical name: version}`` of this platform's pinned set: what ``uv.lock`` installs here (the parity test
+    holds the two equal) and what an engine is judged by, by its folder listing and in the worker's own check."""
     return {canonical_name(name): version for name, version in package_set()["packages"]}
 
 
@@ -461,30 +555,20 @@ class Wheel:
 
 
 def wheels() -> tuple[Wheel, ...]:
-    """The pinned wheels of the environment on this platform (88 on Windows, 86 on a Mac), in manifest order, each
-    with the one URL it may come from."""
+    """The pinned wheels of the environment on this platform (88 on Windows, 86 on a Mac), in list order. uv installs
+    exactly these files from the lock; their sizes are the download a person is shown (``uv.lock`` records none for the
+    PyTorch index's wheels)."""
     return tuple(Wheel(w["name"], w["version"], w["filename"], w["url"], w["size"], w["sha256"])
                  for w in package_set()["wheels"])
 
 
 def wheels_total_bytes() -> int:
+    """What installing the engine downloads on this platform: every pinned wheel (no package cache is kept)."""
     return sum(w.size for w in wheels())
 
 
-#: The installer's record of the wheels it verified here (``tts.omnivoice_setup`` writes it; reading it is planning).
+#: The v0.8.0-v0.8.1 installer's record of the wheels it verified (removed with them, ``omnivoice_setup.discard_wheels``).
 WHEEL_RECORD_NAME = "verified.json"
-
-
-def wheel_record_path() -> Path:
-    return wheel_cache_dir() / WHEEL_RECORD_NAME
-
-
-def wheel_record() -> dict:
-    try:
-        data = json.loads(wheel_record_path().read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
-    return data if isinstance(data, dict) else {}
 
 
 def regular_file_stat(path: Path) -> Optional[os.stat_result]:
@@ -495,46 +579,19 @@ def regular_file_stat(path: Path) -> Optional[os.stat_result]:
     return info if stat.S_ISREG(info.st_mode) else None
 
 
-def wheel_recorded(wheel: "Wheel", record: dict) -> bool:
-    info = regular_file_stat(wheel_cache_dir() / wheel.filename)
-    return info is not None and info.st_size == wheel.size and \
-        record.get(wheel.filename) == [wheel.size, info.st_mtime_ns, wheel.sha256]
-
-
-def wheel_verified(wheel: "Wheel", record: Optional[dict] = None) -> bool:
-    """Whether *wheel* is here and exactly the pinned file: by the installer's record, or else by hashing a file of the
-    right size (the stronger check only where no record vouches). A link or a folder on the way is never trusted."""
-    record = wheel_record() if record is None else record
-    if venv_layout.unsafe_component(repo_root(), wheel_cache_dir()) is not None:
-        return False
-    if wheel_recorded(wheel, record):
-        return True
-    path = wheel_cache_dir() / wheel.filename
-    info = regular_file_stat(path)
-    if info is None or info.st_size != wheel.size:
-        return False
-    try:
-        return _qwen3.sha256_file(path) == wheel.sha256
-    except OSError:
-        return False
-
-
-def wheel_bytes() -> tuple[int, int]:
-    """``(bytes to download, bytes already verified here)`` for the pinned wheels. Reads, never writes."""
-    record = wheel_record()
-    fetch = have = 0
-    for wheel in wheels():
-        if wheel_verified(wheel, record):
-            have += wheel.size
-        else:
-            fetch += wheel.size
-    return fetch, have
-
-
 def packages_sha256() -> str:
-    """The identity of the pinned package set: every wheel's name, version, file name, size and SHA-256."""
+    """The identity of the v0.8.1 pinned package set: every wheel's name, version, file name, size and SHA-256. What a
+    nested engine's (version 2) receipt was bound to; unchanged by the move of the list to its own file."""
     rows = [[w.name, w.version, w.filename, w.size, w.sha256] for w in wheels()]
     return hashlib.sha256(json.dumps(rows, separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
+def lock_identity() -> Optional[dict]:
+    """The engine project's definition and lock (line endings normalised): what a new engine's receipts are bound to,
+    and the engine unit's source (``shared.engine_env.lock_identity``). ``None`` when either file is missing."""
+    from shared import engine_env
+
+    return engine_env.lock_identity(repo_root(), ENGINE_KEY)
 
 
 def model_total_bytes() -> int:
@@ -551,11 +608,19 @@ ENGINE_INSTALLED_BYTES_FALLBACK = 8_346_271_361
 
 
 def engine_installed_bytes() -> int:
+    """The environment's size on disk once installed (measured; an estimate, never a promise)."""
     try:
         value = (package_set().get("installed_bytes") or {}).get("environment")
     except OmniVoiceUnavailable:
         value = None
     return value if type(value) is int and value > 0 else ENGINE_INSTALLED_BYTES_FALLBACK
+
+
+def install_temp_bytes() -> int:
+    """The extra space an install needs while it runs (v0.8.2 Phase 5B): uv unpacks every downloaded package in its own
+    temporary folder (``files/runtime-data/uv/t``) before copying it into the environment, so about the environment's
+    own size is needed twice until the install ends."""
+    return engine_installed_bytes()
 
 
 # --------------------------------------------------------------------------- #
@@ -799,26 +864,38 @@ UNCHECKED_MESSAGE = ("An OmniVoice voice engine is on this computer, but this ve
                      "yet, so it is not used. Install & Continue checks it and adopts it; nothing is downloaded or "
                      "replaced when it is complete.")
 INCOMPLETE_MESSAGE = "The OmniVoice voice engine was not installed completely. " + INSTALL_ACTION + " to repair it."
+#: An engine at the v0.8.0-v0.8.1 place that no receipt of that version vouches for: this version never adopts one there.
+NESTED_UNPROVED_MESSAGE = ("The OmniVoice voice engine in .venv\\engines\\omnivoice was never checked by this app, so it is "
+                           "not used. " + INSTALL_ACTION + ": a new engine is built in .venv-engines\\omnivoice and "
+                           "checked; the old folder is then moved to files\\runtime-data\\omnivoice\\set-aside -- kept, "
+                           "never deleted.")
 LINKED_MESSAGE = ("The OmniVoice environment is reached through a link to another folder, so the app will not use it. "
                   "Remove the link (not its target).")
-#: Nothing at the nested path, an earlier environment beside the app's: said instead of "not installed", because the
-#: person did install it. Installing builds it again where it now belongs; nothing of the old one is reused or deleted.
+#: Nothing installed by this version, an earlier environment beside the app's: said instead of "not installed", because
+#: the person did install it. Installing builds it again where it now belongs; nothing of the old one is reused or
+#: deleted.
 LEGACY_MOVE_MESSAGE = ("The OmniVoice voice engine on this computer is in a folder this version of the app no longer "
-                       "uses (.venv-omnivoice). " + INSTALL_ACTION + ": it is built again inside the app's own "
-                       "environment (.venv\\engines\\omnivoice) from its pinned packages and checked there; a model "
-                       "that is already on this computer is reused. Only once the new engine works is the old folder "
-                       "moved to files\\runtime-data\\omnivoice\\set-aside -- kept, never deleted.")
-#: Appended when the nested engine is present but not usable and the earlier sibling is still there: it is said, never
+                       "uses (.venv-omnivoice). " + INSTALL_ACTION + ": it is built again in its own environment "
+                       "(.venv-engines\\omnivoice) from its locked packages and checked there; a model that is already on "
+                       "this computer is reused. Only once the new engine works is the old folder moved to "
+                       "files\\runtime-data\\omnivoice\\set-aside -- kept, never deleted.")
+#: Appended when the engine in use is present but not usable and the earlier sibling is still there: it is said, never
 #: silently preferred and never silently ignored.
 LEGACY_NOT_USED_NOTE = (" (The earlier environment in .venv-omnivoice is not used in its place; it is kept as it is "
                         "until the new one works.)")
-#: A sibling still beside a nested engine that is ready (it could not be moved when the engine was proved, or it was put
+#: A sibling still beside an engine that is ready (it could not be moved when the engine was proved, or it was put
 #: back by hand). It promises only what is true: nothing moves it while the engine stays ready -- the acquirer runs
 #: only when something has to be installed or repaired, and tries the move again then.
 LEGACY_LEFTOVER_NOTE = ("The earlier OmniVoice environment in .venv-omnivoice is no longer used by the app and is still "
                         "in the app's folder (about 8 GB). You may move or delete that folder yourself; the app will "
                         "not use it, and moves it to files\\runtime-data\\omnivoice\\set-aside itself only if "
                         "OmniVoice ever has to be installed or repaired again.")
+#: The v0.8.0-v0.8.1 engine inside .venv still there beside a new engine that is ready (it could not be moved aside when
+#: the new one was proved: a file in it was open). Same promise as above.
+NESTED_LEFTOVER_NOTE = ("The earlier OmniVoice environment in .venv\\engines\\omnivoice is no longer used by the app (the "
+                        "engine now lives in .venv-engines\\omnivoice) and is still in the app's folder (about 8 GB). "
+                        "The app moves it to files\\runtime-data\\omnivoice\\set-aside the next time OmniVoice is "
+                        "installed or repaired; it never deletes it.")
 
 
 # --------------------------------------------------------------------------- #
@@ -826,11 +903,14 @@ LEGACY_LEFTOVER_NOTE = ("The earlier OmniVoice environment in .venv-omnivoice is
 # --------------------------------------------------------------------------- #
 #: The longest path Windows' loader accepts for a native library, long-path support or not.
 WINDOWS_MAX_PATH = 259
-#: The deepest native library (.dll/.pyd) of the environment at ``.venv/engines/omnivoice``, below the app's folder
-#: with its separator (135 + 1: scikit-learn's deepest extension; measured on HOME-PC 2026-11-13), plus a margin.
+#: The deepest native library (.dll/.pyd) of the engine's environment, below the app's folder with its separator (135 +
+#: 1: scikit-learn's deepest extension; measured on HOME-PC 2026-11-13 at ``.venv/engines/omnivoice``, whose name is
+#: exactly as long as ``.venv-engines/omnivoice``'s, v0.8.2 Phase 5B), plus a margin.
 DEEPEST_NATIVE_LIBRARY_CHARS = 140
 #: The deepest file of any kind there (168 + 1) plus a margin: the limit for every file while Windows long-path
-#: support is off, when pip could not even write it.
+#: support is off, when the installer could not even write it. (uv's own temporary download folder under
+#: ``files/runtime-data/uv/t`` is deeper, but only uv, which switches to long paths by itself, touches it: the rule
+#: ``shared.bootstrap`` applies to the repair cache.)
 DEEPEST_FILE_CHARS = 176
 
 
@@ -850,8 +930,8 @@ def windows_long_paths_enabled() -> Optional[bool]:
 def install_depth_problem(root: Optional[Path] = None, *, long_paths: Optional[bool] = None) -> str:
     """Why the OmniVoice engine cannot be installed in a copy of the app this deep, or ``""``.
 
-    The engine is held inside ``.venv`` (``.venv/engines/omnivoice``), so its files sit deeper than the app's own and
-    need a shorter app folder than ``bootstrap.install_path_problem`` asks for. Checked before anything is downloaded,
+    The engine's environment (``.venv-engines/omnivoice``) sits deeper than the app's own and needs a shorter app folder
+    than ``bootstrap.install_path_problem`` asks for. Checked before anything is downloaded,
     so a too-deep copy is told once, plainly, instead of getting an engine whose libraries Windows refuses to load.
     Only this engine's install is refused; the app and every other voice are unaffected."""
     if sys.platform != "win32":
@@ -882,22 +962,27 @@ def install_depth_problem(root: Optional[Path] = None, *, long_paths: Optional[b
 
 
 # --------------------------------------------------------------------------- #
-# The install receipt (v0.8.0 Phase 3): what makes the environment this app's own, proved
+# The install receipts: what makes an environment this app's own, proved -- one file per place
 # --------------------------------------------------------------------------- #
 RECEIPT_SCHEMA = "act-omnivoice-install-receipt"
-#: Version 2 names the nested path (``.venv/engines/omnivoice``) and lives in :func:`receipt_path`. Version 1 was
-#: written for the sibling ``.venv-omnivoice`` into :func:`legacy_receipt_path`; it is read only by
-#: :func:`read_legacy_receipt` and can never make the nested engine ready (another file, another version, another path).
-RECEIPT_VERSION = 2
+#: Version 3 (v0.8.2 Phase 5B) names ``.venv-engines/omnivoice`` and lives in :func:`receipt_path`; it binds the engine
+#: to its project's lock. Version 2 was written for the nested ``.venv/engines/omnivoice`` into
+#: :func:`nested_receipt_path`, version 1 for the sibling ``.venv-omnivoice`` into :func:`legacy_receipt_path`. Another
+#: file, another version and another path each: no receipt can make another place's engine ready.
+RECEIPT_VERSION = 3
+NESTED_RECEIPT_VERSION = 2
 LEGACY_RECEIPT_VERSION = 1
-#: Written before the installer creates an environment (so an interruption is known to be the app's own, unfinished),
-#: after a proof succeeded (the only stage that makes the engine ready), or after an existing environment was checked
-#: and proved not to work (so the next plan offers a repair instead of the same check again).
+#: ``creating`` is written before the installer makes the environment and ``created`` once uv made it at its place, so
+#: an interruption is known to be the app's own, unfinished; ``installed`` only after a proof succeeded (the only stage
+#: that makes the engine ready, and the step after which it is the engine in use); ``rejected`` after an existing
+#: environment was checked and proved not to work (so the next plan offers a repair instead of the same check again).
 STAGE_CREATING = "creating"
+STAGE_CREATED = "created"
 STAGE_INSTALLED = "installed"
 STAGE_REJECTED = "rejected"
-ORIGIN_INSTALLED = "installed"  # built by this app's installer from the pinned wheels
-ORIGIN_ADOPTED = "adopted"  # found already holding exactly the pinned set, then proved the same way
+STAGES = (STAGE_CREATING, STAGE_CREATED, STAGE_INSTALLED, STAGE_REJECTED)
+ORIGIN_INSTALLED = "installed"  # built by this app's installer from the locked packages
+ORIGIN_ADOPTED = "adopted"  # found already holding exactly the locked set, then RECORD-checked and proved the same way
 
 
 def _read_receipt_file(path: Path, version: int, folder: Path) -> dict:
@@ -915,10 +1000,15 @@ def _read_receipt_file(path: Path, version: int, folder: Path) -> dict:
 
 
 def read_receipt() -> dict:
-    """The receipt for the nested engine, or ``{}``: absent, unreadable, a link, of another schema or version, or
-    written for another folder (a copied or stale receipt never vouches for an environment it was not written for --
-    a receipt of the earlier sibling, or of another copy of the app, least of all)."""
-    return _read_receipt_file(receipt_path(), RECEIPT_VERSION, nested_venv_dir())
+    """The receipt for ``.venv-engines/omnivoice``, or ``{}``: absent, unreadable, a link, of another schema or version,
+    or written for another folder (a copied or stale receipt never vouches for an environment it was not written for --
+    a receipt of an earlier place, or of another copy of the app, least of all)."""
+    return _read_receipt_file(receipt_path(), RECEIPT_VERSION, engine_venv_dir())
+
+
+def read_nested_receipt() -> dict:
+    """What the nested engine ``.venv/engines/omnivoice`` was recorded with (version 2), or ``{}``."""
+    return _read_receipt_file(nested_receipt_path(), NESTED_RECEIPT_VERSION, nested_venv_dir())
 
 
 def read_legacy_receipt() -> dict:
@@ -927,14 +1017,28 @@ def read_legacy_receipt() -> dict:
 
 
 def write_receipt(stage: str, **fields) -> dict:
-    """Publish the receipt for the nested engine at *stage* (atomically, never through a link)."""
-    if stage not in (STAGE_CREATING, STAGE_INSTALLED, STAGE_REJECTED):
+    """Publish ``.venv-engines/omnivoice``'s receipt at *stage* (atomically, never through a link), bound to the engine
+    project's current lock."""
+    if stage not in STAGES:
         raise ValueError(f"unknown receipt stage {stage!r}")
     record = {"schema": RECEIPT_SCHEMA, "version": RECEIPT_VERSION, "stage": stage,
-              "path": os.path.normpath(os.path.abspath(venv_dir())), "packages_sha256": packages_sha256(),
+              "path": os.path.normpath(os.path.abspath(engine_venv_dir())), "lock": lock_identity(),
               "omnivoice": load_manifest()["engine"]["omnivoice"],
               "recorded_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), **fields}
     atomic_write_json(receipt_path(), record)
+    return record
+
+
+def write_nested_receipt(stage: str, **fields) -> dict:
+    """Publish the nested engine's (version 2) receipt -- since v0.8.2 Phase 5B only ever to record that the engine in
+    use there was proved broken (:func:`reject_ready_engine`); nothing is installed there any more."""
+    if stage != STAGE_REJECTED:
+        raise ValueError("the nested engine is never installed into any more; only its rejection is recorded")
+    record = {"schema": RECEIPT_SCHEMA, "version": NESTED_RECEIPT_VERSION, "stage": stage,
+              "path": os.path.normpath(os.path.abspath(nested_venv_dir())), "packages_sha256": packages_sha256(),
+              "omnivoice": load_manifest()["engine"]["omnivoice"],
+              "recorded_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), **fields}
+    atomic_write_json(nested_receipt_path(), record)
     return record
 
 
@@ -971,19 +1075,28 @@ def failure_needs_rebuild(terminal: dict) -> bool:
 
 
 def reject_ready_engine(reason: str) -> bool:
-    """Record that the engine the receipt calls ready failed at use in a way only a rebuild can mend. True if recorded.
+    """Record that the engine in use, which its receipt calls ready, failed at use in a way only a rebuild can mend.
+    True if recorded.
 
     Found on the real nested engine (2026-11-13): with one package file deleted, the folder listing and the receipt
     still said "ready", every conversion failed, and nothing offered a repair. The conversion that meets such a failure
     (:func:`failure_needs_rebuild`) records it here -- it holds ``inference.lock``, so no installer is changing the
     engine -- and the next look therefore says *broken*, the voices say why, and Install & Continue offers the repair
-    (the damaged environment is set aside whole, never deleted, and a fresh one is built and proved). Only a READY
-    engine is ever rejected this way; never raises."""
+    (a fresh engine is built in ``.venv-engines/omnivoice`` and proved). Only a READY engine is ever rejected this way;
+    never raises. An installed ``.venv-engines/omnivoice`` keeps its ``installed`` stage (it stays the engine in use, so
+    a damaged engine is never hidden behind an older one) and gains the rejection."""
     try:
-        if _assess_nested(None).state != ENGINE_READY:
+        if is_canonical():
+            if _assess_canonical().state != ENGINE_READY:
+                return False
+            kept = {k: v for k, v in read_receipt().items()
+                    if k not in ("schema", "version", "stage", "path", "lock", "omnivoice", "recorded_utc")}
+            write_receipt(STAGE_INSTALLED, **{**kept, "rejected": str(reason)[:300], "rejected_at": "conversion"})
+            return True
+        if _assess_nested().state != ENGINE_READY:
             return False
-        write_receipt(STAGE_REJECTED, base=venv_layout.base_identity(venv_dir()), reason=str(reason)[:300],
-                      rejected_at="conversion")
+        write_nested_receipt(STAGE_REJECTED, base=venv_layout.base_identity(nested_venv_dir()), reason=str(reason)[:300],
+                             rejected_at="conversion")
         return True
     except (OSError, ValueError, OmniVoiceUnavailable):
         return False
@@ -993,8 +1106,8 @@ def reject_ready_engine(reason: str) -> bool:
 # The environment: assessed cheaply (a folder listing and two small files; no process, no import)
 # --------------------------------------------------------------------------- #
 ENGINE_READY = "ready"  # proved and recorded by this app's installer, unchanged since
-ENGINE_ABSENT = "absent"  # nothing at .venv/engines/omnivoice (whatever is, or is not, at the earlier sibling)
-ENGINE_UNCHECKED = "unchecked"  # exactly the pinned set, built from the app's Python, but no receipt vouches for it
+ENGINE_ABSENT = "absent"  # nothing installed (whatever is, or is not, at the earlier sibling)
+ENGINE_UNCHECKED = "unchecked"  # .venv-engines/omnivoice built by uv here, exactly the pinned set, no receipt vouches
 ENGINE_INCOMPLETE = "incomplete"  # this app's own install of it did not finish
 ENGINE_BROKEN = "broken"  # present, and provably not the pinned engine (or checked and proved not to work)
 ENGINE_UNVERIFIED = "unverified"  # reached through a link, or unreadable: nothing here can vouch for it, or change it
@@ -1007,23 +1120,12 @@ class EngineAssessment:
     reason: str  # a sentence fit for a person; "ok" when ready
 
 
-def app_owned_python() -> Path:
-    """The app's own base CPython inside the app's folder: the one interpreter inside it an OmniVoice environment may
-    be built from. v0.8.2 Phase 4: one resolver decides on both platforms (``shared.app_python.app_env_base``): uv's
-    managed interpreter (``files/runtime-data/uv/python/<key>/python.exe``, ``.../bin/python3.12`` on a Mac), or the
-    legacy ``files/runtime-data/python`` one (v0.7.0 to v0.8.1) while ``.venv`` still runs on it."""
-    from shared import app_python
+def engine_identity_problem(folder: Optional[Path] = None) -> str:
+    """Why ``.venv-engines/omnivoice`` (or *folder*) is not provably this copy's own uv-built environment on its managed
+    CPython, or ``""`` (``shared.engine_env.identity_problem``; the worker's own check is still needed)."""
+    from shared import engine_env
 
-    return app_python.app_env_base(repo_root(), "darwin" if _system() == "darwin" else "win32")
-
-
-def app_base_python() -> Path:
-    """The base interpreter the app's own ``.venv`` was built from (``sys._base_executable``), as ``python.exe``: the
-    one Python an OmniVoice environment may be built from (the rule ``tts.qwen3_setup`` applies to Qwen3)."""
-    exe = Path(getattr(sys, "_base_executable", "") or sys.executable)
-    if exe.name.lower() == "pythonw.exe" and exe.with_name("python.exe").is_file():
-        return exe.with_name("python.exe")
-    return exe
+    return engine_env.identity_problem(repo_root(), ENGINE_KEY, engine_venv_dir() if folder is None else folder)
 
 
 def structure_problem(folder: Path, *, parent: Optional[Path] = None) -> str:
@@ -1126,28 +1228,50 @@ def assess_legacy() -> LegacyAssessment:
 
 
 def legacy_leftover_note() -> str:
-    """What to say about an earlier sibling still present beside a nested engine that is ready, or ``""``."""
-    return LEGACY_LEFTOVER_NOTE if assess_legacy().retirable else ""
+    """What to say about an earlier environment still present beside an engine that is ready, or ``""``."""
+    if assess_legacy().retirable:
+        return LEGACY_LEFTOVER_NOTE
+    try:
+        if is_canonical() and os.path.lexists(nested_venv_dir()):
+            return NESTED_LEFTOVER_NOTE
+    except OSError:
+        pass
+    return ""
 
 
-def assess_engine(*, app_base: Optional[Path] = None) -> EngineAssessment:
-    """What ``.venv/engines/omnivoice`` is, from the folder and the receipt alone. Read-only; never raises.
+def assess_engine() -> EngineAssessment:
+    """What the engine in use (:func:`venv_dir`) is, from the folder and its receipt alone. Read-only; never raises.
 
-    Ready only with a receipt of a proved install for this folder, for the current pinned set, and for the base Python
-    it is still built from. An environment holding exactly the pinned set without such a receipt is *unchecked*
-    (adoptable after a proof), never ready and never broken -- but only when it was built from the app's own base
-    Python (*app_base*, default :func:`app_base_python`). Everything else present is broken (a repair builds a fresh
-    one and keeps this folder), or unverified when reached through a link.
-
-    Only the nested path is judged. An earlier sibling ``.venv-omnivoice`` changes the *words* -- it is named, so a
-    damaged engine here is never quietly preferred over, or hidden behind, a healthy one there -- and never the state.
+    ``.venv-engines/omnivoice`` is ready only with a receipt of a proved install for this folder and this version's lock,
+    this copy's own uv-built environment on its managed CPython, exactly the pinned packages, and a current
+    ``shared.engine_env`` receipt inside it (:func:`_assess_canonical`). An earlier nested engine keeps its own v0.8.1
+    checks (:func:`_assess_nested`). An earlier sibling ``.venv-omnivoice`` changes the *words* -- it is named, so a
+    damaged engine is never quietly preferred over, or hidden behind, a healthy one there -- and never the state.
     """
-    assessment = _assess_nested(app_base)
+    assessment = _assess_canonical() if is_canonical() else _assess_nested()
     if assessment.state == ENGINE_READY:
         return assessment
+    return _with_sibling(assessment)
+
+
+def assess_install() -> EngineAssessment:
+    """What an install or repair has to do (the planner's and the acquirer's question): the state of
+    ``.venv-engines/omnivoice`` -- every install and repair builds or proves the engine there -- except that, while
+    nothing is there, an earlier nested engine that is ready needs nothing and one that is not needs a repair."""
+    canonical = _assess_canonical()
+    if canonical.state != ENGINE_ABSENT or is_canonical():
+        return canonical if canonical.state == ENGINE_READY else _with_sibling(canonical)
+    earlier = _assess_nested()  # nothing installed by this version, an earlier engine in use
+    if earlier.state in (ENGINE_READY, ENGINE_UNVERIFIED):
+        return earlier
+    return _with_sibling(EngineAssessment(ENGINE_INCOMPLETE if earlier.state == ENGINE_INCOMPLETE else ENGINE_BROKEN,
+                                          earlier.reason))
+
+
+def _with_sibling(assessment: EngineAssessment) -> EngineAssessment:
     try:
         legacy = assess_legacy()
-    except Exception:  # noqa: BLE001 - the sibling is commentary; it never stops the nested engine being judged
+    except Exception:  # noqa: BLE001 - the sibling is commentary; it never stops the engine being judged
         return assessment
     if not legacy.retirable:  # nothing there, or a link or a stray entry this app says nothing about and never touches
         return assessment
@@ -1158,14 +1282,61 @@ def assess_engine(*, app_base: Optional[Path] = None) -> EngineAssessment:
     return EngineAssessment(assessment.state, assessment.reason + LEGACY_NOT_USED_NOTE)
 
 
-def _assess_nested(app_base: Optional[Path]) -> EngineAssessment:
-    folder = nested_venv_dir()
+def _assess_canonical() -> EngineAssessment:
+    """``.venv-engines/omnivoice``: absent, unfinished (this app's own receipt says it was being made), broken, unchecked
+    (uv-built here on the managed CPython and exactly the pinned set, but no current receipt: adopted after a RECORD
+    check and a proof, never downloaded again), or ready."""
+    folder = engine_venv_dir()
     try:
         if venv_layout.unsafe_component(repo_root(), folder) is not None:
             return EngineAssessment(ENGINE_UNVERIFIED, LINKED_MESSAGE)
         if not os.path.lexists(folder):
             return EngineAssessment(ENGINE_ABSENT, install_depth_problem() or NOT_INSTALLED_MESSAGE)
         receipt = read_receipt()
+        stage = receipt.get("stage")
+        if stage in (STAGE_CREATING, STAGE_CREATED):
+            return EngineAssessment(ENGINE_INCOMPLETE, INCOMPLETE_MESSAGE)
+        problem = engine_identity_problem(folder)
+        if problem:
+            return EngineAssessment(ENGINE_BROKEN, f"The OmniVoice environment cannot be used: {problem}. "
+                                                   + INSTALL_ACTION + " to repair it.")
+        listing = listing_problem(folder)
+        if listing:
+            return EngineAssessment(ENGINE_BROKEN, f"The OmniVoice environment does not hold its pinned packages "
+                                                   f"({listing}). " + INSTALL_ACTION + " to repair it.")
+        same_lock = receipt.get("lock") is not None and receipt.get("lock") == lock_identity()
+        why = receipt.get("rejected") if stage == STAGE_INSTALLED else receipt.get("reason")
+        if same_lock and (stage == STAGE_REJECTED or (stage == STAGE_INSTALLED and receipt.get("rejected"))):
+            return EngineAssessment(ENGINE_BROKEN, f"The OmniVoice environment was checked and does not work "
+                                                   f"({str(why or 'it did not start')[:300]}). " + INSTALL_ACTION
+                                                   + " to repair it.")
+        if same_lock and stage == STAGE_INSTALLED and receipt.get("probe_ok") is True:
+            from shared import engine_env
+
+            problem = engine_env.receipt_problem(repo_root(), ENGINE_KEY)
+            if problem:
+                return EngineAssessment(ENGINE_BROKEN, f"The OmniVoice voice engine's installation cannot be confirmed "
+                                                       f"({problem}). " + INSTALL_ACTION + " to repair it.")
+            return EngineAssessment(ENGINE_READY, "ok")
+        return EngineAssessment(ENGINE_UNCHECKED, UNCHECKED_MESSAGE)
+    except OmniVoiceUnavailable as exc:
+        return EngineAssessment(ENGINE_UNVERIFIED, str(exc))
+    except OSError as exc:
+        return EngineAssessment(ENGINE_UNVERIFIED, f"The OmniVoice environment could not be read ({exc.strerror or exc}).")
+
+
+def _assess_nested() -> EngineAssessment:
+    """The v0.8.0-v0.8.1 engine at ``.venv/engines/omnivoice``, judged as v0.8.1 judged it: ready only with its own
+    (version 2) receipt of a proved install for this folder, the pinned set and the base Python it is still built from.
+    It is never adopted or installed into any more: anything else there is unfinished or broken, and a repair builds a
+    new engine in ``.venv-engines/omnivoice``."""
+    folder = nested_venv_dir()
+    try:
+        if venv_layout.unsafe_component(repo_root(), folder) is not None:
+            return EngineAssessment(ENGINE_UNVERIFIED, LINKED_MESSAGE)
+        if not os.path.lexists(folder):
+            return EngineAssessment(ENGINE_ABSENT, install_depth_problem() or NOT_INSTALLED_MESSAGE)
+        receipt = read_nested_receipt()
         stage = receipt.get("stage")
         if stage == STAGE_CREATING:
             return EngineAssessment(ENGINE_INCOMPLETE, INCOMPLETE_MESSAGE)
@@ -1177,20 +1348,15 @@ def _assess_nested(app_base: Optional[Path]) -> EngineAssessment:
         if listing:
             return EngineAssessment(ENGINE_BROKEN, f"The OmniVoice environment does not hold its pinned packages "
                                                    f"({listing}). " + INSTALL_ACTION + " to repair it.")
-        base = venv_layout.base_identity(folder)
-        digest = packages_sha256()
-        same = receipt.get("packages_sha256") == digest and receipt.get("base") == base
+        same = receipt.get("packages_sha256") == packages_sha256() and \
+            receipt.get("base") == venv_layout.base_identity(folder)
         if stage == STAGE_INSTALLED and receipt.get("probe_ok") is True and same:
             return EngineAssessment(ENGINE_READY, "ok")
         if stage == STAGE_REJECTED and same:
             why = str(receipt.get("reason") or "it did not start")[:300]
             return EngineAssessment(ENGINE_BROKEN, f"The OmniVoice environment was checked and does not work ({why}). "
                                                    + INSTALL_ACTION + " to repair it.")
-        expected = app_base_python() if app_base is None else Path(app_base)
-        if not venv_layout.same_path(base["executable"], expected):
-            return EngineAssessment(ENGINE_BROKEN, "The OmniVoice environment was built from another Python than the "
-                                                   "app's own, so it is not used. " + INSTALL_ACTION + " to repair it.")
-        return EngineAssessment(ENGINE_UNCHECKED, UNCHECKED_MESSAGE)
+        return EngineAssessment(ENGINE_BROKEN, NESTED_UNPROVED_MESSAGE)
     except OmniVoiceUnavailable as exc:
         return EngineAssessment(ENGINE_UNVERIFIED, str(exc))
     except OSError as exc:
@@ -1198,7 +1364,7 @@ def _assess_nested(app_base: Optional[Path]) -> EngineAssessment:
 
 
 def environment_status() -> tuple[bool, str]:
-    """``(ok, reason)`` for the nested engine: ready only when this app's installer proved it and recorded that proof
+    """``(ok, reason)`` for the engine in use: ready only when this app's installer proved it and recorded that proof
     (:func:`assess_engine`). Cheap: a folder listing and two small files, no subprocess, no import of the engine."""
     assessment = assess_engine()
     if assessment.state == ENGINE_READY:
@@ -1716,16 +1882,17 @@ _DROPPED_NAMES = frozenset({"VIRTUAL_ENV", "VIRTUAL_ENV_PROMPT", "__PYVENV_LAUNC
 OFFLINE = {"HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1", "HF_DATASETS_OFFLINE": "1"}
 
 
-def worker_environment(base: Optional[dict] = None) -> dict:
+def worker_environment(base: Optional[dict] = None, own: Optional[Path] = None) -> dict:
     """Offline, isolated from the app's interpreter settings, every cache inside the runtime folder, ``PATH`` without any
-    other Python environment's folders (the app's ``.venv`` and the Qwen3 engine included)."""
+    other Python environment's folders (the app's ``.venv`` and the Qwen3 engine included). *own* is the engine the
+    worker runs in (default: the one in use; the installer's proof names the new one before it is in use)."""
     env = dict(os.environ if base is None else base)
     for name in list(env):
         upper = name.upper()
         if upper.startswith(_DROPPED_PREFIXES) or upper in _DROPPED_NAMES:
             del env[name]
         elif upper == "PATH":
-            env[name] = _qwen3.scrubbed_path(env[name], venv_dir())
+            env[name] = _qwen3.scrubbed_path(env[name], venv_dir() if own is None else own)
     cache, scratch = cache_root(), ensure_runtime_dir(tmp_root())
     for name in ("hf", "torch", "numba", "xdg"):
         ensure_runtime_dir(cache / name)

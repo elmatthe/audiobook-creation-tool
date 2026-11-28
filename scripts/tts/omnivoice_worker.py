@@ -1,8 +1,11 @@
-"""omnivoice_worker.py — the OmniVoice worker. Runs ONLY inside ``.venv/engines/omnivoice``, never in the app's own interpreter.
+"""omnivoice_worker.py — the OmniVoice worker. Runs ONLY inside the engine's own environment, never in the app's own interpreter.
 
 ``omnivoice_synth`` writes a job file and starts, for at most a bounded batch of one file's chunks::
 
-    <.venv/engines/omnivoice python> -I omnivoice_worker.py <job.json>
+    <.venv-engines/omnivoice python> -I omnivoice_worker.py <job.json>
+
+(an engine v0.8.0-v0.8.1 installed at ``.venv/engines/omnivoice`` is run the same way while it is still the one in use,
+``omnivoice_runtime.venv_dir``)
 
 then reads ``@@EVENT <json>`` lines from stdout. Everything else the libraries print is ignored by the reader.
 
@@ -740,7 +743,8 @@ def isolation_problems(job: dict) -> list[str]:
     """What, in this interpreter's own view of itself, shows it reaching the app's ``.venv``, a Qwen3 engine, the user
     site or any site-packages outside the OmniVoice environment.
 
-    The environment is held INSIDE the app's ``.venv`` (``.venv/engines/omnivoice``, v0.8.0), so a path inside the
+    An engine v0.8.0-v0.8.1 installed is held INSIDE the app's ``.venv`` (``.venv/engines/omnivoice``; since v0.8.2 the
+    engine lives beside it, in ``.venv-engines/omnivoice``), so a path inside the
     environment itself is its own even though it also lies inside that parent; everything else of the parent (its
     ``Lib/site-packages`` above all) is another environment. Its base interpreter must be outside every one of them:
     an engine built from the parent's interpreter would not be independent of it."""

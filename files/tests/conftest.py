@@ -236,6 +236,11 @@ _GUARDED_PATHS = {
     "the real independent engine environments": REPO_ROOT / ".venv-engines",
     "the real Qwen3 engine environment marker": REPO_ROOT / ".venv-engines" / "qwen3" / "pyvenv.cfg",
     "the real Qwen3 engine environment receipt": REPO_ROOT / ".venv-engines" / "qwen3" / ".act-environment.json",
+    # v0.8.2 Phase 5B: the OmniVoice engine moves beside .venv the same way; its install receipt is in runtime data.
+    "the real OmniVoice engine environment marker": REPO_ROOT / ".venv-engines" / "omnivoice" / "pyvenv.cfg",
+    "the real OmniVoice engine environment receipt": (REPO_ROOT / ".venv-engines" / "omnivoice"
+                                                      / ".act-environment.json"),
+    "the real OmniVoice install receipt": REPO_ROOT / "files" / "runtime-data" / "omnivoice" / "uv-engine-receipt.json",
     "the real Qwen3 install record": (REPO_ROOT / "files" / "runtime-data" / "qwen3"
                                       / "state.json"),
     # v0.7.0 P04C Stage 2: a repair or setup now always takes the engine lease. Locking an existing lock file changes
@@ -273,7 +278,8 @@ _PER_TEST_GUARDED = ("the real requirements stamp", "the real environment receip
                      "the real canonical Qwen3 engine marker", "the real canonical Qwen3 engine launchers",
                      "the real canonical Qwen3 engine packages",
                      "the real independent engine environments", "the real Qwen3 engine environment marker",
-                     "the real Qwen3 engine environment receipt",
+                     "the real Qwen3 engine environment receipt", "the real OmniVoice engine environment marker",
+                     "the real OmniVoice engine environment receipt", "the real OmniVoice install receipt",
                      "the real Qwen3 install record", "the real Qwen3 engine lock",
                      "the real Qwen3 local transcripts", "the real Qwen3 transcript selection",
                      "the real Qwen3 model folder",

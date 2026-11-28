@@ -264,16 +264,18 @@ def test_another_copys_python_is_recognised_in_either_layout(tmp_path, platform)
     assert app_python.owner_of_home(tmp_path / "Python312", platform) is None
 
 
-def test_every_engine_installer_asks_the_one_resolver():
-    """Qwen3 and OmniVoice keep their own installers until 5A/5B; their base interpreter comes from app_python."""
+def test_every_remaining_base_interpreter_user_asks_the_one_resolver():
+    """Qwen3 (5A) and OmniVoice (5B) are now built by uv on the managed CPython; what still needs the app's base
+    interpreter (Qwen3's sealed-package seam, cleanup, the setup protocol) asks app_python."""
     import inspect
 
     from shared import cleanup_state, optional_setup_protocol
     from tts import omnivoice_runtime, qwen3_runtime
 
-    for function in (qwen3_runtime.app_base_python, omnivoice_runtime.app_owned_python, cleanup_state.app_base_python,
+    for function in (qwen3_runtime.app_base_python, cleanup_state.app_base_python,
                      optional_setup_protocol.app_python):
         assert "app_env_base" in inspect.getsource(function), function.__qualname__
+    assert not hasattr(omnivoice_runtime, "app_owned_python") and not hasattr(omnivoice_runtime, "app_base_python")
 
 
 # --------------------------------------------------------------------------- #

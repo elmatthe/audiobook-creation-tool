@@ -1,4 +1,4 @@
-"""v0.8.2 Phase 5A — the engine registry (``scripts/tts/engines/registry.py``) and every table derived from it.
+"""v0.8.2 Phase 5A (OmniVoice placement since 5B) — the engine registry (``scripts/tts/engines/registry.py``) and every table derived from it.
 
 The app's engine tables used to be parallel literals in seven modules. They are now derived from one explicit list of
 :class:`EngineDefinition` objects. These tests pin that the derived tables are exactly the released ones (so nothing a
@@ -63,7 +63,8 @@ def test_every_derived_table_is_exactly_what_v0_8_1_released():
     assert t.wizard_defaults == RELEASED_DEFAULTS and t.optional_choices == RELEASED_CHOICES
     assert t.component_models == {"qwen3-customvoice": "customvoice", "qwen3-base": "base"}
     assert t.local_host_names == {"kokoro": "Kokoro", "chatterbox": "Chatterbox"}
-    assert t.engine_projects == {"qwen3": "scripts/tts/engines/qwen3"}
+    # v0.8.2 Phase 5B: OmniVoice has its own uv project and environment too.
+    assert t.engine_projects == {"qwen3": "scripts/tts/engines/qwen3", "omnivoice": "scripts/tts/engines/omnivoice"}
     assert t.environment_folders == {".venv", ".venv-engines", ".venv-qwen3", ".venv-omnivoice"}
 
 
@@ -78,11 +79,14 @@ def test_every_consumer_holds_the_registry_s_table_not_a_copy_of_its_own():
     assert local_engine_host.ENGINE_NAMES == t.local_host_names
     assert venv_layout.ENGINE_QWEN3 == ".venv-engines/qwen3" == registry.QWEN3.environment
     assert venv_layout.NESTED_QWEN3 == ".venv/engines/qwen3" and venv_layout.LEGACY_QWEN3 == ".venv-qwen3"
-    assert venv_layout.NESTED_OMNIVOICE == ".venv/engines/omnivoice" == registry.OMNIVOICE.environment
+    assert venv_layout.ENGINE_OMNIVOICE == ".venv-engines/omnivoice" == registry.OMNIVOICE.environment
+    assert venv_layout.NESTED_OMNIVOICE == ".venv/engines/omnivoice" == registry.OMNIVOICE.nested_environment
     assert venv_layout.LEGACY_OMNIVOICE == ".venv-omnivoice"
     assert t.environment_folders <= release.EXCLUDED_DIR_NAMES
     assert release.ENGINE_PROJECT_FILES == ("scripts/tts/engines/qwen3/pyproject.toml",
-                                            "scripts/tts/engines/qwen3/uv.lock")
+                                            "scripts/tts/engines/qwen3/uv.lock",
+                                            "scripts/tts/engines/omnivoice/pyproject.toml",
+                                            "scripts/tts/engines/omnivoice/uv.lock")
 
 
 _TABLE_NAMES = {
@@ -167,8 +171,11 @@ def test_removing_an_engine_is_deleting_its_definition_and_nothing_refers_to_it_
     assert "chatterbox" not in t.components and "chatterbox" not in t.component_engines.values()
     assert [c[0] for c in t.optional_choices] == ["kokoro", "qwen3-customvoice", "qwen3-base", "omnivoice"]
     without_qwen3 = registry.tables(d for d in registry.DEFINITIONS if d.key != "qwen3")
-    assert without_qwen3.engine_projects == {} and ".venv-qwen3" not in without_qwen3.environment_folders
-    assert ".venv-engines" not in without_qwen3.environment_folders and registry.TABLES.engines == RELEASED_ENGINES
+    assert without_qwen3.engine_projects == {"omnivoice": "scripts/tts/engines/omnivoice"}
+    assert ".venv-qwen3" not in without_qwen3.environment_folders and ".venv-engines" in without_qwen3.environment_folders
+    neither = registry.tables(d for d in registry.DEFINITIONS if d.key not in ("qwen3", "omnivoice"))
+    assert neither.engine_projects == {} and ".venv-engines" not in neither.environment_folders
+    assert registry.TABLES.engines == RELEASED_ENGINES
 
 
 @pytest.mark.parametrize("change, words", [

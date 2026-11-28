@@ -35,6 +35,7 @@ not listed is history, recoverable here and through Git.
 - 2026-11-22 — v0.8.2: Windows excuses the `files/dev-work/` "no colliding test basename" skip, and only that one.
 
 **Setup, environment and packaging**
+- 2026-11-28 — v0.8.2 Phase 5B: OmniVoice installed by uv into `.venv-engines/omnivoice` from `scripts/tts/engines/omnivoice/` (88 Windows / 86 macOS artifacts, exact v0.8.1 parity, no package cache); `omnivoice_manifest.json` holds the model only, the v0.8.1 package sets stay as the lock's parity reference; an earlier `.venv/engines/omnivoice` keeps working until the new engine is proved, then is retired to set-aside (supersedes the 2026-11-13 nested-layout entry for new OmniVoice installs).
 - 2026-11-27 — v0.8.2 Phase 5A: one explicit engine registry (`scripts/tts/engines/registry.py`) that seven consumers derive from; shared engine provisioning (`shared/engine_env.py`); Qwen3 installed by uv into `.venv-engines/qwen3` (89/89 parity, no package cache), an earlier engine kept until the new one is proved, the nested one then retired to set-aside (supersedes the 2026-10-25 nested-layout entry for new Qwen3 installs).
 - 2026-11-27 — v0.8.2 Phase 4 macOS acceptance: a dangling `.venv/bin/python` link takes the repair route; a person's download answer stands for the process; the test guard excuses the macOS managed interpreter's stdlib bytecode; census standings for ROUTINE-EFFECTS and SCRATCH.
 - 2026-11-27 — v0.8.2 Phase 4: the base environment is provisioned only by uv (one wrapper, one locked base project, offline-first repair cache, receipts after RECORD and import proof); D-6 fallback approved and implemented; the legacy interpreter stays for engines through one resolver (supersedes 2026-10-31's local-store route for the base).
@@ -85,6 +86,67 @@ entries moved unchanged, byte for byte and in their original order, to two per-e
 12 November 2026, with the eight late-appended entries at its end) and [v0.5.0 to v0.6.6](../files/documentation-history/decisions/Decisions-v0.5.0-to-v0.6.6.md)
 (July to September 2026). The ordering breaks above are in those files. The whole file before the split:
 `git show dabb02d:md-instructions/Decisions.md`.
+
+## 2026-11-28 — v0.8.2 Phase 5B: the OmniVoice engine is installed by uv into `.venv-engines/omnivoice`; its manifest holds the model only; an earlier engine keeps working until the new one is proved
+
+**Context.** The owner's Phase 5B prompt (plan Revision 10; this phase is recorded as Revision 11), on HOME-PC in `C:\ACT-Dev`, on top of
+Phase 5A. Approved inputs as for 5A: uv 0.13.10, CPython 3.12.15 + PBS 20261009 through ACT's metadata, A1 siblings
+`.venv-engines/<engine>/`, A4/D-8 (Windows copy, macOS clone, never hardlink, no GPU-engine package cache), bytecode at install, and the
+Windows OmniVoice installation proof moved to 5B (Revision 7). Agent-verified on Windows, not independently reviewed; macOS owed.
+
+1. **One project, two platforms, exact parity.** `scripts/tts/engines/omnivoice/` (`pyproject.toml` + `uv.lock`, a virtual project,
+   `no-build`, environments `win32/AMD64` and `darwin/arm64`, every v0.8.1 version pinned as a constraint): on Windows exactly the 88
+   v0.8.1 artifacts (torch and torchaudio 2.8.0+cu128 only from the explicit CUDA 12.8 index, by a `sys_platform == 'win32'` source
+   marker; CUDA float16 as released), on an Apple Silicon Mac exactly the 86 (plain PyPI torch 2.8.0; MPS or the CPU in float32 as
+   released). `test_omnivoice_uv_project.py` derives what the lock installs on each platform (the graph under the platform's markers,
+   then the most specific wheel by the standard tag order; macOS 15 arm64, where the Mac set was acquired) and holds it equal to the
+   v0.8.1 sets by name, version, file and SHA-256. No Windows CPU-only or Intel-Mac profile; no dependency or model upgrade.
+2. **Package and model concerns are separate.** `omnivoice_manifest.json` (version 2) holds the engine version, the pinned model snapshot
+   (repository, revision, files, sizes, SHA-256, tokenizer, load set) and the licences only. The v0.8.1 package sets move unchanged to
+   `scripts/tts/omnivoice_packages.json`: `uv.lock`'s parity reference, the source of the download size shown before an install (the
+   PyTorch index publishes no sizes) and the pinned set an earlier version's engine is still judged by. Nothing is installed from it;
+   it goes with the first OmniVoice dependency change, at the latest in Phase 6. The engine unit's consent source is
+   `uv-lock:scripts/tts/engines/omnivoice/uv.lock@sha256:<lock>`; the model unit's is unchanged.
+3. **The installer is uv, through the 5A foundations only.** `omnivoice_setup.build_engine`: `uv venv` at `.venv-engines/omnivoice` on the
+   managed CPython, then `uv sync --locked --no-dev --no-cache --compile-bytecode --link-mode copy` (macOS `clone`), all through
+   `shared/engine_env.py` and `shared/uv_runner.py`; the pip route, its wheel fetcher and the base-interpreter probe are removed (no
+   second production installer). The model door (the scoped opener) refuses every package URL. After the sync every installed file is
+   checked against its RECORD, then the worker's existing probe runs; only then are the environment's own receipt
+   (`.act-environment.json`) and, last, the install receipt (`files/runtime-data/omnivoice/uv-engine-receipt.json`, version 3, bound to
+   the folder and the lock identity) written. The install lock, inference lock, engine lease, worker protocol, offline guard, process
+   ownership and every model, voice, prompt, seed, retry and generation behaviour are unchanged.
+4. **Which engine is in use.** `.venv-engines/omnivoice` once its version-3 receipt says `installed`; otherwise an earlier
+   `.venv/engines/omnivoice` (v0.8.0-v0.8.1, judged by its own version-2 receipt and the v0.8.1 pins) while it is there. A new engine that
+   is not installed to the end is never used. Once installed, the new engine stays the one in use even when a conversion later proves it
+   damaged (its receipt keeps `installed` and gains `rejected`), so a damaged engine is never hidden behind an older one; the repair is
+   offered. The first builds' `.venv-omnivoice` is never used.
+5. **Migration: no forced move; nothing working is broken.** An earlier engine keeps working, unchanged, until an install or repair builds
+   and proves the new one. Then the nested engine is moved whole by rename to `files/runtime-data/omnivoice/set-aside/nested-omnivoice-<UTC>-<id>/`
+   with its version-2 receipt and `RETIRED-READ-ME.txt` (`engine_env.retire`), and `.venv-omnivoice` is retired as before; neither is ever
+   deleted, and one that cannot be moved now stays, unused, and is said. An interrupted or failed new install leaves the earlier engine in
+   use and byte-identical; the next plan offers to finish the new one (re-synced in place).
+6. **Only what this app built is ever deleted.** A repair removes `.venv-engines/omnivoice` only when this app's receipt says it built it
+   (stage `creating`/`created`, or origin `installed`); an adopted or unknown environment is moved aside whole instead. Adoption needs a
+   uv environment on this copy's managed CPython holding exactly the locked set, a clean RECORD check and the same probe.
+7. **Measured, not assumed.** uv `--no-cache` unpacks every package into its scratch before copying it, so an install needs about the
+   environment's size twice (`install_temp_bytes` = the environment size; measured peak 16.5 GB for an 8.33 GB environment). The
+   environment size stays the v0.8.1 measurement (8.35 GB; the uv build measured 8.33 GB). `.venv-engines/omnivoice` is exactly as deep as
+   `.venv/engines/omnivoice`, and the measured deepest file and native library (168 and 135 characters below the app folder) equal the
+   released depth constants, so the length rule is unchanged.
+8. **Smaller.** The planner says, while an earlier engine is in use and a new install stopped half-way, that the voices keep using the
+   earlier engine until the new one works (`NESTED_IN_USE_NOTE`); the registry places OmniVoice `engine` with its project, and the
+   `nested` placement stays only to describe earlier engines; the test session guards the real OmniVoice engine marker, environment
+   receipt and install receipt; the planning bridge's read-only source list carries the engine project and the package reference; the
+   packager ships the project from the registry (refusing a build without it); `test_uv_provisioning`'s resolver contract no longer
+   names OmniVoice (only Qwen3's sealed seam, cleanup and the setup protocol still ask `app_python`).
+
+**Why.** The same reasons as 5A: an engine in its own locked project beside the base survives every base rebuild, one installer route
+instead of two, and no install, interruption or failure leaves a person without working voices.
+
+**Not changed.** VERSION 0.8.1; no dependency or model upgrade; Kokoro and Chatterbox stay in the base until 5C/5D; Edge and the non-TTS
+tools are unaffected; nothing merged, tagged or released.
+
+— Claude Code (Opus 5.5) under the owner's Phase 5B prompt.
 
 ## 2026-11-27 — v0.8.2 Phase 5A: one explicit engine registry; the Qwen3 engine is installed by uv into `.venv-engines/qwen3`; an earlier engine keeps working until the new one is proved
 

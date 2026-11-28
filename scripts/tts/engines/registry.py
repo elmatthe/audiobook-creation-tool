@@ -31,8 +31,10 @@ from typing import Iterable, Optional
 
 #: Where an engine's Python packages live.
 PLACEMENT_BASE = "base"  # in the app's own environment ``.venv`` (Edge; Kokoro until 5C; Chatterbox until 5D)
-PLACEMENT_NESTED = "nested"  # an independent environment held at ``.venv/engines/<key>`` (OmniVoice until 5B)
-PLACEMENT_ENGINE = "engine"  # its own uv project and environment at ``.venv-engines/<key>`` (Qwen3 since 5A)
+#: An independent environment held at ``.venv/engines/<key>``: OmniVoice's place until v0.8.2 Phase 5B. No engine is
+#: installed there any more; the placement stays only so a definition could still describe one (Phase 6 retires it).
+PLACEMENT_NESTED = "nested"
+PLACEMENT_ENGINE = "engine"  # its own uv project and environment at ``.venv-engines/<key>`` (Qwen3 5A, OmniVoice 5B)
 PLACEMENTS = (PLACEMENT_BASE, PLACEMENT_NESTED, PLACEMENT_ENGINE)
 
 #: The folder every independent engine environment is a child of (approved A1, owner 2026-11-27).
@@ -130,8 +132,9 @@ QWEN3 = EngineDefinition(
     ),
 )
 OMNIVOICE = EngineDefinition(
-    key="omnivoice", name="OmniVoice", platforms=(WINDOWS, MACOS), placement=PLACEMENT_NESTED,
-    nested_environment=".venv/engines/omnivoice", sibling_environment=".venv-omnivoice",
+    key="omnivoice", name="OmniVoice", platforms=(WINDOWS, MACOS), placement=PLACEMENT_ENGINE,
+    project="scripts/tts/engines/omnivoice", nested_environment=".venv/engines/omnivoice",
+    sibling_environment=".venv-omnivoice",
     model_manifest="scripts/tts/omnivoice_manifest.json", installer="tts.omnivoice_setup",
     worker="tts.omnivoice_worker",
     components=(Component("omnivoice", "OmniVoice — Six Cloned Voices", "OmniVoice — Six Cloned Voices",

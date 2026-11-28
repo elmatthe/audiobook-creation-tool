@@ -21,6 +21,10 @@
 > cold fallback was proved (one defect fixed); the engine registry and shared engine provisioning were built and Qwen3 moved to uv in
 > `.venv-engines/qwen3` with its earlier engine kept working until the new one is proved. No requirement changed. The record is under 5A;
 > **next is Phase 5B (OmniVoice)** on its own prompt, after the owner reviews 5A.
+> **Revision 11 (2026-11-28, Phase 5B on HOME-PC; agent-verified, not independently reviewed):** OmniVoice moved to uv in
+> `.venv-engines/omnivoice` from its own locked project (exact v0.8.1 parity: 88 Windows and 86 macOS artifacts), the model manifest
+> now holds the model only, and an earlier engine is kept working until the new one is proved. No requirement changed. The record is
+> under 5B; **next is the combined native macOS acceptance of 5A and 5B on HOME-MacOS** (Handoff), then 5C on its own prompt.
 > **Revision 5 amendment R1 (2026-11-25):** Phase 1A-1 failed independent review; the R1 remediation corrected its contracts without changing this architecture (record under 1A-1).
 > **Revision 5 amendment R3 (2026-11-27):** the R2 remediation failed its independent review; R3 corrected six bounded groups (startup and launch admission, synthetic outputs and stage 0, independent accounting and explained stops, privacy, the Qwen3 selfcheck, documentation) without changing this architecture (record under 1A-1).
 > **Revision 5 amendment R2 (2026-11-26):** the R1 remediation failed its independent review; after a compatibility discovery and planning stop, the owner decided D-R2-1 to D-R2-5 and R2 corrected the remaining contracts without changing this architecture (record under 1A-1).
@@ -495,6 +499,49 @@ Every checkpoint follows §2. Each is separately reviewed; sub-checkpoints are i
 
 - **Touchpoints:** `omnivoice_setup.py`, `omnivoice_manifest.json` (split package/model), `omnivoice_runtime.py` (depth rule), `omnivoice_worker.py`, `omnivoice_synth.py`.
 - **Work/verify:** independent locked project on Windows NVIDIA (torch 2.8.0+cu128 parity) and macOS (PyPI torch 2.8.0) profiles; clone prompts, offline guard, fixed model/voice references and the 24-rendering silent-chunk retry unchanged; focused setup/runtime/worker/synthesis/seed/cancel/repair/licence tests incl. letterless pause and cancellation; dependency conflict checks and model integrity; authorized real synthesis parity as needed; macOS deferred accurately if unavailable. No model update. Package its dependency project and lockfile (transitional rule 8).
+- **Record (Revision 11, 2026-11-28, HOME-PC, `C:\ACT-Dev`; agent-verified, not independently reviewed).**
+  - *Built:* `scripts/tts/engines/omnivoice/` (`pyproject.toml` + `uv.lock`, 91 entries: a virtual `no-build` project for `win32/AMD64`
+    and `darwin/arm64`, every v0.8.1 version a constraint, torch/torchaudio 2.8.0+cu128 only from the explicit CUDA 12.8 index by a
+    `win32` source marker, the plain PyPI 2.8.0 on a Mac); `omnivoice_manifest.json` version 2 (model and licences only) and
+    `omnivoice_packages.json` (the v0.8.1 sets, moved unchanged: the lock's parity reference, the download size, the pins an earlier
+    engine is judged by). The registry places OmniVoice `engine` with its project; `omnivoice_setup` installs only through
+    `engine_env`/`uv_runner` (`uv venv` + `uv sync --locked --no-dev --no-cache --compile-bytecode`, copy on Windows, clone on macOS),
+    RECORD-checks every installed file, runs the worker's existing probe and writes the environment receipt and, last,
+    `uv-engine-receipt.json` (v3); the pip route, its wheel fetcher and base-interpreter probe are removed. `omnivoice_runtime` selects
+    the engine in use (the new one once installed to the end, else an earlier nested one; a damaged new engine stays in use and is
+    offered for repair); `retire_nested` moves the nested engine whole to `set-aside/nested-omnivoice-*` once the new one is proved; a
+    repair deletes only an environment this app built. The planner, acquirer, worker isolation (an earlier nested engine's own
+    paths stay its own), synthesis repair note, packager comments, the test session's guarded paths and the planning bridge's read-only
+    source list follow. Models, voices, prompts, generation, seeds, the 24-rendering retry, letterless pauses, Pause/Resume/Cancel/Retry,
+    the offline guard, batching, logging and process ownership are unchanged.
+  - *Parity:* `test_omnivoice_uv_project.py` derives what the lock installs per platform (marker-evaluated graph, standard tag order;
+    macOS 15 arm64) and holds it equal to the v0.8.1 sets by name, version, file and SHA-256: 88/88 Windows, 86/86 macOS; mutation
+    control: one changed hash, one changed version, a dropped Windows-only package and a changed Mac torch file each fail it.
+  - *Native proof (disposable root `files/run-temp/p5b/n`: a copy of `scripts/`, the managed CPython and uv, a stand-in app `.venv`, a
+    stand-in nested engine and `.venv-omnivoice`; no model; removed afterwards):* the production `build_engine` under `InstallLock` with
+    `qwen3_setup.run_command`, cancelled 62.8 s in (about 1.05 GB downloaded): receipt `created`, the earlier engine still the one in use,
+    stand-ins byte-identical, uv scratch cleared, disk back to its start. Then to the end, re-syncing in place: 374 s (88 packages
+    downloaded and prepared in 5 m 23 s, installed in 18.5 s, 13,171 files compiled in 6.2 s, RECORD check about 19 s); 8.33 GB, 42,452
+    files, 88 distributions equal to the v0.8.1 set by version and wheel tag, no pip, torch DLLs copies (link count 1); peak extra disk
+    16.49 GB (environment 8.33 + uv scratch 8.05; free never below 18.7 GB). Identity, listing and RECORD clean; in the engine's own
+    interpreter the worker's version and isolation checks clean, imports in 36.9 s (first load), torch 2.8.0+cu128, CUDA 12.8 on the
+    RTX 5070, a float16 kernel = 2048, the base the managed CPython, no model load. `record_proved` from that result, then the nested
+    stand-in and the sibling moved whole (hashes equal), the app's `.venv` unchanged, the engine ready and in use. One changed
+    `omnivoice/__init__.py` found by the RECORD check (the cheap readiness check does not see it, by design); the conversion's rejection
+    recorded, repair mode, this app's own engine removed and `uv venv` made again, cancelled 47 s in (about 0.5 GB): `created`, repair
+    offered again. Deepest file and native library 168 and 135 characters below the copy, equal to the released depth constants.
+  - *Verification:* direct runs of the new and adapted modules (`test_omnivoice_layout.py` 87, `test_omnivoice_setup.py` 64,
+    `test_omnivoice_uv_project.py` 12, `test_omnivoice_reference.py` and `test_uv_provisioning.py` 96 + 1 platform skip,
+    `test_engine_env.py` 19) and a 15-module triage (1,030 passed, 82 skipped; one stale pin fixed); a closure smoke of the planning
+    bridge's sources; coverage ids compared with the collected ids (none dead). Gate: quick `2026-11-28_055033_quick_5849` PASS (10 s);
+    focused `2026-11-28_055057_focused_4b80` over 18 modules FAIL (263 s; kept as evidence): 1,222 passed, 83 skipped, 3 failed and
+    49 errors, all in `test_release_packaging.py` (the packager refused the four new engine project files while still untracked) and
+    `test_layout_canary.py` (the tts README named the parity test relative to the repository root); guarded v3-planning 85 passed;
+    every other check PASS. With the files staged and the path corrected, focused `2026-11-28_055553_focused_28e7` over those two
+    modules PASS (187 passed, 100 s). Aggregate verification about 12 minutes (direct runs about 6, gate runs about 6.3).
+  - *Exit criteria on Windows: met.* Owed: the combined native macOS acceptance (Handoff, Phase 5B, A-D); a model load and real
+    synthesis on the new environment (owner authorization); independent review. Legacy paths kept on purpose (Handoff seams): support for
+    an earlier nested or sibling engine, `omnivoice_packages.json`, the `nested` placement, the carry protocol (Phase 6).
 
 ### 5C — Isolate Kokoro
 

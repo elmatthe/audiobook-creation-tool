@@ -6,31 +6,38 @@ why: `Decisions.md` index; what shipped: `Changelog.md` index.
 
 ## Execution Snapshot
 
-- **Date:** 2026-11-27
-- **Last agent:** Claude Code (Opus 5.5), v0.8.2 Phase 5A (engine registry and Qwen3 isolation)
+- **Date:** 2026-11-28
+- **Last agent:** Claude Code (Opus 5.5), v0.8.2 Phase 5B (OmniVoice into `.venv-engines/omnivoice` through uv)
 - **Machine:** HOME-PC (Windows 11, RTX 5070), development checkout `C:\ACT-Dev`; disposable roots only under `files/run-temp/`
 - **Branch:** `0.8.2` (long-running, from published v0.8.1). The owner's primary checkout and its uncommitted work were not touched
-- **Status:** Phase 5A COMPLETE on Windows on `0.8.2` (agent-verified, not independently reviewed): the owed Phase 4 Windows regression ran, the D-6 cold fallback was proved (one defect fixed), the engine registry and shared engine provisioning exist, and Qwen3 installs through uv into `.venv-engines/qwen3` with an earlier engine kept in use until the new one is proved (one real install, two real interruptions, the library proof). A native **macOS regression of the shared changes is owed** (Qwen3 itself is not offered on macOS). VERSION stays 0.8.1; nothing merged, tagged or released
-- **Active plan:** `files/plans/Developer-Experience-Upgrade.md` (Revision 10)
-- **Current phase:** Phase 5A complete on Windows; **next is Phase 5B (OmniVoice into `.venv-engines/omnivoice`)** on its own prompt, after the owner reviews 5A
-- **Recommended next execution tier:** owner review of 5A; the owed macOS regression (Open Issues, Phase 5A) on HOME-MacOS; optionally the authorized Qwen3 synthesis smoke (Pending Owner Decisions); then 5B on HOME-PC
-- **Last verification:** v0.8.2 Phase 5A on HOME-PC, agent-run, not independent (Verification and Evidence). The last full gate, on 87dd2bf (2026-11-22), is FAIL/BLOCKED and does not describe this candidate
-- **Manual gate:** owner review of 5A (and of Phase 4); the macOS regression; the synthesis-smoke authorization; owner listening to four regenerated Shadow Slave MP3s; owner decisions D-2 to D-4 and the `files/run-temp/` ignore recommendation; the owner-acceptance items below
-- **Relevant evidence:** `C:\ACT-Dev\files\dev-work\verification-gate\outputs\` (the Phase 5A runs are named under Verification and Evidence); native-proof summaries in `C:\ACT-Dev\files\run-temp\n5-ev\` (local, never committed)
-- **Next exact action:** the owner reviews 5A; on HOME-MacOS, fast-forward and run the macOS regression selection (Open Issues, Phase 5A); then Phase 5B on its own prompt. The interim heavyweight rule (GATE.md) stays in force. Do not merge, tag or release
+- **Status:** Phase 5B COMPLETE on Windows on `0.8.2` (agent-verified, not independently reviewed): OmniVoice installs through uv into `.venv-engines/omnivoice` from its own locked project (exact v0.8.1 parity: 88 Windows and 86 macOS artifacts, torch 2.8.0+cu128 from the explicit CUDA 12.8 index on Windows), `omnivoice_manifest.json` holds the model and its licences only, and an earlier engine is kept in use until the new one is proved (one real production install, one interrupted install, a damaged-file repair, imports and a CUDA kernel from the new engine; no model load). Phase 5A stays complete on Windows. A **combined native macOS acceptance of 5A and 5B is owed** (Open Issues, Phase 5B). VERSION stays 0.8.1; nothing merged, tagged or released
+- **Active plan:** `files/plans/Developer-Experience-Upgrade.md` (Revision 11)
+- **Current phase:** Phase 5B complete on Windows; **next is the combined macOS acceptance on HOME-MacOS**, then Phase 5C (Kokoro) on its own prompt after the owner reviews 5B
+- **Recommended next execution tier:** owner review of 5A and 5B; the combined macOS acceptance (Open Issues, Phase 5B, steps A-D); optionally the authorized Qwen3 or OmniVoice synthesis smoke (Pending Owner Decisions); then 5C on HOME-PC
+- **Last verification:** v0.8.2 Phase 5B on HOME-PC, agent-run, not independent (Verification and Evidence). The last full gate, on 87dd2bf (2026-11-22), is FAIL/BLOCKED and does not describe this candidate
+- **Manual gate:** owner review of 5A and 5B (and of Phase 4); the combined macOS acceptance; the synthesis-smoke authorizations; owner listening to four regenerated Shadow Slave MP3s; owner decisions D-2 to D-4 and the `files/run-temp/` ignore recommendation; the owner-acceptance items below
+- **Relevant evidence:** `C:\ACT-Dev\files\dev-work\verification-gate\outputs\` (the Phase 5B runs are named under Verification and Evidence); native-proof summaries in `C:\ACT-Dev\files\run-temp\p5b\ev\` (5B) and `n5-ev\` (5A) (local, never committed)
+- **Next exact action:** the owner reviews 5B; on HOME-MacOS, fast-forward and run the combined acceptance (Open Issues, Phase 5B); then Phase 5C on its own prompt. The interim heavyweight rule (GATE.md) stays in force. Do not merge, tag or release
 
 ## In Progress
 
-**Phase 5A (engine registry and Qwen3 isolation) is committed on `0.8.2`, verified on Windows** (agent-verified, not independently
-reviewed). Nothing is in progress; the macOS regression of the shared changes is owed (Open Issues).
-`scripts/tts/engines/registry.py` is the one explicit list of the five engines (standard library only); `engine_policy`,
+**Phase 5B (OmniVoice on uv) is committed on `0.8.2`, verified on Windows** (agent-verified, not independently reviewed). Nothing is in
+progress; the combined native macOS acceptance of 5A and 5B is owed (Open Issues). OmniVoice installs only through uv from
+`scripts/tts/engines/omnivoice/` (`pyproject.toml` + `uv.lock`: the 88 v0.8.1 Windows artifacts, torch/torchaudio 2.8.0+cu128 only from
+the explicit CUDA 12.8 index; the 86 PyPI artifacts on an Apple Silicon Mac; no package cache) into `.venv-engines/omnivoice`, through
+`shared/engine_env.py` and `shared/uv_runner.py`; a RECORD check of every installed file and the worker's existing probe come before the
+environment's own receipt and, last, `files/runtime-data/omnivoice/uv-engine-receipt.json` (version 3). `omnivoice_manifest.json`
+(version 2) holds the model and its licences only; `omnivoice_packages.json` keeps the v0.8.1 sets as the lock's parity reference and
+the source of the download size. An earlier `.venv/engines/omnivoice` stays the engine in use until the new one is installed to the end,
+then moves whole into `files/runtime-data/omnivoice/set-aside/nested-omnivoice-*`; `.venv-omnivoice` is never used and is retired the same
+way. A repair deletes only an environment this app built; anything else is moved aside. Every model, voice, prompt, seed, retry and
+generation behaviour, the worker protocols, the offline guard and process ownership are unchanged.
+`scripts/tts/engines/registry.py` (Phase 5A) is the one explicit list of the five engines (standard library only); `engine_policy`,
 `voice_registry.BACKENDS`, `optional_setup_protocol`, `bootstrap.WINDOWS_OPTIONAL_CHOICES`, `local_engine_host.ENGINE_NAMES`,
-`venv_layout` and `release` derive their tables from it, values unchanged. `scripts/shared/engine_env.py` holds what every
-`.venv-engines/<engine>` shares (place, project, `uv venv`/`uv sync` through `uv_runner`, identity on the managed CPython, RECORD
-check, receipt, retirement of an earlier version's environment). Qwen3 installs only through uv from `scripts/tts/engines/qwen3/`
-(`pyproject.toml` + `uv.lock`, the 89 reviewed v0.8.1 packages, no package cache) into `.venv-engines/qwen3`; it becomes the engine in
-use only when its install record is written, last; an earlier `.venv/engines/qwen3` stays in use until then and is moved whole into
-`files/runtime-data/qwen3/set-aside/` afterwards; `.venv-qwen3` is never moved. OmniVoice, Kokoro and Chatterbox are unchanged (5B-5D).
+`venv_layout` and `release` derive their tables from it. `scripts/shared/engine_env.py` holds what every `.venv-engines/<engine>` shares
+(place, project, `uv venv`/`uv sync` through `uv_runner`, identity on the managed CPython, RECORD check, receipt, retirement of an earlier
+version's environment). Qwen3 installs only through uv from `scripts/tts/engines/qwen3/` into `.venv-engines/qwen3` (5A, unchanged by 5B).
+Kokoro and Chatterbox stay in the base environment (5C/5D).
 The base application environment `ACT_ROOT/.venv` is now provisioned only by uv on both platforms: stage 0 obtains the pinned uv 0.13.10 and
 uv's managed CPython 3.12.15 (PBS 20261009, ACT-owned download metadata) into `files/runtime-data/uv` with consent and hash checks; D-6's
 `curl.exe`/`certutil`/`tar.exe` fallback replaces the PATH-Python fallback; one wrapper (`scripts/shared/uv_runner.py`) runs every uv
@@ -39,16 +46,52 @@ before any download, copy on Windows / clone on macOS, bytecode at install); the
 of the v0.8.1 locks (Kokoro and Chatterbox stay in the base; pytest is the `dev` group and the gate's only pin); the receipt
 `.venv/.act-environment.json` is written only after a direct RECORD check (a missing RECORD is damage) and real imports; a v0.8.1 `.venv`
 is migrated through the set-aside transaction with its engines carried byte for byte and the legacy interpreter kept; one resolver
-(`scripts/shared/app_python.py`) gives the not-yet-migrated OmniVoice installer and Qwen3's sealed-package seam a valid base on fresh and
-legacy layouts (Qwen3's production installer no longer uses it since 5A).
+(`scripts/shared/app_python.py`) gives Qwen3's sealed-package seam, cleanup and the setup protocol a valid base on fresh and legacy
+layouts (neither engine's production installer uses it any more: Qwen3 since 5A, OmniVoice since 5B).
 
 ## Open Issues and Blockers
 
 Status words: **FAIL**, **BLOCKED** (could not run), **NOT RUN**, **PENDING** (owner), **UNVERIFIED**. Agent-reported verification is not independent
 review. Items marked (?) could not be proven closed from the record and are kept on purpose.
 
+**Phase 5B (OmniVoice on uv; agent-verified on Windows, not independently reviewed)**
+- **Combined native macOS acceptance OWED (HOME-MacOS; covers 5A's owed regression and 5B), one session.** Fast-forward the owner's
+  macOS checkout to the 5B commit; record `git status --porcelain` and a listing of any `.venv/engines/omnivoice` and `.venv-omnivoice`
+  before and after (the owner's uncommitted work and every existing engine must be untouched); expensive work only in disposable copies
+  under the ignored `files/dev-work/p5bm/`. Nothing else is authorized by this procedure: no model download or load, no synthesis.
+  - **A. 5A regression:** `verify.py --mode quick`; `verify.py --mode focused` with the 14 modules listed under Phase 5A below.
+  - **B. OmniVoice on uv, the Mac route:** focused `test_omnivoice_uv_project.py`, `test_omnivoice_setup.py`, `test_omnivoice_layout.py`,
+    `test_omnivoice_reference.py`, `test_omnivoice_synth.py`, `test_engine_env.py`, `test_uv_provisioning.py`. Then in a disposable copy
+    (a copy of `scripts/`, the managed CPython and uv, a stand-in nested `.venv/engines/omnivoice` and `.venv-omnivoice`, no model), the
+    production `omnivoice_setup.build_engine` under `InstallLock` with `qwen3_setup.run_command`, as HOME-PC ran it (driver pattern under
+    Verification and Evidence, Phase 5B): once cancelled mid-download (the stand-ins unchanged, the earlier engine still the one in use,
+    receipt `created`, uv scratch cleared), then to the end (expect 86 PyPI packages, about 0.25 GB downloaded, clone links, bytecode
+    compiled); `listing_problem`, `engine_identity_problem` and the RECORD check empty; in the engine's own interpreter (`-I`) the worker's
+    `version_problems` and `isolation_problems` empty, imports of torch 2.8.0, torchaudio and omnivoice 0.2.1, and a float32 kernel on MPS
+    and on the CPU (no model load); `record_proved`, then `retire_nested` and `retire_legacy` (stand-ins moved whole, hashes equal); one
+    changed file found by the RECORD check; a rejected engine's repair removes only this app's own engine (cancel it once uv has made the
+    new folder). Record size, file count, deepest path below the copy and that no file is a hard link.
+  - **C. Shared code, macOS side:** focused `test_engine_registry.py`, `test_optional_tts_setup.py`, `test_venv_recovery.py`,
+    `test_release_packaging.py`, `test_epub_retirement.py`, `test_macos_p1b_containment.py`, `test_macos_p1b_gate.py`,
+    `test_bootstrap_host_macos.py`, `test_local_engine_worker.py`, `test_cleanup_engine_lease.py`, `test_cleanup_worker.py`,
+    `test_application_source_boundary.py` (A and C may be one focused request).
+  - **D. Owner-supervised:** one launch of a uv copy to the window (as in Phase 4); one macOS ZIP from `release.py` in a disposable clone
+    with `core.autocrlf=false` and `core.eol=lf`, inspected: `scripts/tts/engines/{qwen3,omnivoice}/{pyproject.toml,uv.lock}`,
+    `scripts/tts/omnivoice_manifest.json` and `omnivoice_packages.json` present; no `.venv*`, cache, weights or runtime data.
+  Report run ids, timings, downloads and disk; a failure is kept as evidence, never rewritten.
+- **Not run:** a model load or real OmniVoice synthesis on the new environment (no authorization; the smallest smoke is proposed under
+  Pending Owner Decisions); the production probe's load stage on the new engine (the native proof ran the worker's own version,
+  isolation, import and CUDA-kernel checks in the engine without loading the model, then recorded the engine from that result); a
+  completed native repair rebuild (the repair ran to the new `uv venv` and the start of the download, then was cancelled; the rebuild
+  itself is the install path proved above).
+- **Kept on purpose (seams below):** support for an earlier nested or sibling OmniVoice engine; `omnivoice_packages.json` as the parity
+  reference; retired engines in set-aside; the `nested` placement in the registry; the nested carry protocol.
+- **Pre-existing, not 5B:** the v3 planning seam's read-only source closure does not carry `shared/long_paths.py`, which
+  `omnivoice_runtime.install_depth_problem` imports when an OmniVoice engine is assessed; that seam refuses OmniVoice and never plans it,
+  so nothing reaches it today (found by a closure smoke in 5B; the parts 5B changed run from the closure).
+
 **Phase 5A (engine registry and Qwen3 isolation; agent-verified on Windows, not independently reviewed)**
-- **macOS regression OWED (HOME-MacOS)** for the shared changes: the registry and its seven consumers (`voice_registry`, `engine_policy`,
+- **macOS regression OWED (HOME-MacOS; now step A of Phase 5B's combined acceptance above)** for the shared changes: the registry and its seven consumers (`voice_registry`, `engine_policy`,
   `optional_setup_protocol`, `bootstrap`, `local_engine_host`, `venv_layout`, `release`), `uv_runner` (owner records, process-free
   import), `files/tests/conftest.py` (three new guarded paths). Qwen3 is not offered on macOS and nothing about it changed there.
   `--mode changed --plan` is INCOMPLETE by design (suite-wide `conftest.py`), so run: `verify.py --mode quick`; `verify.py --mode focused`
@@ -86,14 +129,18 @@ review. Items marked (?) could not be proven closed from the record and are kept
 
   | Seam | Why it stays now | Removal criterion (phase) |
   |---|---|---|
-  | Legacy interpreter `files/runtime-data/python` | engines built on it (and a `.venv` not yet migrated) run on it; `app_python.app_env_base` names it only for them | no `pyvenv.cfg` `home` in `.venv` or any engine names it (Phase 6) |
-  | OmniVoice installer's own route (`-m venv` from the resolved base + its pinned manifest) | transitional rule 1 | it installs through uv into `.venv-engines/omnivoice` (5B). **Qwen3: resolved by 5A** |
-  | Engines nested in `.venv/engines/*`, carried by `VenvReplacement` | OmniVoice's current installer; an earlier Qwen3 engine not yet replaced | no engine is nested any more (after 5B); then the carry protocol is retired (Phase 6) |
+  | Legacy interpreter `files/runtime-data/python` | earlier engines built on it (and a `.venv` not yet migrated) run on it; `app_python.app_env_base` names it only for them; no new engine is built on it since 5B | no `pyvenv.cfg` `home` in `.venv` or any engine names it (Phase 6) |
+  | Engine installers' own routes (`-m venv` from the resolved base + pinned wheels) | transitional rule 1 | **Resolved: Qwen3 by 5A, OmniVoice by 5B** (both install through uv into `.venv-engines/<engine>`) |
+  | Engines nested in `.venv/engines/*`, carried by `VenvReplacement` | no install nests since 5B; an earlier Qwen3 or OmniVoice engine not yet replaced stays in use | no engine is nested on any copy; then the carry protocol is retired (Phase 6) |
+  | Support for an earlier OmniVoice engine (`.venv/engines/omnivoice` with its version-2 `engine-receipt.json`, which 5B writes only to record a rejection; the never-used `.venv-omnivoice` and its version-1 receipt): selected while no new engine is installed, carried, retired after the new one is proved | nothing working is broken by an update (5B item 5) | Phase 6, with the carry protocol |
+  | The registry's `nested` placement and `venv_layout`'s nested places | they describe earlier engines still on copies | Phase 6 |
   | Qwen3 sealed-package seam (`qwen3_engine_authority`, `optional_setup_authority.acquire_disposable`; no production caller) installs with pip into the nested place | the v3 qualification contracts it was designed for | Phase 6 removes the pip paths |
   | Support for an earlier Qwen3 engine (`.venv/engines/qwen3`, `.venv-qwen3`): selected while no new engine is installed, carried, protected by Clear Downloaded Data | nothing working is broken by an update (5A item 4) | Phase 6, with the carry protocol |
-  | Retired engines in `files/runtime-data/qwen3/set-aside/nested-qwen3-*` (with `RETIRED-READ-ME.txt`) | the app never deletes a moved environment | the owner deletes them; Phase 6 cleanup offers it with consent |
+  | Retired engines in `files/runtime-data/qwen3/set-aside/nested-qwen3-*` and `files/runtime-data/omnivoice/set-aside/{nested-omnivoice-*,legacy-venv-omnivoice-*}` (with notes) | the app never deletes a moved environment | the owner deletes them; Phase 6 cleanup offers it with consent |
   | `scripts/qwen3-requirements.txt` + `qwen3-artifacts.json` as parity references of `engines/qwen3/uv.lock` (`test_qwen3_uv_project.py`), still the source of the stated download size | the PyTorch index publishes no sizes | the first Qwen3 dependency change, at the latest Phase 6 |
   | v0.7.0-v0.8.1 Qwen3 wheel store `files/runtime-data/qwen3/cache/wheels` and pip cache `…/cache/pip` | removed after a successful uv install (the store only when its `verified.json` shows it is the app's; never through a link) | gone on each copy after its first 5A install |
+  | `scripts/tts/omnivoice_packages.json` (the v0.8.1 package sets) as the parity reference of `engines/omnivoice/uv.lock` (`test_omnivoice_uv_project.py`), the source of the stated download size and the pinned set an earlier engine is judged by | the PyTorch index publishes no sizes; earlier engines are judged by their pins | the first OmniVoice dependency change, at the latest Phase 6 |
+  | v0.8.0-v0.8.1 OmniVoice wheel store `files/runtime-data/omnivoice/cache/wheels` | removed after a successful uv install (only the pinned files, its lock and record; never through a link) | gone on each copy after its first 5B install |
   | uv scratch folders under `files/runtime-data/uv/t/` without an `owner.json` (made before 5A) | an owner that cannot be proved gone is left alone | Phase 6 cleanup |
   | `scripts/requirements.txt`, the two v0.8.1 hash locks, `base_packages.py`, `files/dev-tools/lock_base_requirements.py`, the gate's `deps` check | frozen parity reference held equal to `pyproject.toml` by `test_base_packages.py`; the app never installs from them | the first base change that breaks parity (5C/5D), at the latest Phase 6; the `deps` check then moves to `uv lock --check` |
   | Kokoro and Chatterbox (torch 2.6.0 stacks) in the base project | transitional rule 4 | 5C (Kokoro) and 5D (Chatterbox) isolate them |
@@ -145,7 +192,9 @@ review. Items marked (?) could not be proven closed from the record and are kept
   A changed plan touching suite-wide test infrastructure is INCOMPLETE by design (named focused runs or a component regression owed). Native macOS
   verification of the simplified routine path DONE in Phase 3B: marker inheritance, stall/timeout supervision, canonical routing and stage/JUnit
   reporting PASS; it found D1, D2 and D3, all corrected in Phase 4 (above; the macOS re-check is part of the Phase 4 macOS instructions).
-  The Qwen3 installed-library proof stays an owner-deferred environment obligation.
+  The Qwen3 installed-library proof is RESOLVED (Phase 5A: `test_qwen3_calm_harness.py::test_the_real_library_merges_…` PASSED on the
+  uv-built engine with the owner's Base `generation_config.json`); a real Qwen3 or OmniVoice synthesis on the new environments is
+  still unauthorized (Pending Owner Decisions).
 - Interim rule (GATE.md, in force): no `--mode full` or `--mode qualification --scenario`, no journey, real engine, install, download, benchmark or
   release build without the owner's authorization for that run. quick, focused, changed and regression execute; `qualification --journey` is plan only.
   Guarded groups run only through the gate. The reduced Phase 1A-2 (one owner-supervised attempt, an OS lock across checkouts, manual recovery) is built
@@ -250,13 +299,16 @@ review. Items marked (?) could not be proven closed from the record and are kept
 - **D-2** `C:\t\`, inventoried read-only in Phase 2, about 24.5 GB: `q82bt` 10 GB (2026-11-22 full-gate closeout scratch: basetemps `t1`-`t3`, logs, document blobs), `f1` 6.2 GB, `d4` 4.4 GB, `a82` 3.8 GB (a detached clone at 963f6fe with uncommitted OmniVoice changes: compare with 56c83cf before calling it disposable), `fc` 57 MB, `d1`-`d3` 15 MB, `pytest-of-<user>` 0.5 MB, `guardian.bak`, `tmp4b9_jwk3`, empty `act-tts`; nothing removed. **D-3** at least 486 unreadable directories (to depth 4) under the primary checkout's `files/dev-work/p05b-stage4*` (346 in `p05b-stage4c`), `v0.8.1-independent-codex`, `act080-independent-feca89f-20261114` and several `files/run-temp/` review folders; untouched, no `takeown`/`icacls`. **D-4** the primary checkout (`0.8.1` at f7a0b51) still holds the owner's uncommitted work: 12 plan deletions (Phase 2 removed 8 of them on `0.8.2`, each byte-identical to the owner's local copy; Stage 4B-2/4B-3A/4B-3B stay as linked contracts, Phase 7A as a qualification record), 5 release-history deletions with no local copy (kept tracked on `0.8.2`), a `.gitignore` edit dropping the `files/livid-lady-test-files/` rule, and untracked `.ai/`, `files/plans/archived-plans/`, two failed-chapter logs, `files/release-history/ACT-v0.8.0-HOME-PC-Cleanup.md`, `files/run-temp/` and `scripts/project-status.py`; nothing adopted or overwritten. **`files/run-temp/`**: recommend one `.gitignore` line (owner).
 - **APPROVED (2026-11-27, recorded in Phase 3B; plan Revision 7):** the Phase 3A proposals: uv 0.13.10; A2 exact pinned build through ACT-owned metadata; A1 siblings `ACT_ROOT/.venv-engines/<engine>/` (supersedes the engine part of the 2026-11-13 layout); A4/D-8 Windows `copy`, base repair cache kept, no Qwen3/OmniVoice package cache by default, macOS `clone` (proved in 3B); bytecode at install; Windows OmniVoice installation proof in 5B; 3B before Phase 4 (done).
 - **Optional, new (Phase 3B report §12):** retain an OmniVoice package cache on macOS, where clone makes it cheap and gives offline OmniVoice repair (default stays `--no-cache`).
-- **APPROVED (2026-11-27, Phase 4 prompt) D-6:** when PowerShell cannot run, a contained `curl.exe`/`certutil`/`tar.exe` fallback
-  (`scripts/shared/bootstrap_host_fallback.cmd`) with pinned hashes and no PATH Python. Implemented in Phase 4.
 - **NEW (Phase 5A): authorize the smallest real Qwen3 synthesis smoke?** Proposed, not run: one CustomVoice preset voice, one short
   sentence, in a disposable root with a uv-built `.venv-engines/qwen3` (about 3.1 GB download, 5.5 GB on disk, about 6 minutes), the
   owner's existing CustomVoice model copied in after its hashes are verified (about 4.3 GB; no download), output only in disposable
   scratch, the root removed afterwards. It would prove a model load and generation on the new environment, which 5A did not.
-- Resolved: D-5 (AI Workspace is local-only), D-7 (v0.8.1 published 2026-11-21T05:45:50Z, both assets).
+- **NEW (Phase 5B): authorize the smallest real OmniVoice synthesis smoke?** Proposed, not run: one OmniVoice voice, one short
+  sentence, in a disposable root with a uv-built `.venv-engines/omnivoice` (about 3.7 GB download, 8.3 GB on disk and about 16.5 GB
+  free while it installs, about 6.5 minutes), the owner's existing OmniVoice model copied in after its hashes are verified (about
+  3.3 GB; no download), output only in disposable scratch, the root removed afterwards. It would prove the production probe's model
+  load and a generation on the new environment, which 5B did not.
+- Resolved: D-6 (approved in the Phase 4 prompt: when PowerShell cannot run, the contained `curl.exe`/`certutil`/`tar.exe` fallback `scripts/shared/bootstrap_host_fallback.cmd`, pinned hashes, no PATH Python; implemented in Phase 4, its cold run proved and fixed in 5A), D-5 (AI Workspace is local-only), D-7 (v0.8.1 published 2026-11-21T05:45:50Z, both assets).
 - Also awaiting the owner: controlled testing versus independent review of Checkpoints 1–6; supplying the canonical `AI-WORKSPACE.md`; the macOS permissions correction; ACT72-030 and ACT72-064; M4B scan-refusal and junction handling.
 
 ## Development Checkout and Evidence Locations
@@ -284,6 +336,11 @@ review. Items marked (?) could not be proven closed from the record and are kept
   summaries and the library-proof output), `p5a/` (29 MB: the proof driver, logs, both sweeps' JUnit, the gate plans), `d6-cold*.log`
   and `p5a-reg-*.log`; removed: the proof root `n5` (5.4 GB, after checking it held no link out of itself), the sweeps' basetemps and the
   archive clone. `C:\ACT-Dev` itself has no `.venv-engines` (no Qwen3 engine is installed in the development checkout).
+- **Phase 5B local leftovers (`C:\ACT-Dev\files\run-temp\`, untracked, never committed):** kept `p5b/ev/` (91 KB: the native
+  proof's JSON-lines logs, the stand-in hashes and the no-load proof result); removed: the proof root `p5b/n` (8.5 GB at its
+  largest, after checking it held no link out of itself), the closure smoke copy and the direct-run basetemps. The proof driver
+  was a scratch file outside the checkout. `C:\ACT-Dev` itself has no `.venv-engines` (no engine is installed in the development
+  checkout).
 - `%TEMP%\act-gate` (`--audit-scratch` at the end of Phase 5A, 2026-11-28, read-only): five abandoned folders, 7.57 GiB, left as found
   for the owner: `b18e` (run 04a6, 0 MiB), Phase 4's `bad4` (run 2fdc, 4.17 GiB), `bbb8` (d5a9, 0 MiB) and `cb5b` (7d73, 0.2 MiB), and
   5A's `d118` (3.59 GiB, the retained scratch of the failed regression `183c`); `6dc8` is gone. `C:\ACT-Dev` local evidence after Phase 2: gate `outputs/` 311 MB, guarded basetemps `files/dev-work/p05b-stage4c/` 646 MB (R2-campaign era), `files/run-temp/` 17 MB: within GATE.md's 2 GiB soft budget, kept.
@@ -294,6 +351,42 @@ review. Items marked (?) could not be proven closed from the record and are kept
 
 ## Verification and Evidence
 
+- **Phase 5B (HOME-PC, `C:\ACT-Dev`, agent-run, not independent).** **Native proof** in the disposable root `files/run-temp/p5b/n`
+  (a copy of `scripts/`, the managed CPython and uv, a stand-in app `.venv`, a stand-in nested `.venv/engines/omnivoice` and
+  `.venv-omnivoice`, no model; removed afterwards after checking it held no link out of itself; JSON-lines logs kept in
+  `files/run-temp/p5b/ev/`). The driver (a scratch file, not committed) imports the copy's own modules and calls the production
+  functions: `omnivoice_setup.build_engine` under `InstallLock` with `qwen3_setup.run_command`, a disk monitor cancelling below a
+  10.5 GiB floor; then `listing_problem`, `engine_identity_problem` and `engine_env.record_damage`; then, in the engine's own interpreter
+  with `-I` and `worker_environment`, the worker's `version_problems` and `isolation_problems` on the production `proof_job`, the
+  imports and a CUDA kernel (no model load); then `record_proved`, `retire_nested`, `discard_wheels` and `retire_legacy` as the acquirer
+  calls them. **Interrupted install:** cancelled 62.8 s in (about 1.05 GB downloaded): receipt `created`, the earlier engine still the
+  one in use, stand-ins byte-identical, uv scratch empty, free space back to its start. **The one full install** (a re-sync in place of
+  that unfinished environment): 374 s; `Prepared 88 packages in 5m 23s`, `Installed 88 packages in 18.46s`, `Bytecode compiled 13171
+  files in 6.24s`, RECORD check about 19 s; 8,331,453,015 bytes, 42,452 files; 88 distributions equal to `omnivoice_packages.json` by
+  version and wheel tag, no pip; `pyvenv.cfg` names the managed CPython 3.12.15 and uv 0.13.10; torch DLLs have link count 1 (copies).
+  Disk: peak 16.49 GB above the start (environment 8.33 GB + uv scratch 8.05 GB), free never below 18.7 GB (35.2 GB at the start).
+  Identity, listing and RECORD clean. **No-load proof** in the new engine: version and isolation problems none, imports 36.9 s (first
+  load), omnivoice 0.2.1, torch and torchaudio 2.8.0+cu128, CUDA 12.8 available on the NVIDIA GeForce RTX 5070, a float16 kernel = 2048,
+  `sys.base_prefix` the managed CPython; no Smart App Control refusal. **Record and retirement:** stage `installed`, engine ready and the
+  one in use; the nested stand-in moved to `set-aside/nested-omnivoice-<UTC>-<id>/omnivoice` and the sibling to
+  `set-aside/legacy-venv-omnivoice-<UTC>-<id>/`, both hash-identical; the app's `.venv` unchanged. **Damage and repair:** a changed
+  `omnivoice/__init__.py` found by the RECORD check (`has changed (SHA-256)`); the cheap readiness check still says ready (by design;
+  a conversion's failed import records it); the rejection recorded, mode `repair`, this app's own engine removed, `uv venv` made again,
+  cancelled 47 s in (about 0.5 GB): `created`, repair offered. **Depth:** deepest file 168 and deepest native library 135 characters below
+  the copy (`transformers/.../feature_extraction_audio_spectrogram_transformer.cpython-312.pyc`, a scikit-learn `.pyd`): equal to the
+  released constants. **Downloads:** about 5.2 GB of OmniVoice packages in all (1.05 + 3.66 + 0.5); no model file, no Qwen3 package.
+  **Direct test runs** (counted with the gate in the routine budget): the new and adapted modules (`test_omnivoice_layout.py` 87,
+  `test_omnivoice_setup.py` 64, `test_omnivoice_uv_project.py` 12, `test_omnivoice_reference.py` + `test_uv_provisioning.py` 96 and one
+  platform skip, `test_engine_env.py` 19); a 15-module triage (1,030 passed, 82 skipped; one stale pin fixed); the parity test's
+  mutation control (a control plus four mutants, each caught); a closure smoke of the planning bridge's sources; every coverage id of the
+  touched modules held against `pytest --collect-only` (none dead). **Gate:** quick `2026-11-28_055033_quick_5849` PASS (10 s);
+  focused `2026-11-28_055057_focused_4b80` over 18 modules FAIL (263 s, kept):
+  1,222 passed, 83 skipped, 3 failed + 49 errors, all in `test_release_packaging.py` (`Required engine
+  project file missing or not tracked by git` -- the new project files were not yet staged) and `test_layout_canary.py` (the tts
+  README's parity-test path); guarded v3-planning 85 passed; every other check PASS. Rerun of those two modules,
+  `2026-11-28_055553_focused_28e7`: PASS (187 passed, 100 s). Aggregate verification about 12 minutes.
+  NOT RUN by design: full, qualification, journeys, any R1-R3 replay, the whole guarded groups, model downloads or loads, synthesis, the
+  app's window.
 - **Phase 5A (HOME-PC, `C:\ACT-Dev`, agent-run, not independent).** Phase 4 Windows regression and D-6: under Open Issues (Phase 4)
   and in the plan's 5A record. **Native proof** in the disposable root `files/run-temp/n5` (a copy of `scripts/`, the managed CPython and
   uv, a stand-in `.venv`, a legacy nested Qwen3 engine made as v0.8.1 made one, without its packages; removed afterwards; JSON summaries
@@ -443,7 +536,8 @@ review. Items marked (?) could not be proven closed from the record and are kept
 
 ## Recent Checkpoints (newest first; cite by `git log`, not by tip)
 
-- Phase 5A — engine registry, shared engine provisioning, Qwen3 through uv into `.venv-engines/qwen3`, Phase 4 Windows regression, D-6 cold fallback fix (this commit).
+- Phase 5B — OmniVoice through uv into `.venv-engines/omnivoice` (exact v0.8.1 parity on Windows and macOS), model-only manifest, earlier engine kept until the new one is proved (this commit).
+- d5d8451 + 3403785 Phase 5A — engine registry, shared engine provisioning, Qwen3 through uv into `.venv-engines/qwen3`, Phase 4 Windows regression, D-6 cold fallback fix.
 - 930ade9 Phase 4 macOS acceptance — native verification on HOME-MacOS, five corrections, census, procedure retired.
 - 7a45222 Phase 4 — production uv-based base provisioning, D-6 fallback, D1-D3 gate corrections.
 - a44ad6d Phase 3B — native macOS uv feasibility, owner approvals of the Phase 3A proposals recorded.

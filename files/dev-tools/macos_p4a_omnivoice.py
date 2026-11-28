@@ -46,6 +46,8 @@ from tts import qwen3_runtime as rt  # noqa: E402
 
 MANIFEST = HERE / "macos_p4a_omnivoice_manifest.json"
 ACT_MANIFEST = REPO / "scripts" / "tts" / "omnivoice_manifest.json"
+#: v0.8.2 Phase 5B moved the package sets out of the model manifest into their own reference file.
+ACT_PACKAGES = REPO / "scripts" / "tts" / "omnivoice_packages.json"
 AREA = REPO / "files" / "dev-work" / "omnivoice-feasibility"
 SCHEMA = "act-macos-p4a-omnivoice"
 UPSTREAM_COMMIT = "5ba967c4d5b0f08244ae856b033eea583d1e4517"
@@ -164,6 +166,8 @@ def resolve(lock_text: str, act_manifest: dict) -> tuple[list[dict], list[str]]:
 
 def cmd_derive(args) -> int:
     act = json.loads(ACT_MANIFEST.read_text(encoding="utf-8"))
+    packages = json.loads(ACT_PACKAGES.read_text(encoding="utf-8"))
+    act.update(packages=packages["packages"], wheels=packages["wheels"])
     lock_bytes = Path(args.lock).read_bytes()
     if sha256_bytes(lock_bytes) != act["engine"]["uv_lock_sha256"]:
         print("REFUSED: this uv.lock is not the one ACT's OmniVoice manifest records")

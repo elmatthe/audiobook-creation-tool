@@ -272,47 +272,44 @@ def test_a_phase2_excerpt_prompt_can_never_be_reused():
 # --------------------------------------------------------------------------- #
 @pytest.fixture()
 def sandbox(tmp_path, monkeypatch):
-    """A repository root with its own runtime folder, environment and a two-file model manifest."""
+    """A repository root with its own runtime folder, managed CPython, engine project, a three-package reference and a
+    two-file model manifest."""
+    from test_omnivoice_setup import make_project
+    from test_qwen3_runtime import make_managed_python, make_uv_engine
+
     root = tmp_path / "repo"
     (root / "files").mkdir(parents=True)
     monkeypatch.setattr(ov, "repo_root", lambda: root)
     monkeypatch.setattr(ov, "runtime_dir", lambda: root / "files" / "runtime-data" / "omnivoice")
-    # The one environment path is derived from the root (.venv/engines/omnivoice, the unified layout); a too-deep
+    # The one environment path is derived from the root (.venv-engines/omnivoice since v0.8.2 Phase 5B); a too-deep
     # temporary folder must not turn "not installed" into "this folder is too deep" (that rule has its own tests).
     monkeypatch.setattr(ov, "install_depth_problem", lambda *a, **k: "")
-    assert ov.venv_dir() == root / ".venv" / "engines" / "omnivoice"
+    assert ov.venv_dir() == root / ".venv-engines" / "omnivoice"
+    make_managed_python(root, monkeypatch)  # the managed CPython uv builds the engine on
+    make_project(root)  # scripts/tts/engines/omnivoice: the engine's uv project
     files = {"config.json": b'{"a": 1}', "audio_tokenizer/config.json": b'{"b": 2}'}
     pins = [["omnivoice", "0.2.1"], ["torch", "2.8.0+cu128"], ["huggingface_hub", "1.7.2"]]
+    real = json.loads(ov.manifest_path().read_text(encoding="utf-8"))
     manifest = {
-        "schema": "act-omnivoice-engine", "version": 1, "engine": {"omnivoice": "0.2.1"},
+        "schema": "act-omnivoice-engine", "version": 2, "engine": {"omnivoice": "0.2.1"},
+        "licenses": real["licenses"], "license_documents": real["license_documents"],
         "model": {"repo": "k2-fsa/OmniVoice", "revision": "c" * 40, "url_template": ov.HUB_URL_TEMPLATE,
                   "load_required": sorted(files),
                   "files": {n: {"size": len(b), "sha256": hashlib.sha256(b).hexdigest()} for n, b in files.items()}},
-        "packages": pins,
-        # v0.8.0 Phase 3: every pinned package is also a pinned wheel (URL, size, SHA-256) the installer may fetch.
+    }
+    packages = {
+        "schema": "act-omnivoice-packages", "version": 1, "packages": pins,
         "wheels": [{"name": n, "version": v, "filename": f"{n}-{v}-py3-none-any.whl",
                     "url": f"https://files.pythonhosted.org/packages/00/{n}-{v}-py3-none-any.whl", "size": 7,
                     "sha256": hashlib.sha256(n.encode()).hexdigest()} for n, v in pins],
     }
-    assert ov.manifest_problems(manifest) == []
+    assert ov.manifest_problems(manifest) == [] and ov.packages_problems(packages) == []
     monkeypatch.setattr(ov, "load_manifest", lambda: manifest)
-    base_dir = tmp_path / "base-python"
-    base_dir.mkdir()
-    (base_dir / "python.exe").write_bytes(b"MZ")
-    monkeypatch.setattr(ov, "app_base_python", lambda: base_dir / "python.exe")
+    monkeypatch.setattr(ov, "load_packages", lambda: packages)
 
     class Sandbox:
-        def make_env(self, packages=(("omnivoice", "0.2.1"), ("torch", "2.8.0+cu128"), ("huggingface-hub", "1.7.2"),
-                                     ("pip", "25.0"))):
-            env = ov.venv_dir()
-            (env / "Scripts").mkdir(parents=True, exist_ok=True)
-            (env / "Scripts" / "python.exe").write_bytes(b"")
-            (env / "bin").mkdir(exist_ok=True)
-            (env / "bin" / "python").write_bytes(b"")
-            (env / "pyvenv.cfg").write_text(
-                f"home = {base_dir}\ninclude-system-site-packages = false\nversion = 3.12.10\n"
-                f"executable = {base_dir / 'python.exe'}\ncommand = {base_dir / 'python.exe'} -m venv {env}\n",
-                encoding="utf-8")
+        def make_env(self, packages=(("omnivoice", "0.2.1"), ("torch", "2.8.0+cu128"), ("huggingface-hub", "1.7.2"))):
+            env = make_uv_engine(ov.venv_dir(), root)  # as uv builds it on this copy's managed CPython
             site = ov.site_packages(env)
             if site.exists():
                 shutil.rmtree(site)
@@ -321,11 +318,11 @@ def sandbox(tmp_path, monkeypatch):
                 (site / f"{name.replace('-', '_')}-{version}.dist-info").mkdir()
 
         def prove(self):
-            """What the installer writes once its proof passed (tts.omnivoice_setup.record_proved)."""
-            from shared import venv_layout
+            """What the installer writes once the RECORD check and its proof passed (tts.omnivoice_setup)."""
+            from shared import engine_env
 
-            ov.write_receipt(ov.STAGE_INSTALLED, origin=ov.ORIGIN_INSTALLED,
-                             base=venv_layout.base_identity(ov.venv_dir()), probe={}, probe_ok=True)
+            engine_env.write_receipt(root, ov.ENGINE_KEY, health={"record": "ok", "probe": {}})
+            ov.write_receipt(ov.STAGE_INSTALLED, origin=ov.ORIGIN_INSTALLED, probe={}, probe_ok=True)
 
         def make_model(self):
             for name, data in files.items():
@@ -404,7 +401,7 @@ def test_on_a_mac_the_package_set_is_the_mac_s_own_and_only_apple_silicon_is_sup
     assert mac["torch"].version == mac["torchaudio"].version == "2.8.0" and mac["omnivoice"].version == "0.2.1"
     assert all(w.url.startswith(ov.PYPI_HOSTS) for w in mac.values()), "never PyTorch's CUDA index on a Mac"
     assert ov.pinned_packages()["torch"] == "2.8.0" and ov.packages_sha256() != windows_digest
-    assert ov.engine_installed_bytes() == ov.load_manifest()[ov.DARWIN_SET]["installed_bytes"]["environment"]
+    assert ov.engine_installed_bytes() == ov.load_packages()[ov.DARWIN_SET]["installed_bytes"]["environment"]
     monkeypatch.setattr(ov, "_machine", lambda: "arm64")
     assert ov.platform_supported() is True
     monkeypatch.setattr(ov, "_machine", lambda: "x86_64")
@@ -413,19 +410,20 @@ def test_on_a_mac_the_package_set_is_the_mac_s_own_and_only_apple_silicon_is_sup
     assert ov.platform_supported() is False and "Apple Silicon" in ov.platform_reason()
 
 
-def test_the_manifest_refuses_a_mac_set_that_could_come_from_anywhere_but_pypi():
+def test_the_package_reference_refuses_a_mac_set_that_could_come_from_anywhere_but_pypi():
+    """v0.8.2 Phase 5B: the package sets moved from the model manifest to ``omnivoice_packages.json``, checked alike."""
     import copy
 
-    data = copy.deepcopy(ov.load_manifest())
-    assert ov.manifest_problems(data) == []
+    data = copy.deepcopy(ov.load_packages())
+    assert ov.packages_problems(data) == []
     data[ov.DARWIN_SET]["wheels"][0]["url"] = "https://download-r2.pytorch.org/whl/cu128/x.whl"
-    assert any("Mac package set" in p for p in ov.manifest_problems(data))
-    data = copy.deepcopy(ov.load_manifest())
+    assert any("Mac package set" in p for p in ov.packages_problems(data))
+    data = copy.deepcopy(ov.load_packages())
     data[ov.DARWIN_SET]["platform"] = "win_amd64"
-    assert any("not for macOS arm64" in p for p in ov.manifest_problems(data))
-    data = copy.deepcopy(ov.load_manifest())
+    assert any("not for macOS arm64" in p for p in ov.packages_problems(data))
+    data = copy.deepcopy(ov.load_packages())
     data[ov.DARWIN_SET]["packages"].append(["torch", "2.8.0"])
-    assert any("pinned twice" in p or "exactly the pinned packages" in p for p in ov.manifest_problems(data))
+    assert any("pinned twice" in p or "exactly the pinned packages" in p for p in ov.packages_problems(data))
 
 
 def test_on_a_mac_availability_and_the_device_policy_say_why_without_a_fallback(sandbox, monkeypatch):
@@ -525,50 +523,21 @@ def test_on_a_mac_the_configured_device_is_validated_and_reaches_the_policy(tmp_
     assert (ov.device_policy().device, ov.device_policy().dtype) == ("cpu", "float32")
 
 
-def test_on_a_mac_the_installer_builds_from_the_app_s_own_python_and_no_other_inside_the_app(sandbox, monkeypatch):
-    """macOS P4B: setup places the app's base CPython inside the app's folder. The installer must accept exactly that
-    interpreter there -- the first real Mac install found it refused -- and still refuse anything else inside the
-    folder (an environment's python). Windows' rule is as released.
-
-    v0.8.2 Phase 4: that interpreter is uv's managed CPython (``files/runtime-data/uv/python/<key>/bin/python3.12``),
-    or the legacy ``files/runtime-data/python/bin/python3.12`` while ``.venv`` still runs on it (one resolver)."""
-    from tts import omnivoice_setup as osu
+def test_on_either_platform_uv_builds_the_engine_on_this_copy_s_managed_python_and_never_downloads_one(sandbox):
+    """macOS P4B built the Mac engine from the app's base CPython inside the app's folder (the first real Mac install
+    found that refused). Since v0.8.2 Phase 5B uv builds it on both platforms, on exactly this copy's managed CPython
+    (``files/runtime-data/uv/python/<key>``), never on another interpreter and never one uv would download."""
+    from shared import engine_env, uv_runner
 
     root = ov.repo_root()
-    monkeypatch.setattr(ov, "_system", lambda: "darwin")
-    legacy = root / "files" / "runtime-data" / "python" / "bin" / "python3.12"
-    venv_cfg = root / ".venv" / "pyvenv.cfg"
-    venv_cfg.parent.mkdir(parents=True, exist_ok=True)
-    venv_cfg.write_text(f"home = {legacy.parent}\n", encoding="utf-8")
-    assert ov.app_owned_python() == legacy, "an environment from v0.8.1 keeps building engines on its own base"
-    venv_cfg.unlink()
-    owned = root / "files" / "runtime-data" / "uv" / "python" / "cpython-3.12.15-macos-aarch64-none" / "bin" / "python3.12"
-    assert ov.app_owned_python() == owned
-    other = root / ".venv" / "bin" / "python3.12"
-    for path in (owned, other):
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(b"")
-    asked = []
-
-    def runner(cmd, *, env, cwd, on_line, cancel_check=None):
-        asked.append(cmd[0])
-        home = str(Path(cmd[0]).parent.parent)
-        on_line(osu._BASE_PROBE_MARK + json.dumps({"version": [3, 12, 10], "implementation": "cpython",
-                                                   "prefix": home, "base_prefix": home, "executable": cmd[0]}))
-        return 0
-
-    monkeypatch.setattr(osu.su, "installer_environment", lambda: {"PATH": "/usr/bin"})  # no real runtime folders
-    monkeypatch.setattr(ov, "app_base_python", lambda: owned)
-    assert osu.verified_base_python(runner=runner) == owned and asked == [str(owned)]
-    monkeypatch.setattr(ov, "app_base_python", lambda: other)
-    with pytest.raises(osu.OmniVoiceSetupError, match="inside this app's folder"):
-        osu.verified_base_python(runner=runner)
-    assert asked == [str(owned)], "a refused interpreter is never started"
-    monkeypatch.setattr(ov, "_system", lambda: "win32")
-    # v0.8.2 Phase 4: Windows asks the same resolver (it was the running interpreter's base, which is the same file
-    # whenever the app runs from its own .venv).
-    assert ov.app_owned_python() == root / "files" / "runtime-data" / "uv" / "python" / \
-        "cpython-3.12.15-windows-x86_64-none" / "python.exe"
+    keys = {"darwin": ("cpython-3.12.15-macos-aarch64-none", "bin"), "win32": ("cpython-3.12.15-windows-x86_64-none", "")}
+    for platform, (key, sub) in keys.items():
+        home = root / "files" / "runtime-data" / "uv" / "python" / key
+        assert uv_runner.managed_venv_home(root, platform) == (home / sub if sub else home)
+        command = engine_env.venv_command(root, ov.ENGINE_KEY, platform=platform)
+        assert command[1:3] == ["venv", str(root / ".venv-engines" / "omnivoice")]
+        assert command[command.index("--python") + 1] == uv_runner.PYTHON_VERSION and "--no-python-downloads" in command
+        assert command[command.index("--project") + 1] == str(ov.project_dir())
 
 
 def test_the_worker_environment_never_carries_the_mps_fallback_switch(sandbox):

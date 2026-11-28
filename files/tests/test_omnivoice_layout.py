@@ -1,23 +1,26 @@
-"""v0.8.0 -- the unified ``.venv`` layout: OmniVoice held inside the app's environment, beside Qwen3.
+"""OmniVoice's environment layout: v0.8.2 Phase 5B's ``.venv-engines/omnivoice`` and the two places before it.
 
-Owner decision 2026-11-13 (it supersedes the sibling ``.venv-omnivoice`` of the v0.8.0 plan, section 4): one top-level
-``.venv`` holding three independent Python environments -- the app's own, ``.venv/engines/qwen3`` and
-``.venv/engines/omnivoice``. This module is the deterministic matrix for that decision:
+v0.8.0 (owner decision 2026-11-13) held the engine INSIDE the app's ``.venv`` (``.venv/engines/omnivoice``, beside
+``.venv/engines/qwen3``), superseding the first builds' sibling ``.venv-omnivoice``. v0.8.2 Phase 5B (approved A1) moves
+it beside ``.venv``, to ``.venv-engines/omnivoice``, built by uv from the engine's own locked project on this copy's
+managed CPython. This module is the deterministic matrix for that layout:
 
-* **the path contract** -- one runtime path, built at its final place from the app's base Python, a receipt bound to
-  that path (and to another file and version than the sibling's ever was);
+* **the path contract** -- one place every install goes, built there by uv (never moved there), independent of the
+  app's own environment; each place's receipt is its own file and version, bound to its own folder (and to the lock);
+* **the earlier nested engine** -- keeps working, untouched, until the new engine is built and proved; only then is it
+  moved whole to a labelled set-aside folder (never deleted); an interrupted or failed replacement leaves it in use;
 * **the earlier sibling** -- recognised, never used, never adopted, never moved into place: the engine is built again
-  at the nested path, proved, recorded, and only then is the sibling retired, whole, to a labelled set-aside folder;
-  every failure or interruption before that leaves it exactly where it was;
-* **the parent's repair** -- both held engines survive every outcome of replacing the app's own environment (success,
-  a failed build, failed packages, a refused carry, an interruption at each step), and a repair is refused while
-  either engine is in use or being installed;
+  in its own place, proved, recorded, and only then is the sibling retired, whole; every failure or interruption
+  before that leaves it exactly where it was;
+* **the parent's repair** -- an earlier copy's held engines survive every outcome of replacing the app's own
+  environment (success, a failed build, failed packages, a refused carry, an interruption at each step), and a repair
+  is refused while either engine is in use or being installed;
 * **independent repairs** -- repairing one engine changes nothing of the other, or of the app's own packages;
-* **no false readiness** -- a stale, copied or foreign receipt, a moved environment, a changed base Python, a missing
-  interpreter, a wrong package or a failed proof never make the engine ready.
+* **no false readiness** -- a stale, copied or foreign receipt, an environment uv did not build on this copy's own
+  Python, a changed managed Python, a missing interpreter, a wrong package or a failed proof never make it ready.
 
-Nothing here reaches the internet, runs pip, creates a real environment or loads a model: the installer's world is the
-loopback sandbox of ``test_omnivoice_setup`` and the parent's transaction is the disposable one of
+Nothing here reaches the internet, runs uv or pip, creates a real environment or loads a model: the installer's world is
+the loopback sandbox of ``test_omnivoice_setup`` and the parent's transaction is the disposable one of
 ``test_venv_recovery``. Every test is refused, at the write itself, any write to the real installation.
 """
 
@@ -26,6 +29,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import shutil
 import subprocess
 import sys
 import textwrap
@@ -35,6 +39,7 @@ from pathlib import Path
 import pytest
 
 from shared import bootstrap
+from shared import engine_env
 from shared import engine_lease as el
 from shared import optional_setup_protocol as proto
 from shared import venv_layout
@@ -44,11 +49,11 @@ from tts import omnivoice_worker as ow
 from tts import optional_setup as osu
 from tts import qwen3_runtime as rt
 from tts import qwen3_setup as su
-from test_omnivoice_setup import (ENGINE, MODEL, MODEL_FILES, OV, PINS, WHEELS, FakeGuard, FakeRunner,  # noqa: F401
-                                  Omni, make_env, omni)
+from test_omnivoice_setup import (ENGINE, MODEL, MODEL_FILES, OV, PINS, WHEEL_BYTES, FakeGuard,  # noqa: F401
+                                  FakeRunner, Omni, make_env, omni)
 from test_omnivoice_synth import DLL_193, NETWORK_AT_IMPORT, PAGING_1455, SAC_4551, run_stack_worker
-from test_optional_tts_setup import (component, probes_are_explicit, sandbox, tiny_assets, tripwire, unit,  # noqa: F401
-                                     world)
+from test_optional_tts_setup import (component, fig, probes_are_explicit, sandbox, tiny_assets, tripwire,  # noqa: F401
+                                     unit, world)
 # The layout these tests model is v0.8.1's: both engines held inside .venv (Qwen3 moves to .venv-engines in v0.8.2
 # Phase 5A, once a new install replaces it; until then a copy keeps exactly this layout).
 from test_qwen3_runtime import install_engine_environment, install_nested_environment as install_qwen3
@@ -63,7 +68,6 @@ SCRIPTS = Path(bootstrap.SCRIPTS_DIR)
 NESTED = ("engines", "omnivoice")
 QWEN3 = ("engines", "qwen3")
 MODEL_PATHS = [f"/k2-fsa/OmniVoice/resolve/{'c' * 40}/{name}" for name in MODEL_FILES]
-WHEEL_PATHS = [f"/wheels/{name}" for name in WHEELS]
 
 
 @pytest.fixture(autouse=True)
@@ -96,13 +100,6 @@ def write_legacy_receipt(folder: Path, **over) -> dict:
     ov.legacy_receipt_path().parent.mkdir(parents=True, exist_ok=True)
     ov.legacy_receipt_path().write_text(json.dumps(record), encoding="utf-8")
     return record
-
-
-def cache_wheels() -> None:
-    """The pinned wheels already on this computer, unrecorded: the installer verifies each by its SHA-256."""
-    ov.wheel_cache_dir().mkdir(parents=True, exist_ok=True)
-    for name, data in WHEELS.items():
-        (ov.wheel_cache_dir() / name).write_bytes(data)
 
 
 def retired(omni) -> list[Path]:
@@ -160,95 +157,118 @@ def held_elsewhere(path: Path):
 # =========================================================================== #
 # 1. The path contract
 # =========================================================================== #
-def test_the_two_locations_are_exact_and_only_the_nested_one_is_ever_the_runtime_path(omni):
-    assert venv_layout.NESTED_OMNIVOICE == ".venv/engines/omnivoice" and venv_layout.LEGACY_OMNIVOICE == ".venv-omnivoice"
-    assert venv_layout.NESTED_QWEN3 == ".venv/engines/qwen3"  # Qwen3 stays where it was
+def test_the_engine_has_one_place_of_its_own_and_an_earlier_nested_engine_is_used_only_until_then(omni):
+    assert venv_layout.ENGINE_OMNIVOICE == ".venv-engines/omnivoice" and venv_layout.LEGACY_OMNIVOICE == ".venv-omnivoice"
+    assert venv_layout.NESTED_OMNIVOICE == ".venv/engines/omnivoice" and venv_layout.NESTED_QWEN3 == ".venv/engines/qwen3"
+    engine = omni.root / ".venv-engines" / "omnivoice"
     nested = omni.root / ".venv" / "engines" / "omnivoice"
-    assert ov.nested_venv_dir() == nested and ov.legacy_venv_dir() == omni.root / ".venv-omnivoice"
-    assert ov.parent_venv_dir() == omni.root / ".venv"
-    for state in ("nothing", "sibling only", "both"):
-        if state == "sibling only":
-            make_legacy(omni)
-        elif state == "both":
-            omni.env()
-        assert ov.venv_dir() == nested, state
-        assert ov.venv_python() == venv_layout.interpreter(nested), state
+    assert ov.engine_venv_dir() == engine and ov.nested_venv_dir() == nested
+    assert ov.legacy_venv_dir() == omni.root / ".venv-omnivoice" and ov.parent_venv_dir() == omni.root / ".venv"
+    assert not venv_layout.is_within(ov.parent_venv_dir(), engine), "beside the app's environment, never inside it"
+    assert ov.venv_dir() == engine, "nothing installed: the one place every install goes"
+    make_legacy(omni)
+    assert ov.venv_dir() == engine, "the sibling is never a runtime target"
+    omni.nested()
+    assert ov.venv_dir() == nested and ov.venv_python() == venv_layout.interpreter(nested), "the earlier engine works on"
+    omni.env()
+    omni.receipt(ov.STAGE_CREATED)
+    assert ov.venv_dir() == nested, "a new engine that is not installed to the end is not used"
+    omni.receipt()
+    assert ov.venv_dir() == engine and ov.venv_python() == venv_layout.interpreter(engine)
+    assert ov.reject_ready_engine("ImportError: x") and ov.venv_dir() == engine, \
+        "once installed it stays the one in use: a damaged engine is never hidden behind an older one"
     layouts = venv_layout.omnivoice_layouts(omni.root)
     assert layouts.both and layouts.nested == nested and layouts.legacy == ov.legacy_venv_dir()
-    assert venv_layout.qwen3_layouts(omni.root).nested is None  # the two engines' layouts are told apart
 
 
-def test_the_nested_receipt_is_another_file_and_version_than_the_sibling_s_and_both_are_outside_the_parent(omni):
-    assert ov.receipt_path() != ov.legacy_receipt_path()
-    assert ov.receipt_path().parent == ov.legacy_receipt_path().parent == ov.runtime_dir()
-    assert not venv_layout.is_within(ov.parent_venv_dir(), ov.receipt_path())
-    assert ov.RECEIPT_VERSION != ov.LEGACY_RECEIPT_VERSION
+def test_each_place_has_its_own_receipt_file_and_version_and_none_lies_inside_an_environment(omni):
+    paths = (ov.receipt_path(), ov.nested_receipt_path(), ov.legacy_receipt_path())
+    assert len(set(paths)) == 3 and all(p.parent == ov.runtime_dir() for p in paths)
+    assert len({ov.RECEIPT_VERSION, ov.NESTED_RECEIPT_VERSION, ov.LEGACY_RECEIPT_VERSION}) == 3
+    for folder in (ov.parent_venv_dir(), ov.engine_venv_dir()):
+        assert not any(venv_layout.is_within(folder, p) for p in paths)
     omni.env()
     written = omni.receipt()
-    assert written["version"] == ov.RECEIPT_VERSION
-    assert venv_layout.same_path(written["path"], ov.nested_venv_dir())
-    assert not ov.legacy_receipt_path().exists(), "writing the nested receipt never touches the sibling's"
+    assert written["version"] == ov.RECEIPT_VERSION and venv_layout.same_path(written["path"], ov.engine_venv_dir())
+    assert written["lock"] == ov.lock_identity()
+    assert not ov.nested_receipt_path().exists() and not ov.legacy_receipt_path().exists()
+    with pytest.raises(ValueError, match="never installed into"):
+        ov.write_nested_receipt(ov.STAGE_INSTALLED)
 
 
-def test_a_fresh_install_builds_the_nested_environment_at_its_final_path_from_the_base_python(omni):
-    """A. Nothing here at all: the environment is created where it will run, never beside the app's and moved."""
+def test_a_fresh_install_builds_the_engine_with_uv_at_its_final_place_beside_the_app_s_environment(omni):
+    """A. Nothing here at all: the environment is created where it will run, on the managed CPython, never inside the
+    app's own environment and never moved."""
     code, result = omni.install()
     assert result["state"] == proto.SUCCEEDED and result["verified"] == [OV], result
-    nested = ov.nested_venv_dir()
-    venv = next(cmd for cmd in omni.runner.commands if cmd[1:4] == ["-I", "-m", "venv"])
-    assert venv[0] == str(omni.base) and venv_layout.same_path(venv[4], nested)  # the base Python, the final path
-    config = venv_layout.read_pyvenv_cfg(nested)
-    assert venv_layout.same_path(config["home"], omni.base.parent) and config["command"].endswith(str(nested))
-    assert not venv_layout.is_within(ov.parent_venv_dir(), config["home"])  # independent of the parent's interpreter
-    pip = next(cmd for cmd in omni.runner.commands if ovs.OFFLINE_PIP in cmd)
-    assert venv_layout.same_path(Path(pip[0]).parents[1], nested)  # pip ran in the nested interpreter, nowhere else
+    engine = ov.engine_venv_dir()
+    assert omni.runner.kinds() == ["venv", "sync", "probe"]
+    venv, sync = omni.runner.commands[:2]
+    assert venv == [str(c) for c in engine_env.venv_command(omni.root, ov.ENGINE_KEY)]
+    assert venv_layout.same_path(venv[2], engine) and "--python" in venv and "--no-python-downloads" in venv
+    assert sync == [str(c) for c in engine_env.sync_command(omni.root, ov.ENGINE_KEY)]
+    assert engine_env.identity_problem(omni.root, ov.ENGINE_KEY) == "", "uv's environment on this copy's own CPython"
+    assert not venv_layout.is_within(ov.parent_venv_dir(), venv_layout.read_pyvenv_cfg(engine)["home"])
     job = omni.runner.probe_jobs[0]
-    assert venv_layout.same_path(job["environment"], nested)
+    assert venv_layout.same_path(job["environment"], engine)
     assert [Path(p) for p in job["foreign"]] == [omni.root / ".venv", omni.root / ".venv" / "engines" / "qwen3",
                                                  omni.root / ".venv-qwen3", omni.root / ".venv-omnivoice",
                                                  omni.root / ".venv-engines" / "qwen3"]
     receipt = ov.read_receipt()
-    assert receipt["stage"] == ov.STAGE_INSTALLED and venv_layout.same_path(receipt["path"], nested)
-    assert receipt["base"] == venv_layout.base_identity(nested)
-    assert not os.path.lexists(ov.legacy_venv_dir()) and not ov.legacy_receipt_path().exists()
-    assert venv_layout.held_entries(ov.parent_venv_dir()) == ("omnivoice",)
-    assert retired(omni) == []  # nothing to retire
+    assert receipt["stage"] == ov.STAGE_INSTALLED and venv_layout.same_path(receipt["path"], engine)
+    assert venv_layout.held_entries(ov.parent_venv_dir()) == (), "nothing is held inside the app's environment"
+    assert not os.path.lexists(ov.legacy_venv_dir()) and retired(omni) == []
 
 
-@pytest.mark.parametrize("problem, words", [
-    ("no parent", "missing or incomplete"),
-    ("pending repair", "did not finish"),
-    ("pending repair, numbered", "did not finish"),
-])
-def test_the_engine_is_never_created_inside_a_parent_that_is_missing_or_half_way_through_a_repair(omni, problem, words):
-    """An engine built into a half-made replacement could leave two environments each holding an engine."""
-    parent = ov.parent_venv_dir()
+@pytest.mark.parametrize("problem", ["no parent", "pending repair"])
+def test_the_engine_does_not_depend_on_the_app_s_own_environment(omni, problem):
+    """The engine is independent of ``.venv`` (approved A1): a missing app environment, or one whose repair did not
+    finish, neither blocks nor touches it (the shared install lock keeps a repair and an install apart)."""
     if problem == "no parent":
-        (parent / "pyvenv.cfg").unlink()
-    elif problem == "pending repair":
-        (omni.root / ".venv.replaced").mkdir()
+        (ov.parent_venv_dir() / "pyvenv.cfg").unlink()
     else:
-        (omni.root / ".venv.replaced-1763000000").mkdir()
-    assert words in ovs.parent_problem()
+        (omni.root / ".venv.replaced").mkdir()
+    assert ovs.build_problem() == ""
     code, result = omni.install()
-    assert result["state"] == proto.FAILED and words in result["error"]["message"]
-    assert not os.path.lexists(ov.nested_venv_dir()) and ov.read_receipt() == {}
+    assert result["state"] == proto.SUCCEEDED, result
+    assert not (omni.root / ".venv" / "engines").exists() and ov.environment_status() == (True, "ok")
+
+
+@pytest.mark.parametrize("missing, words", [
+    ("lock", "package lock is missing"), ("uv", "package tool (uv)"), ("python", "package tool (uv)"),
+])
+def test_without_its_lock_uv_or_managed_python_nothing_is_downloaded_or_built(omni, monkeypatch, missing, words):
+    from shared import uv_runner
+
+    if missing == "lock":
+        (ov.project_dir() / "uv.lock").unlink()
+    elif missing == "uv":
+        monkeypatch.setattr(uv_runner, "uv_problem", lambda root, platform=None: "uv is missing")
+    else:
+        uv_runner.managed_python(omni.root).unlink()
+    assert words in ovs.build_problem()
+    code, result = omni.install()
+    if missing == "lock":  # without its lock the packages have no pinned source at all: the consent is refused
+        assert result["state"] == proto.REFUSED and result["error"]["code"] == proto.SOURCE_UNPINNED, result
+    else:
+        assert result["state"] == proto.FAILED and words in result["error"]["message"], result
     assert omni.runner.commands == [] and omni.fetched() == [], "said before anything is downloaded or run"
+    assert not os.path.lexists(ov.engine_venv_dir()) and ov.read_receipt() == {}
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="a junction is the Windows link that needs no privilege")
-@pytest.mark.parametrize("where", ["engines", "parent"])
-def test_a_link_above_the_nested_path_is_unverified_and_nothing_is_built_through_it(omni, tmp_path, where):
+@pytest.mark.parametrize("where", ["engines folder", "engine"])
+def test_a_link_at_or_above_the_engine_s_place_is_unverified_and_nothing_is_built_through_it(omni, tmp_path, where):
     import _winapi
 
     outside = tmp_path / "outside"
     outside.mkdir()
-    if where == "engines":
-        _winapi.CreateJunction(str(outside), str(ov.parent_venv_dir() / "engines"))
+    if where == "engines folder":
+        _winapi.CreateJunction(str(outside), str(omni.root / ".venv-engines"))
     else:
-        os.rename(ov.parent_venv_dir(), omni.root / "real-venv")
-        _winapi.CreateJunction(str(omni.root / "real-venv"), str(ov.parent_venv_dir()))
-    assert ov.assess_engine().state == ov.ENGINE_UNVERIFIED
+        (omni.root / ".venv-engines").mkdir()
+        _winapi.CreateJunction(str(outside), str(ov.engine_venv_dir()))
+    assert ov.assess_engine().state == ov.ENGINE_UNVERIFIED and ov.assess_install().state == ov.ENGINE_UNVERIFIED
     data = omni.plan()
     assert component(data, OV)["readiness"] == proto.UNVERIFIED and data["acquire_units"] == []
     with pytest.raises(ovs.OmniVoiceSetupError):
@@ -256,7 +276,10 @@ def test_a_link_above_the_nested_path_is_unverified_and_nothing_is_built_through
     assert list(outside.iterdir()) == [] and omni.runner.commands == []
 
 
-def test_a_copy_of_the_app_too_deep_for_the_nested_engine_is_refused_for_this_component_alone(omni, monkeypatch):
+def test_a_copy_of_the_app_too_deep_for_the_engine_is_refused_for_this_component_alone(omni, monkeypatch):
+    """``.venv-engines/omnivoice`` is exactly as long as the earlier ``.venv/engines/omnivoice``, so the measured depth of
+    the deepest file holds unchanged for the new place."""
+    assert len(venv_layout.ENGINE_OMNIVOICE) == len(venv_layout.NESTED_OMNIVOICE)
     assert ov.DEEPEST_NATIVE_LIBRARY_CHARS >= 136 and ov.DEEPEST_FILE_CHARS >= 169  # measured 135 + 1 and 168 + 1
     limit = ov.WINDOWS_MAX_PATH - ov.DEEPEST_NATIVE_LIBRARY_CHARS
     assert ov.install_depth_problem("C:\\" + "a" * (limit - 3), long_paths=True) == ""
@@ -278,6 +301,7 @@ def test_a_copy_of_the_app_too_deep_for_the_nested_engine_is_refused_for_this_co
     assert ov.assess_engine() == ov.EngineAssessment(ov.ENGINE_ABSENT, "too deep for OmniVoice")
     with pytest.raises(ovs.OmniVoiceSetupError, match="too deep"):
         ovs.build_engine(runner=omni.runner, progress=lambda p: None, cancel_check=lambda: False)
+    assert omni.runner.commands == []
     omni.env()
     omni.model()
     omni.receipt()
@@ -296,15 +320,15 @@ def test_the_sibling_s_states_are_told_apart_and_none_of_them_is_ever_ready(omni
             (ov.LEGACY_UNVERIFIED, lambda: write_legacy_receipt(folder, packages_sha256="0" * 64)),
             (ov.LEGACY_UNVERIFIED, lambda: write_legacy_receipt(folder, path=str(tmp_path / "elsewhere"))),
             (ov.LEGACY_UNVERIFIED, lambda: write_legacy_receipt(folder, version=ov.RECEIPT_VERSION)),
-            (ov.LEGACY_BROKEN, lambda: (folder / "Lib" / "site-packages" / "torch-2.8.0+cu128.dist-info").rmdir()),
+            (ov.LEGACY_BROKEN, lambda: shutil.rmtree(folder / "Lib" / "site-packages" / "torch-2.8.0+cu128.dist-info")),
             (ov.LEGACY_OCCUPIED, lambda: (folder / "pyvenv.cfg").unlink())):
         change()
         assessment = ov.assess_legacy()
         assert assessment.state == expected, (expected, assessment)
         assert assessment.retirable is (expected != ov.LEGACY_OCCUPIED)
-        # whatever the sibling is, OmniVoice is not installed until the nested engine is
+        # whatever the sibling is, OmniVoice is not installed until the new engine is
         assert ov.assess_engine().state == ov.ENGINE_ABSENT and ov.environment_status()[0] is False
-        assert ov.venv_dir() == ov.nested_venv_dir()
+        assert ov.venv_dir() == ov.engine_venv_dir()
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="a junction is the Windows link that needs no privilege")
@@ -322,11 +346,10 @@ def test_a_linked_sibling_is_never_read_into_moved_or_mentioned(omni, tmp_path):
     assert venv_layout.is_link(ov.legacy_venv_dir()) and omni.tree(elsewhere) == before and retired(omni) == []
 
 
-def test_a_healthy_sibling_is_rebuilt_at_the_nested_path_from_cached_wheels_and_then_retired_whole(omni):
-    """B. The migration: nothing downloaded, the sibling never moved into place, kept whole once the new one works."""
+def test_a_healthy_sibling_is_built_again_in_its_new_place_and_then_retired_whole(omni):
+    """B. The migration: the model reused, the sibling never moved into place, kept whole once the new one works."""
     legacy = make_legacy(omni)
     omni.model()
-    cache_wheels()
     legacy_before, receipt_before = omni.tree(legacy), ov.legacy_receipt_path().read_bytes()
     assert ov.assess_engine() == ov.EngineAssessment(ov.ENGINE_ABSENT, ov.LEGACY_MOVE_MESSAGE)
     assert ov.voice_availability("omnivoice-male-1")[0] is False  # the sibling is not a runtime target
@@ -334,19 +357,17 @@ def test_a_healthy_sibling_is_rebuilt_at_the_nested_path_from_cached_wheels_and_
     data = omni.plan()
     entry, engine = component(data, OV), unit(data, ENGINE)
     assert (entry["readiness"], entry["consent_scope"]) == (proto.MISSING, proto.SCOPE_INSTALL)
-    assert engine["note"] == osu.MOVE_NOTE and engine["download"]["bytes"] == 0, "the cached wheels are reused"
+    assert engine["note"] == osu.MOVE_NOTE and engine["download"] == fig(WHEEL_BYTES, proto.MANIFEST)
     assert engine["disk"]["bytes"] > 0, "a build, not an adoption: the sibling is never taken over"
-    assert unit(data, MODEL)["state"] == proto.READY and data["totals"]["download"]["bytes"] == 0
+    assert unit(data, MODEL)["state"] == proto.READY
     assert omni.tree(legacy) == legacy_before, "planning changes nothing"
 
     code, result = omni.install(plan=data)
     assert result["state"] == proto.SUCCEEDED and result["verified"] == [OV], result
-    assert omni.fetched() == [], "no wheel and no model file was downloaded again"
-    assert omni.runner.kinds() == ["venv", "pip", "probe"]
-    nested = ov.nested_venv_dir()
-    assert venv_layout.same_path(omni.runner.commands[0][4], nested)  # built there, not moved there
+    assert omni.fetched() == [], "no model file was downloaded again"
+    assert omni.runner.kinds() == ["venv", "sync", "probe"]
+    assert venv_layout.same_path(omni.runner.commands[0][2], ov.engine_venv_dir())  # built there, not moved there
     assert ov.assess_engine().state == ov.ENGINE_READY and ov.read_receipt()["origin"] == ov.ORIGIN_INSTALLED
-    assert ov.read_receipt()["version"] == ov.RECEIPT_VERSION
 
     assert not os.path.lexists(legacy), "the sibling is no longer beside the app's environment"
     (container,) = retired(omni)
@@ -356,7 +377,7 @@ def test_a_healthy_sibling_is_rebuilt_at_the_nested_path_from_cached_wheels_and_
     record = json.loads((container / ovs.RETIRED_RECORD_NAME).read_text(encoding="utf-8"))
     assert record["runnable_here"] is False and record["state_when_moved"] == ov.LEGACY_HEALTHY
     assert venv_layout.same_path(record["original_path"], legacy)
-    assert venv_layout.same_path(record["replaced_by"], nested)
+    assert venv_layout.same_path(record["replaced_by"], ov.engine_venv_dir())
     assert "NOT a working environment" in (container / ovs.RETIRED_NOTE_NAME).read_text(encoding="utf-8")
     assert ov.assess_legacy().state == ov.LEGACY_ABSENT
 
@@ -371,23 +392,21 @@ def test_the_retired_copy_is_never_judged_an_environment_where_it_is_kept(omni):
     """A moved Windows environment is not immediately executable, and nothing here treats it as one."""
     legacy = make_legacy(omni)
     omni.model()
-    cache_wheels()
     omni.install()
     (container,) = retired(omni)
     kept = container / legacy.name
     assert "moved" in ov.structure_problem(kept)  # its pyvenv.cfg still names the place it was created at
-    assessment = venv_layout.assess_child(kept, final_path=ov.nested_venv_dir(), root=omni.root)
+    assessment = venv_layout.assess_child(kept, final_path=ov.engine_venv_dir(), root=omni.root)
     assert assessment.state == venv_layout.UNVERIFIED and "never used" in assessment.reason
-    assert not venv_layout.is_within(ov.nested_venv_dir(), kept) and not venv_layout.is_within(kept, ov.venv_python())
+    assert not venv_layout.is_within(ov.engine_venv_dir(), kept) and not venv_layout.is_within(kept, ov.venv_python())
 
 
 def test_an_interrupted_migration_leaves_the_sibling_untouched_and_the_retry_finishes_it(omni):
-    """C. Cancelled while pip runs: the sibling and its receipt are byte-identical, the retry downloads nothing."""
+    """C. Cancelled while uv installs: the sibling and its receipt are byte-identical; the retry completes it."""
     legacy = make_legacy(omni)
     omni.model()
-    cache_wheels()
     legacy_before, receipt_before = omni.tree(legacy), ov.legacy_receipt_path().read_bytes()
-    omni.runner.hang = "pip"
+    omni.runner.hang = "sync"
     cancel = threading.Event()
     shown = omni.plan()
     timer = threading.Timer(0.3, cancel.set)
@@ -398,14 +417,13 @@ def test_an_interrupted_migration_leaves_the_sibling_untouched_and_the_retry_fin
     assert not report.completed and report.detail == "cancelled"
     assert omni.tree(legacy) == legacy_before and ov.legacy_receipt_path().read_bytes() == receipt_before
     assert ov.assess_legacy().state == ov.LEGACY_HEALTHY and retired(omni) == []
-    assert ov.read_receipt()["stage"] == ov.STAGE_CREATING and ov.assess_engine().state == ov.ENGINE_INCOMPLETE
+    assert ov.read_receipt()["stage"] == ov.STAGE_CREATED and ov.assess_engine().state == ov.ENGINE_INCOMPLETE
     assert ov.assess_engine().reason == ov.INCOMPLETE_MESSAGE + ov.LEGACY_NOT_USED_NOTE
 
     data = omni.plan()
     entry = component(data, OV)
     assert (entry["readiness"], entry["consent_scope"]) == (proto.DAMAGED, proto.SCOPE_REPAIR)
     assert unit(data, ENGINE)["note"] == osu.UNFINISHED_NOTE + osu.LEGACY_KEPT_NOTE
-    assert unit(data, ENGINE)["download"]["bytes"] == 0, "the verified wheels were kept"
     omni.runner.hang = None
     code, result = omni.install(plan=data)
     assert result["state"] == proto.SUCCEEDED, result
@@ -414,16 +432,15 @@ def test_an_interrupted_migration_leaves_the_sibling_untouched_and_the_retry_fin
     assert omni.tree(container / legacy.name) == legacy_before and not os.path.lexists(legacy)
 
 
-@pytest.mark.parametrize("failure", ["pip", "proof", "proof cancelled"])
+@pytest.mark.parametrize("failure", ["sync", "proof", "proof cancelled"])
 def test_a_failed_migration_keeps_the_sibling_and_never_claims_readiness(omni, failure):
     """C. Whatever stops the new engine short of its proof, the earlier one is still exactly where it was."""
     legacy = make_legacy(omni)
     omni.model()
-    cache_wheels()
     legacy_before, receipt_before = omni.tree(legacy), ov.legacy_receipt_path().read_bytes()
     cancel = threading.Event()
-    if failure == "pip":
-        omni.runner.fail_pip = True
+    if failure == "sync":
+        omni.runner.fail_sync = True
     elif failure == "proof":
         omni.runner.probe_failure = ("gpu", "PyTorch reports no usable CUDA GPU")
     else:
@@ -438,7 +455,7 @@ def test_a_failed_migration_keeps_the_sibling_and_never_claims_readiness(omni, f
     assert ov.environment_status()[0] is False and ov.read_receipt().get("stage") != ov.STAGE_INSTALLED
     assert ov.voice_availability("omnivoice-male-1")[0] is False
 
-    omni.runner.fail_pip, omni.runner.probe_failure, omni.runner.hang = False, None, None
+    omni.runner.fail_sync, omni.runner.probe_failure, omni.runner.hang = False, None, None
     code, result = omni.install()  # the safe retry, under a fresh plan and consent
     assert result["state"] == proto.SUCCEEDED, result
     assert omni.fetched() == [] and ov.assess_engine().state == ov.ENGINE_READY and len(retired(omni)) == 1
@@ -447,7 +464,6 @@ def test_a_failed_migration_keeps_the_sibling_and_never_claims_readiness(omni, f
 def test_a_sibling_that_cannot_be_moved_stays_whole_and_unused_and_the_new_engine_still_stands(omni, monkeypatch):
     legacy = make_legacy(omni)
     omni.model()
-    cache_wheels()
     legacy_before = omni.tree(legacy)
     real_rename = os.rename
 
@@ -465,7 +481,7 @@ def test_a_sibling_that_cannot_be_moved_stays_whole_and_unused_and_the_new_engin
     assert any("could not be moved aside" in line and "nothing was deleted" in line for line in said)
     assert omni.tree(legacy) == legacy_before and retired(omni) == []
     assert not any(ov.set_aside_root().iterdir()), "no empty set-aside folder is left behind"
-    assert ov.assess_engine().state == ov.ENGINE_READY and ov.venv_dir() == ov.nested_venv_dir()
+    assert ov.assess_engine().state == ov.ENGINE_READY and ov.venv_dir() == ov.engine_venv_dir()
     assert unit(omni.plan(), ENGINE)["note"] == ov.LEGACY_LEFTOVER_NOTE
 
     monkeypatch.setattr(ovs.os, "rename", real_rename)
@@ -474,60 +490,63 @@ def test_a_sibling_that_cannot_be_moved_stays_whole_and_unused_and_the_new_engin
     assert omni.tree(container / legacy.name) == legacy_before and unit(omni.plan(), ENGINE)["note"] == ""
 
 
-def test_the_sibling_is_never_retired_before_the_nested_engine_is_proved(omni):
+def test_the_sibling_is_never_retired_before_the_new_engine_is_proved(omni):
     legacy = make_legacy(omni)
     before = omni.tree(legacy)
     for state in ("absent", "unchecked", "unfinished"):
         if state == "unchecked":
             omni.env()
         elif state == "unfinished":
-            omni.receipt(ov.STAGE_CREATING, base_python=str(omni.base))
+            omni.receipt(ov.STAGE_CREATING)
         with pytest.raises(ovs.OmniVoiceSetupError, match="not proved yet"):
             ovs.retire_legacy()
         assert omni.tree(legacy) == before and retired(omni) == [], state
     assert ov.legacy_receipt_path().is_file()
 
 
-def test_both_present_a_proved_nested_engine_is_used_and_the_leftover_sibling_is_said_never_chosen(omni):
-    """D. Two installations are never ambiguous: only the nested path can be ready, and only by its own receipt."""
+def test_both_present_a_proved_engine_is_used_and_the_leftover_sibling_is_said_never_chosen(omni):
+    """D. Two installations are never ambiguous: only the engine's own place can be ready, and only by its receipt."""
     legacy = make_legacy(omni)
     omni.env()
     omni.model()
     omni.receipt()
     before = omni.tree(legacy)
     assert ov.assess_engine() == ov.EngineAssessment(ov.ENGINE_READY, "ok")
-    assert ov.venv_dir() == ov.nested_venv_dir() and ov.voice_availability("omnivoice-male-1") == (True, "ok")
+    assert ov.venv_dir() == ov.engine_venv_dir() and ov.voice_availability("omnivoice-male-1") == (True, "ok")
     data = omni.plan()
     assert component(data, OV)["readiness"] == proto.READY and data["acquire_units"] == []
     assert unit(data, ENGINE)["note"] == ov.LEGACY_LEFTOVER_NOTE
     assert omni.tree(legacy) == before and retired(omni) == [], "a plan moves nothing"
 
 
-def test_both_present_an_unproved_nested_engine_is_adopted_by_proof_and_only_then_is_the_sibling_retired(omni):
-    """D. The nested engine is complete but unrecorded (its proof was interrupted); the sibling was the proved one."""
+def test_both_present_an_unproved_engine_is_adopted_by_proof_and_only_then_is_the_sibling_retired(omni):
+    """D. The new engine is complete but unrecorded (its proof was interrupted); the sibling was the proved one."""
     legacy = make_legacy(omni)
-    omni.env()
+    engine = omni.env()
     omni.model()
-    nested_before, legacy_before = omni.tree(ov.nested_venv_dir()), omni.tree(legacy)
+    engine_before, legacy_before = omni.tree(engine), omni.tree(legacy)
+    assert engine_before, "the engine is really there"
     assert ov.assess_engine().state == ov.ENGINE_UNCHECKED
     assert ov.assess_engine().reason == ov.UNCHECKED_MESSAGE + ov.LEGACY_NOT_USED_NOTE
-    assert ov.environment_status()[0] is False, "the sibling's proof never stands in for the nested engine's"
+    assert ov.environment_status()[0] is False, "the sibling's proof never stands in for the new engine's"
     data = omni.plan()
     assert unit(data, ENGINE)["note"] == osu.ADOPT_NOTE + osu.LEGACY_KEPT_NOTE
     code, result = omni.install(plan=data)
     assert result["state"] == proto.SUCCEEDED and omni.runner.kinds() == ["probe"] and omni.fetched() == []
-    assert omni.tree(ov.nested_venv_dir()) == nested_before and ov.read_receipt()["origin"] == ov.ORIGIN_ADOPTED
+    assert ov.read_receipt()["origin"] == ov.ORIGIN_ADOPTED
+    changed = {k for k in set(engine_before) | set(omni.tree(engine)) if engine_before.get(k) != omni.tree(engine).get(k)}
+    assert changed <= {engine_env.RECEIPT_NAME}, "only the environment's own receipt is added to it"
     (container,) = retired(omni)
     assert omni.tree(container / legacy.name) == legacy_before
 
 
-def test_a_broken_nested_engine_is_never_preferred_over_or_hidden_behind_a_healthy_sibling(omni):
-    """E. The nested path exists but is broken: it is said, the healthy sibling is named, and neither is used."""
+def test_a_broken_engine_is_never_preferred_over_or_hidden_behind_a_healthy_sibling(omni):
+    """E. The engine's place holds something broken that this app did not build: it is said, the healthy sibling is
+    named, neither is used; the repair keeps both, whole."""
     legacy = make_legacy(omni)
     omni.model()
-    cache_wheels()
     omni.env(pins=PINS[:2])  # a package is missing: not the pinned engine
-    broken_before, legacy_before = omni.tree(ov.nested_venv_dir()), omni.tree(legacy)
+    broken_before, legacy_before = omni.tree(ov.engine_venv_dir()), omni.tree(legacy)
     assessment = ov.assess_engine()
     assert assessment.state == ov.ENGINE_BROKEN and "1 missing" in assessment.reason
     assert assessment.reason.endswith(ov.LEGACY_NOT_USED_NOTE)
@@ -541,17 +560,113 @@ def test_a_broken_nested_engine_is_never_preferred_over_or_hidden_behind_a_healt
     assert result["state"] == proto.SUCCEEDED, result
     assert omni.fetched() == [] and ov.assess_engine().state == ov.ENGINE_READY
     kept = sorted(p.name for p in ov.set_aside_root().iterdir())
-    assert len(kept) == 2, kept  # the broken nested one and the retired sibling: both kept, neither deleted
+    assert len(kept) == 2, kept  # the broken one and the retired sibling: both kept, neither deleted
     broken = next(p for p in ov.set_aside_root().iterdir() if not p.name.startswith(ovs.RETIRED_PREFIX))
     (container,) = retired(omni)
     assert omni.tree(broken) == broken_before and omni.tree(container / legacy.name) == legacy_before
 
 
+def test_an_earlier_nested_engine_keeps_working_until_a_new_one_is_proved_and_is_then_retired_whole(omni):
+    """v0.8.2 Phase 5B. A v0.8.1 engine in ``.venv/engines/omnivoice`` is the one in use, untouched, until a repair
+    builds and proves the new engine; only then is it moved whole to set-aside, with its own receipt and a note."""
+    nested = omni.nested()
+    omni.model()
+    before, receipt_before = omni.tree(nested), ov.nested_receipt_path().read_bytes()
+    assert ov.venv_dir() == nested and ov.assess_engine() == ov.EngineAssessment(ov.ENGINE_READY, "ok")
+    assert ov.voice_availability("omnivoice-male-1") == (True, "ok")
+    data = omni.plan()
+    assert component(data, OV)["readiness"] == proto.READY and data["acquire_units"] == [], "nothing forces a move"
+
+    # the conversion finds a damaged library in it: the v0.8.1 receipt records that, and a repair is offered
+    assert ov.reject_ready_engine("ImportError: cannot import name 'OmniVoice'")
+    assert ov.read_nested_receipt()["stage"] == ov.STAGE_REJECTED and ov.venv_dir() == nested
+    receipt_rejected = ov.nested_receipt_path().read_bytes()
+    data = omni.plan()
+    entry = component(data, OV)
+    assert (entry["readiness"], entry["consent_scope"]) == (proto.DAMAGED, proto.SCOPE_REPAIR)
+    assert unit(data, ENGINE)["note"].endswith(osu.NESTED_REPAIR_NOTE)
+    omni.runner.hang = "sync"  # an interrupted repair changes nothing of the engine in use
+    cancel = threading.Event()
+    timer = threading.Timer(0.3, cancel.set)
+    timer.start()
+    report = omni.acquirer().acquire(data, osu.consent_for(data), progress=lambda p: None, cancel_check=cancel.is_set)
+    timer.cancel()
+    assert not report.completed and omni.tree(nested) == before and ov.venv_dir() == nested
+    assert ov.nested_receipt_path().read_bytes() == receipt_rejected
+    omni.runner.hang = None
+    said: list[str] = []
+    data = omni.plan()
+    report = omni.acquirer().acquire(data, osu.consent_for(data), progress=lambda p: said.append(str(p.get("message"))),
+                                     cancel_check=lambda: False)
+    assert report.completed, report.detail
+    assert ov.venv_dir() == ov.engine_venv_dir() and ov.assess_engine().state == ov.ENGINE_READY
+    assert not os.path.lexists(nested) and venv_layout.held_entries(ov.parent_venv_dir()) == ()
+    (holder,) = [p for p in ov.set_aside_root().iterdir() if p.name.startswith("nested-omnivoice-")]
+    assert omni.tree(holder / "omnivoice") == before, "moved whole, byte for byte, never deleted"
+    assert (holder / ov.nested_receipt_path().name).read_bytes() == receipt_rejected, "its receipt went with it"
+    assert "no longer uses it" in (holder / "RETIRED-READ-ME.txt").read_text(encoding="utf-8")
+    assert any("moved, unchanged" in line for line in said)
+    assert omni.fetched() == [], "the model was reused"
+    assert receipt_before != receipt_rejected
+
+
+def test_a_new_engine_left_half_built_beside_a_working_nested_one_never_stops_the_voices(omni):
+    """An install of the new engine killed half-way leaves the earlier engine in use and ready; the plan offers to
+    finish the new one, which then takes over and retires the earlier one."""
+    nested = omni.nested()
+    omni.model()
+    before = omni.tree(nested)
+    omni.runner.hang = "sync"
+    cancel = threading.Event()
+    timer = threading.Timer(0.3, cancel.set)
+    timer.start()
+    with ovs.InstallLock(), pytest.raises(su.SetupCancelled):
+        ovs.build_engine(runner=omni.runner, progress=lambda p: None, cancel_check=cancel.is_set)
+    timer.cancel()
+    assert ov.read_receipt()["stage"] == ov.STAGE_CREATED and omni.tree(nested) == before
+    assert ov.venv_dir() == nested and ov.environment_status() == (True, "ok"), "the voices keep working"
+    assert ov.assess_install().state == ov.ENGINE_INCOMPLETE
+    data = omni.plan()
+    assert (component(data, OV)["readiness"], unit(data, ENGINE)["note"]) == (
+        proto.DAMAGED, osu.UNFINISHED_NOTE + osu.NESTED_IN_USE_NOTE)
+    omni.runner.hang = None
+    code, result = omni.install(plan=data)
+    assert result["state"] == proto.SUCCEEDED, result
+    assert ov.venv_dir() == ov.engine_venv_dir() and not os.path.lexists(nested)
+    assert "venv" not in omni.runner.kinds()[1:], "synced again in place"
+
+
+def test_a_nested_engine_that_cannot_be_moved_aside_stays_whole_and_unused_and_is_said(omni, monkeypatch):
+    from shared import engine_env as shared_engine_env
+
+    nested = omni.nested(receipt=False)  # never proved by v0.8.1: not used, so a repair builds the new engine
+    omni.model()
+    before = omni.tree(nested)
+    assert ov.assess_engine().reason == ov.NESTED_UNPROVED_MESSAGE
+    real_replace = os.replace
+
+    def refuse(source, target, *args, **kwargs):
+        if venv_layout.same_path(source, nested):
+            raise PermissionError(13, "The process cannot access the file because it is being used by another process")
+        return real_replace(source, target, *args, **kwargs)
+
+    monkeypatch.setattr(shared_engine_env.os, "replace", refuse)
+    said: list[str] = []
+    data = omni.plan()
+    report = omni.acquirer().acquire(data, osu.consent_for(data), progress=lambda p: said.append(str(p.get("message"))),
+                                     cancel_check=lambda: False)
+    assert report.completed, report.detail
+    assert omni.tree(nested) == before and ov.venv_dir() == ov.engine_venv_dir()
+    assert any("could not be moved aside now" in line for line in said), said
+    assert not ov.set_aside_root().exists() or not any(ov.set_aside_root().iterdir()), "no empty folder left"
+    assert unit(omni.plan(), ENGINE)["note"] == ov.NESTED_LEFTOVER_NOTE
+
+
 # =========================================================================== #
 # 3. No false readiness
 # =========================================================================== #
-def test_a_copied_stale_or_foreign_receipt_never_vouches_for_the_nested_engine(omni, tmp_path):
-    """F. A receipt is for one folder, one file and one version; anything else is no receipt."""
+def test_a_copied_stale_or_foreign_receipt_never_vouches_for_the_engine(omni, tmp_path):
+    """F. A receipt is for one folder, one file, one version and one lock; anything else is no receipt."""
     omni.env()
     omni.model()
     good = omni.receipt()
@@ -560,83 +675,77 @@ def test_a_copied_stale_or_foreign_receipt_never_vouches_for_the_nested_engine(o
     def rewrite(**changes) -> None:
         ov.receipt_path().write_text(json.dumps({**good, **changes}), encoding="utf-8")
 
-    for label, changes in (("another copy's path", {"path": str(tmp_path / "other-app" / ".venv" / "engines" / "omnivoice")}),
-                           ("the sibling's path", {"path": str(ov.legacy_venv_dir())}),
+    for label, changes in (("another copy's path", {"path": str(tmp_path / "other-app" / ".venv-engines" / "omnivoice")}),
+                           ("the nested path", {"path": str(ov.nested_venv_dir())}),
+                           ("the nested version", {"version": ov.NESTED_RECEIPT_VERSION}),
                            ("the sibling's version", {"version": ov.LEGACY_RECEIPT_VERSION}),
                            ("another schema", {"schema": "something-else"}),
-                           ("another package set", {"packages_sha256": "0" * 64}),
+                           ("another lock", {"lock": {**good["lock"], "uv_lock_sha256": "0" * 64}}),
                            ("no proof", {"probe_ok": False})):
         rewrite(**changes)
         assert ov.assess_engine().state == ov.ENGINE_UNCHECKED, label
         assert ov.environment_status()[0] is False, label
     rewrite()
     assert ov.assess_engine().state == ov.ENGINE_READY
+    (ov.engine_venv_dir() / engine_env.RECEIPT_NAME).unlink()  # the environment's own receipt is part of it
+    assert ov.assess_engine().state == ov.ENGINE_BROKEN and "installation receipt" in ov.assess_engine().reason
+    omni.receipt()
 
-    # the sibling's own (version 1) receipt copied over the nested one, or left in its own file, proves nothing here
-    legacy = make_legacy(omni)
+    # another place's receipt copied over this one, or left in its own file, proves nothing here
+    make_legacy(omni)
     ov.receipt_path().write_bytes(ov.legacy_receipt_path().read_bytes())
     assert ov.read_receipt() == {} and ov.assess_engine().state == ov.ENGINE_UNCHECKED
-    ov.receipt_path().unlink()
-    assert ov.read_legacy_receipt() != {} and ov.assess_engine().state == ov.ENGINE_UNCHECKED
-    # and a nested receipt copied into the sibling's file does not make the sibling "proved"
+    ov.nested_receipt_path().write_text(json.dumps({**good, "version": ov.NESTED_RECEIPT_VERSION,
+                                                    "path": str(ov.nested_venv_dir())}), encoding="utf-8")
+    assert ov.read_receipt() == {} and ov.assess_engine().state == ov.ENGINE_UNCHECKED
+    # and this engine's receipt copied into the sibling's file does not make the sibling "proved"
     ov.legacy_receipt_path().write_text(json.dumps(good), encoding="utf-8")
     assert ov.read_legacy_receipt() == {} and ov.assess_legacy().state == ov.LEGACY_UNVERIFIED
-    assert legacy.is_dir()
 
 
 @pytest.mark.parametrize("damage, words", [
     ("no pyvenv.cfg", "no readable pyvenv.cfg"),
     ("not isolated", "not isolated"),
-    ("moved", "created in another folder and moved"),
-    ("built from the parent", "built from the app's own environment"),
-    ("another version", "not made with Python 3.12"),
-    ("base gone", "the Python it was built from is missing"),
-    ("no interpreter", "its Python interpreter is missing"),
+    ("not uv", "not built by uv"),
+    ("another python", "not on this copy's managed Python"),
+    ("no interpreter", "its interpreter is missing"),
+    ("managed python gone", "own Python is missing"),
+    ("another build", "not the pinned build"),
 ])
-def test_an_invalid_pyvenv_cfg_or_interpreter_makes_a_recorded_engine_broken(omni, tmp_path, damage, words):
-    """G / U. The receipt stays exactly as it was; the folder no longer is what it vouched for."""
-    nested = omni.env()
+def test_an_environment_that_is_not_this_copy_s_own_uv_engine_is_broken_whatever_its_receipt_says(
+        omni, tmp_path, damage, words):
+    """G / U. The receipt stays exactly as it was; the folder (or the Python under it) no longer is what it vouched
+    for."""
+    from shared import uv_runner
+
+    engine = omni.env()
     omni.model()
     omni.receipt()
     assert ov.assess_engine().state == ov.ENGINE_READY
-    config = nested / "pyvenv.cfg"
+    config = engine / "pyvenv.cfg"
     text = config.read_text(encoding="utf-8")
     if damage == "no pyvenv.cfg":
         config.unlink()
     elif damage == "not isolated":
         config.write_text(text.replace("include-system-site-packages = false", "include-system-site-packages = true"),
                           encoding="utf-8")
-    elif damage == "moved":
-        config.write_text(text.replace(str(nested), str(tmp_path / "built" / "somewhere-else")), encoding="utf-8")
-    elif damage == "built from the parent":
-        parent_python = ov.parent_venv_dir() / "Scripts" / "python.exe"
-        parent_python.parent.mkdir(parents=True, exist_ok=True)
-        parent_python.write_bytes(b"the app's own interpreter")
-        config.write_text(text.replace(str(omni.base.parent), str(parent_python.parent))
-                          .replace(str(omni.base), str(parent_python)), encoding="utf-8")
-    elif damage == "another version":
-        config.write_text(text.replace("version = 3.12.10", "version = 3.13.1"), encoding="utf-8")
-    elif damage == "base gone":
-        omni.base.unlink()
+    elif damage == "not uv":
+        config.write_text("\n".join(line for line in text.splitlines() if not line.startswith("uv =")), encoding="utf-8")
+    elif damage == "another python":
+        config.write_text(text.replace(str(uv_runner.managed_venv_home(omni.root, "win32")), str(tmp_path / "py")),
+                          encoding="utf-8")
+    elif damage == "no interpreter":
+        venv_layout.interpreter(engine).unlink()
+    elif damage == "managed python gone":
+        uv_runner.managed_python(omni.root).unlink()
     else:
-        venv_layout.interpreter(nested).unlink()
+        (uv_runner.managed_python_home(omni.root, "win32") / "BUILD").write_text("19990101", encoding="ascii")
     assessment = ov.assess_engine()
     assert assessment.state == ov.ENGINE_BROKEN and words in assessment.reason, assessment
     assert ov.environment_status()[0] is False and ov.voice_availability("omnivoice-male-1")[0] is False
     entry = component(omni.plan(), OV)
-    assert (entry["readiness"], entry["consent_scope"]) == (proto.DAMAGED, proto.SCOPE_REPAIR)
-
-
-def test_a_base_python_replaced_in_place_is_noticed_and_the_engine_must_be_proved_again(omni):
-    """G. ``pyvenv.cfg`` cannot see an interpreter reinstalled into the same folder; the recorded identity can."""
-    omni.env()
-    omni.model()
-    omni.receipt()
-    omni.base.write_bytes(b"another build of the base interpreter")
-    assert ov.assess_engine().state == ov.ENGINE_UNCHECKED and ov.environment_status()[0] is False
-    code, result = omni.install()
-    assert result["state"] == proto.SUCCEEDED and omni.runner.kinds() == ["probe"]  # proved again, nothing rebuilt
-    assert ov.read_receipt()["base"] == venv_layout.base_identity(ov.nested_venv_dir())
+    assert (entry["readiness"], entry["consent_scope"]) in (
+        (proto.DAMAGED, proto.SCOPE_REPAIR), (proto.UNSUPPORTED, None))
 
 
 def test_a_wrong_package_version_is_broken_and_a_failed_import_proof_is_recorded_as_rejected(omni):
@@ -647,7 +756,8 @@ def test_a_wrong_package_version_is_broken_and_a_failed_import_proof_is_recorded
     assessment = ov.assess_engine()
     assert assessment.state == ov.ENGINE_BROKEN and "1 at another version: torch" in assessment.reason
     ov.clear_receipt()
-    omni.env()  # the pinned set again, unrecorded: the proof decides
+    shutil.rmtree(ov.engine_venv_dir())
+    omni.env()  # the pinned set, unrecorded: the RECORD check and the proof decide
     omni.runner.probe_failure = ("import", "ImportError: DLL load failed while importing _C")
     code, result = omni.install()
     assert result["state"] == proto.FAILED and ov.read_receipt()["stage"] == ov.STAGE_REJECTED
@@ -656,17 +766,16 @@ def test_a_wrong_package_version_is_broken_and_a_failed_import_proof_is_recorded
 
 
 def test_the_model_without_the_environment_and_the_environment_without_the_model_are_each_said_and_fixed_alone(omni):
-    """W / X. Each half is judged on its own, and only the missing half is fetched."""
+    """W / X. Each half is judged on its own, and only the missing half is acquired."""
     omni.model()  # W: the model is here and verified, the environment is not
     assert ov.model_status() == (True, "ok") and ov.voice_availability("omnivoice-male-1") == (
         False, ov.NOT_INSTALLED_MESSAGE)
     data = omni.plan()
     assert unit(data, MODEL)["state"] == proto.READY and unit(data, ENGINE)["state"] == proto.MISSING
     code, result = omni.install(plan=data)
-    assert result["state"] == proto.SUCCEEDED and sorted(omni.fetched()) == sorted(WHEEL_PATHS), "the wheels only"
+    assert result["state"] == proto.SUCCEEDED and omni.fetched() == [], "the packages only, through uv"
+    assert omni.runner.kinds() == ["venv", "sync", "probe"]
     assert ov.voice_availability("omnivoice-male-1") == (True, "ok")
-
-    import shutil
 
     shutil.rmtree(ov.model_dir())  # X: the environment is ready, the model is gone
     ok, reason = ov.voice_availability("omnivoice-male-1")
@@ -674,10 +783,12 @@ def test_the_model_without_the_environment_and_the_environment_without_the_model
     data = omni.plan()
     assert unit(data, ENGINE)["state"] == proto.READY and unit(data, MODEL)["state"] == proto.MISSING
     before, commands = len(omni.hub.requests), len(omni.runner.commands)
+    receipt = ov.receipt_path().read_bytes()
     code, result = omni.install(plan=data)
     assert result["state"] == proto.SUCCEEDED, result
     assert sorted(r["path"] for r in omni.hub.requests[before:]) == sorted(MODEL_PATHS), "the model only"
     assert omni.runner.kinds()[commands:] == ["probe"], "the engine is proved again, never rebuilt"
+    assert ov.receipt_path().read_bytes() == receipt, "and its receipts are not rewritten"
 
     (ov.model_dir() / "config.json").write_bytes(b'{"model": 2}')  # X: corrupt, same size
     assert ov.voice_availability("omnivoice-male-1")[0] is False
@@ -685,80 +796,66 @@ def test_the_model_without_the_environment_and_the_environment_without_the_model
     assert (entry["readiness"], entry["consent_scope"]) == (proto.DAMAGED, proto.SCOPE_REPAIR)
 
 
-def test_with_the_whole_parent_gone_stale_receipts_outside_it_authorise_nothing(omni):
-    """Y. ``.venv`` was deleted, and both engines with it: the receipts that survive outside it are just files."""
+def test_deleting_the_app_s_environment_leaves_the_engine_ready_and_a_deleted_engine_s_receipt_authorises_nothing(omni):
+    """Y. ``.venv`` deleted: the engine beside it is not lost (approved A1). The engine deleted: the receipt that survives
+    outside it is just a file, and installing builds it again with the model reused."""
     omni.install()
-    install_qwen3(omni.root)
+    install_engine_environment(omni.root)  # Qwen3 beside .venv as well (Phase 5A)
     assert ov.environment_status() == (True, "ok") and rt.environment_status() == (True, "ok")
-    stale_omnivoice, stale_qwen3 = ov.receipt_path().read_bytes(), rt.state_path().read_bytes()
-    import shutil
-
     shutil.rmtree(ov.parent_venv_dir())
+    assert ov.environment_status() == (True, "ok") and rt.environment_status() == (True, "ok")
+    assert ov.voice_availability("omnivoice-male-1") == (True, "ok")
 
-    assert ov.receipt_path().read_bytes() == stale_omnivoice and ov.read_receipt()["stage"] == ov.STAGE_INSTALLED
+    stale = ov.receipt_path().read_bytes()
+    shutil.rmtree(ov.engine_venv_dir())
+    assert ov.receipt_path().read_bytes() == stale and ov.read_receipt()["stage"] == ov.STAGE_INSTALLED
     assert ov.assess_engine() == ov.EngineAssessment(ov.ENGINE_ABSENT, ov.NOT_INSTALLED_MESSAGE)
-    assert ov.environment_status()[0] is False and ov.voice_availability("omnivoice-male-1")[0] is False
-    assert rt.state_path().read_bytes() == stale_qwen3 and rt.environment_status()[0] is False
-    assert ov.model_status() == (True, "ok"), "the model, outside .venv, is still here and still verified"
+    assert ov.environment_status()[0] is False and ov.model_status() == (True, "ok")
     data = omni.plan()
     assert unit(data, ENGINE)["state"] == proto.MISSING and unit(data, MODEL)["state"] == proto.READY
-    assert "missing or incomplete" in ovs.parent_problem()  # nothing is built until the app's own environment is back
-    fetched = len(omni.hub.requests)
-    code, result = omni.install(plan=data)
-    assert result["state"] == proto.FAILED and not os.path.lexists(ov.nested_venv_dir())
-    assert ov.receipt_path().read_bytes() == stale_omnivoice and ov.environment_status()[0] is False
-    assert len(omni.hub.requests) == fetched, "nothing is downloaded for a build that cannot happen"
-
-    # Z. the app's own environment is rebuilt (by Setup_and_Run); the engine is then installed again, the model reused
-    ov.parent_venv_dir().mkdir()
-    (ov.parent_venv_dir() / "pyvenv.cfg").write_text("home = C:/base\ninclude-system-site-packages = false\n",
-                                                     encoding="utf-8")
-    assert ov.environment_status()[0] is False, "a rebuilt parent does not bring the engine back by itself"
     before = len(omni.hub.requests)
-    code, result = omni.install()
+    code, result = omni.install(plan=data)
     assert result["state"] == proto.SUCCEEDED, result
-    assert sorted(r["path"] for r in omni.hub.requests[before:]) == sorted(WHEEL_PATHS), "the model is not fetched again"
-    assert ov.read_receipt()["recorded_utc"] and ov.environment_status() == (True, "ok")
-    after = len(omni.hub.requests)
-    assert component(omni.plan(), OV)["readiness"] == proto.READY and len(omni.hub.requests) == after
+    assert len(omni.hub.requests) == before, "the model is not fetched again"
+    assert ov.environment_status() == (True, "ok") and ov.read_receipt()["recorded_utc"]
 
 
 # =========================================================================== #
 # 4. Independent repairs
 # =========================================================================== #
 def test_an_omnivoice_only_repair_changes_nothing_of_qwen3_or_of_the_app_s_own_packages(omni):
-    """S. The broken OmniVoice engine is moved aside and built again; everything else under ``.venv`` is byte-identical."""
+    """S. The broken OmniVoice engine is moved aside and built again; ``.venv`` and Qwen3 stay byte-identical."""
     install_qwen3(omni.root)
+    install_engine_environment(omni.root)
     parent = ov.parent_venv_dir()
     (parent / "Lib" / "site-packages" / "numpy").mkdir(parents=True)
     (parent / "Lib" / "site-packages" / "numpy" / "__init__.py").write_text("# the app's own package\n")
     omni.env(pins=PINS[:1])  # broken
     omni.model()
 
-    def everything_else() -> dict:
-        nested = ov.nested_venv_dir()
-        return {str(p.relative_to(parent)): p.read_bytes() for p in sorted(parent.rglob("*"))
-                if p.is_file() and not venv_layout.is_within(nested, p)}
+    def tree_bytes(folder: Path) -> dict:
+        return {str(p.relative_to(folder)): p.read_bytes() for p in sorted(folder.rglob("*")) if p.is_file()}
 
-    before, qwen3_state = everything_else(), rt.state_path().read_bytes()
-    assert rt.environment_status() == (True, "ok")
+    before, qwen3 = tree_bytes(parent), tree_bytes(rt.engine_venv_dir())
+    qwen3_state = rt.state_path().read_bytes()
     data = omni.plan()
     assert component(data, OV)["consent_scope"] == proto.SCOPE_REPAIR
     code, result = omni.install(plan=data)
     assert result["state"] == proto.SUCCEEDED, result
-    assert everything_else() == before and rt.state_path().read_bytes() == qwen3_state
-    assert rt.environment_status() == (True, "ok") and ov.environment_status() == (True, "ok")
-    assert venv_layout.held_entries(parent) == ("omnivoice", "qwen3")
-    assert all(venv_layout.is_within(ov.nested_venv_dir(), Path(cmd[4])) or venv_layout.same_path(cmd[4], ov.nested_venv_dir())
-               for cmd in omni.runner.commands if cmd[1:4] == ["-I", "-m", "venv"])
+    assert tree_bytes(parent) == before and tree_bytes(rt.engine_venv_dir()) == qwen3
+    assert rt.state_path().read_bytes() == qwen3_state
+    assert ov.environment_status() == (True, "ok")
+    assert all(venv_layout.same_path(env["UV_PROJECT_ENVIRONMENT"], ov.engine_venv_dir())
+               for cmd, env in zip(omni.runner.commands, omni.runner.envs) if FakeRunner._uv(cmd, "sync"))
 
 
 def test_a_qwen3_only_repair_changes_nothing_of_omnivoice(omni, tmp_path_factory, monkeypatch):
-    """T. Qwen3's own installer rebuilds ``.venv/engines/qwen3`` and never reaches the folder beside it."""
+    """T. Qwen3's own installer rebuilds ``.venv/engines/qwen3`` and never reaches OmniVoice's engine."""
     omni.install()
     install_qwen3(omni.root)
-    nested = ov.nested_venv_dir()
+    nested = ov.engine_venv_dir()
     before, receipt = omni.tree(nested), ov.receipt_path().read_bytes()
+    assert before, "the engine is really there"
     runner = Qwen3Runner(tmp_path_factory.mktemp("qwen3-base"))
     monkeypatch.setattr(su, "base_python_candidate", lambda: runner.python)
     su.install_environment(runner=runner, rebuild=True)
@@ -1101,7 +1198,7 @@ def test_an_omnivoice_install_and_a_parent_repair_exclude_each_other_in_both_ord
         with pytest.raises(ovs.OmniVoiceSetupError, match="Another install or repair"):
             ovs.InstallLock().acquire()
         code, result = omni.install()
-        assert result["state"] == proto.FAILED and not os.path.lexists(ov.nested_venv_dir())
+        assert result["state"] == proto.FAILED and not os.path.lexists(ov.engine_venv_dir())
         assert omni.fetched() == [] and omni.runner.commands == []
     finally:
         lease.release()
@@ -1127,15 +1224,18 @@ def test_the_cleanup_coordinator_holds_the_same_lease_and_names_the_engine_that_
 
 
 # =========================================================================== #
-# 6. The worker's own view of its isolation, now that it lives inside the parent
+# 6. The worker's own view of its isolation, in its own place or in the earlier one inside the parent
 # =========================================================================== #
-def isolation(monkeypatch, tmp_path, *, prefix=None, base=None, path=()):
+def isolation(monkeypatch, tmp_path, *, prefix=None, base=None, path=(), place="engine"):
+    """The worker's view of itself in the engine at *place*: ``engine`` (``.venv-engines/omnivoice``, on the managed
+    CPython) or ``nested`` (the earlier ``.venv/engines/omnivoice``, inside the app's ``.venv``)."""
     root = tmp_path / "app"
-    environment = root / ".venv" / "engines" / "omnivoice"
+    environment = root.joinpath(*(venv_layout.ENGINE_OMNIVOICE if place == "engine"
+                                  else venv_layout.NESTED_OMNIVOICE).split("/"))
     job = {"environment": str(environment),
            "foreign": [str(root / ".venv"), str(root / ".venv" / "engines" / "qwen3"), str(root / ".venv-qwen3"),
-                       str(root / ".venv-omnivoice")]}
-    base_python = tmp_path / "base-python"
+                       str(root / ".venv-omnivoice"), str(root / ".venv-engines" / "qwen3")]}
+    base_python = root / "files" / "runtime-data" / "python" / "cpython" if place == "engine" else tmp_path / "base"
     monkeypatch.setattr(sys, "prefix", str(prefix or environment))
     monkeypatch.setattr(sys, "base_prefix", str(base or base_python))
     own = [str(root / "scripts" / "tts"), str(base_python / "python312.zip"), str(base_python / "DLLs"),
@@ -1147,13 +1247,16 @@ def isolation(monkeypatch, tmp_path, *, prefix=None, base=None, path=()):
     return root, ow.isolation_problems(job)
 
 
-def test_the_nested_environment_s_own_paths_are_its_own_although_they_lie_inside_the_parent(monkeypatch, tmp_path):
-    assert isolation(monkeypatch, tmp_path)[1] == []
+@pytest.mark.parametrize("place", ["engine", "nested"])
+def test_the_engine_s_own_paths_are_its_own_and_an_earlier_nested_one_s_too_although_they_lie_inside_the_parent(
+        monkeypatch, tmp_path, place):
+    assert isolation(monkeypatch, tmp_path, place=place)[1] == []
 
 
 @pytest.mark.parametrize("leak, kind", [
     ("the parent's packages", "another environment"), ("the parent's standard library folder", "another environment"),
     ("qwen3's packages", "another environment"), ("qwen3's scripts", "another environment"),
+    ("qwen3's own place", "another environment"), ("the earlier nested engine", "another environment"),
     ("the sibling's packages", "another environment"),
     ("another site-packages", "a site-packages outside the OmniVoice environment")])
 def test_any_other_environment_on_the_path_is_an_isolation_failure(monkeypatch, tmp_path, leak, kind):
@@ -1164,6 +1267,8 @@ def test_any_other_environment_on_the_path_is_an_isolation_failure(monkeypatch, 
              "the parent's standard library folder": root / ".venv" / "Lib",
              "qwen3's packages": root / ".venv" / "engines" / "qwen3" / "Lib" / "site-packages",
              "qwen3's scripts": root / ".venv" / "engines" / "qwen3" / "Scripts",
+             "qwen3's own place": root / ".venv-engines" / "qwen3" / "Lib" / "site-packages",
+             "the earlier nested engine": root / ".venv" / "engines" / "omnivoice" / "Lib" / "site-packages",
              "the sibling's packages": root / ".venv-omnivoice" / "Lib" / "site-packages",
              "another site-packages": tmp_path / "elsewhere" / "Lib" / "site-packages"}[leak]
     _root, problems = isolation(monkeypatch, tmp_path, path=[entry])
@@ -1202,7 +1307,6 @@ def test_a_set_aside_folder_that_is_a_link_keeps_the_sibling_and_never_fails_the
 
     legacy = make_legacy(omni)
     omni.model()
-    cache_wheels()
     before = omni.tree(legacy)
     elsewhere = tmp_path / "another-drive"
     elsewhere.mkdir()
@@ -1292,10 +1396,10 @@ def test_which_worker_failures_condemn_the_environment():
         assert not ov.failure_needs_rebuild(terminal), terminal
 
 
-def test_a_ready_engine_that_fails_at_use_is_recorded_broken_and_its_repair_keeps_it_and_builds_a_fresh_one(omni):
-    """S/V on the nested engine. The listing and the receipt cannot see a deleted file inside a package; the
-    conversion that meets it records it, and the ordinary repair then sets the damaged environment aside whole."""
-    nested = omni.env()
+def test_a_ready_engine_that_fails_at_use_is_recorded_broken_and_its_repair_builds_a_fresh_one(omni):
+    """S/V. The listing and the receipt cannot see a deleted file inside a package; the conversion that meets it records
+    it on the engine it built (which stays the one in use), and the repair builds a fresh one in its place."""
+    omni.env()
     omni.model()
     assert ov.reject_ready_engine("ImportError: x") is False, "an engine no receipt calls ready is never rejected"
     assert ov.read_receipt() == {} and ov.assess_engine().state == ov.ENGINE_UNCHECKED
@@ -1304,7 +1408,8 @@ def test_a_ready_engine_that_fails_at_use_is_recorded_broken_and_its_repair_keep
 
     assert ov.reject_ready_engine("ImportError: cannot import name 'OmniVoice' from 'omnivoice' (unknown location)")
     receipt = ov.read_receipt()
-    assert receipt["stage"] == ov.STAGE_REJECTED and receipt["rejected_at"] == "conversion"
+    assert receipt["stage"] == ov.STAGE_INSTALLED and receipt["rejected_at"] == "conversion" and receipt["rejected"]
+    assert ov.venv_dir() == ov.engine_venv_dir()
     state = ov.assess_engine()
     assert state.state == ov.ENGINE_BROKEN and "cannot import name 'OmniVoice'" in state.reason
     assert ov.INSTALL_ACTION in state.reason and "to repair it" in state.reason
@@ -1315,23 +1420,19 @@ def test_a_ready_engine_that_fails_at_use_is_recorded_broken_and_its_repair_keep
     data = omni.plan()
     entry = component(data, OV)
     assert (entry["readiness"], entry["consent_scope"]) == (proto.DAMAGED, proto.SCOPE_REPAIR)
-    cache_wheels()
-    damaged = omni.tree(nested)
-    shown = omni.plan()
-    report = omni.acquirer().acquire(shown, osu.consent_for(shown), progress=lambda p: None, cancel_check=lambda: False)
+    report = omni.acquirer().acquire(data, osu.consent_for(data), progress=lambda p: None, cancel_check=lambda: False)
     assert report.completed, report.detail
     assert ov.assess_engine() == ov.EngineAssessment(ov.ENGINE_READY, "ok") and omni.fetched() == []
-    kept = [p for p in ov.set_aside_root().iterdir() if not p.name.startswith(ovs.RETIRED_PREFIX)]
-    assert len(kept) == 1 and omni.tree(kept[0]) == damaged, "the damaged environment is kept whole, never deleted"
+    assert omni.runner.kinds() == ["venv", "sync", "probe"], "this app's own engine is removed and built again"
+    assert not ov.set_aside_root().exists() and "rejected" not in ov.read_receipt()
 
 
 def test_a_native_library_the_real_worker_cannot_load_makes_the_ready_engine_broken_and_offers_the_repair(
         omni, tmp_path):
-    """v0.8.0 independent review R1 on the nested engine. Before the fix the real worker sent stage ``worker`` with an
-    ``OSError`` for a damaged PyTorch library, the receipt was not rejected and the engine stayed READY with no repair.
-    Now the real worker's terminal (a stand-in stack; nothing loads Torch or touches a library) is stage ``import``: the
-    ready receipt is rejected, the engine says BROKEN with the library's own words, and Install & Continue offers the
-    repair. Running out of memory, Smart App Control and the network guard leave the same ready engine untouched."""
+    """v0.8.0 independent review R1. The real worker's terminal (a stand-in stack; nothing loads Torch or touches a
+    library) for a damaged PyTorch library is stage ``import``: the ready receipt records the rejection, the engine says
+    BROKEN with the library's own words, and Install & Continue offers the repair. Running out of memory, Smart App
+    Control and the network guard leave the same ready engine untouched."""
     omni.env()
     omni.model()
     omni.receipt()
@@ -1350,14 +1451,14 @@ def test_a_native_library_the_real_worker_cannot_load_makes_the_ready_engine_bro
     assert ov.reject_ready_engine(str(terminal["message"]))  # exactly what the conversion does (omnivoice_synth)
     state = ov.assess_engine()
     assert state.state == ov.ENGINE_BROKEN and "torch_cpu.dll" in state.reason and ov.INSTALL_ACTION in state.reason
-    assert ov.read_receipt()["stage"] == ov.STAGE_REJECTED and ov.install_would_help("omnivoice-male-1")
+    assert "torch_cpu.dll" in ov.read_receipt()["rejected"] and ov.install_would_help("omnivoice-male-1")
     entry = component(omni.plan(), OV)
     assert (entry["readiness"], entry["consent_scope"]) == (proto.DAMAGED, proto.SCOPE_REPAIR)
 
 
 def test_a_ready_engine_whose_recheck_fails_is_recorded_broken_so_a_repair_is_offered(omni):
     """The engine is ready, only the model has to be fetched again, and the proof that follows shows the engine's own
-    packages no longer import: that is recorded (it used to be recorded only for a never-checked environment)."""
+    packages no longer import: that is recorded on the engine in use."""
     omni.env()
     omni.model(record=False)
     omni.receipt()
@@ -1367,7 +1468,7 @@ def test_a_ready_engine_whose_recheck_fails_is_recorded_broken_so_a_repair_is_of
     omni.runner.probe_failure = ("import", "ImportError: DLL load failed while importing _C")
     report = omni.acquirer().acquire(shown, osu.consent_for(shown), progress=lambda p: None, cancel_check=lambda: False)
     assert not report.completed
-    assert ov.read_receipt()["stage"] == ov.STAGE_REJECTED and ov.assess_engine().state == ov.ENGINE_BROKEN
+    assert ov.read_receipt().get("rejected") and ov.assess_engine().state == ov.ENGINE_BROKEN
     entry = component(omni.plan(), OV)
     assert (entry["readiness"], entry["consent_scope"]) == (proto.DAMAGED, proto.SCOPE_REPAIR)
 
@@ -1378,7 +1479,7 @@ def test_a_ready_engine_whose_recheck_fails_is_recorded_broken_so_a_repair_is_of
     assert shown["acquire_units"] == [MODEL]
     report = omni.acquirer().acquire(shown, osu.consent_for(shown), progress=lambda p: None, cancel_check=lambda: False)
     assert not report.completed
-    assert ov.read_receipt()["stage"] == ov.STAGE_INSTALLED and ov.assess_engine().state == ov.ENGINE_READY
+    assert not ov.read_receipt().get("rejected") and ov.assess_engine().state == ov.ENGINE_READY
 
 
 def test_the_setup_lock_sentence_names_no_engine_and_a_refused_repair_says_what_is_true(env, monkeypatch):
@@ -1418,21 +1519,3 @@ def test_locks_that_cannot_even_be_checked_refuse_a_repair_with_nothing_changed(
     assert ok is False and "could not check whether the Qwen3 or OmniVoice voices are in use" in message
     assert "Nothing was changed" in message and _tree(env.venv) == before
     assert not any(p.name.startswith(".venv.") for p in env.tmp.iterdir())
-
-
-def test_an_engine_built_through_another_spelling_of_the_same_base_python_is_accepted(tmp_path):
-    """``venv`` records the base interpreter by its real path; a copy reached through a mapped or substituted drive
-    names the same file by another spelling. Same file: accepted. Another file: refused."""
-    base = tmp_path / "python" / "python.exe"
-    base.parent.mkdir()
-    base.write_bytes(b"base interpreter")
-    other = tmp_path / "other" / "python.exe"
-    other.parent.mkdir()
-    other.write_bytes(b"base interpreter")
-    link = tmp_path / "drive"
-    import _winapi
-
-    _winapi.CreateJunction(str(base.parent), str(link))
-    assert ovs._same_file(base, base) and ovs._same_file(str(base).upper(), base)
-    assert ovs._same_file(link / "python.exe", base), "one file, two spellings"
-    assert not ovs._same_file(other, base) and not ovs._same_file(tmp_path / "missing.exe", base)

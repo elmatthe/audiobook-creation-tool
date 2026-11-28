@@ -16,9 +16,10 @@ The rules it encodes:
   *unverified*, never healthy. Identity is necessary, not sufficient: the engine's own import probe is still needed.
 * **The two Qwen3 locations are named exactly.** Nothing is searched for; when both are present, neither is chosen.
 * **So are the two OmniVoice locations** (v0.8.0, owner decision 2026-11-13: one ``.venv`` holding three independent
-  environments). ``.venv/engines/omnivoice`` is the only place the OmniVoice engine is installed or run from
-  (``tts.omnivoice_runtime.venv_dir``); the earlier ``.venv-omnivoice`` beside the parent is never a runtime target --
-  it is only recognised so that a proved replacement can retire it, kept, to a set-aside folder.
+  environments). ``.venv/engines/omnivoice`` held the OmniVoice engine from v0.8.0 to v0.8.1; since v0.8.2 Phase 5B new
+  installs go to ``.venv-engines/omnivoice`` (outside the parent) and a nested engine is only used until that one is
+  proved (``tts.omnivoice_runtime.venv_dir``); the earlier ``.venv-omnivoice`` beside the parent is never a runtime
+  target -- it is only recognised so that a proved replacement can retire it, kept, to a set-aside folder.
 
 Read-only and standard-library only, because the bootstrap (a base interpreter) and the cleanup coordinator (a
 non-venv interpreter) both import it. It removes and renames nothing; the bootstrap owns those transactions.
@@ -43,8 +44,11 @@ ENGINES_DIRNAME = "engines"
 ENGINE_QWEN3 = _engines.QWEN3.environment
 LEGACY_QWEN3 = _engines.QWEN3.sibling_environment
 NESTED_QWEN3 = _engines.QWEN3.nested_environment  # canonical from P04C Stage 2 until v0.8.2 Phase 5A
-#: The two OmniVoice locations (v0.8.0). Only the nested one is ever installed into or run from; the sibling is where
-#: the first v0.8.0 development builds put it, and is only ever retired (moved aside, kept), never used or deleted.
+#: The OmniVoice locations, from the engine registry (v0.8.2 Phase 5B). New installs go to ``.venv-engines/omnivoice``
+#: only (uv, approved A1); the nested one (v0.8.0 to v0.8.1) is still used while nothing newer is installed
+#: (``tts.omnivoice_runtime.venv_dir``); the sibling is where the first v0.8.0 development builds put it, and is only
+#: ever retired (moved aside, kept), never used or deleted.
+ENGINE_OMNIVOICE = _engines.OMNIVOICE.environment
 LEGACY_OMNIVOICE = _engines.OMNIVOICE.sibling_environment
 NESTED_OMNIVOICE = _engines.OMNIVOICE.nested_environment  # canonical (owner decision 2026-11-13) until Phase 5B
 

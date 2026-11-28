@@ -50,8 +50,11 @@ def test_the_registry_names_its_place_and_its_project(root):
     assert engine_env.env_dir(root, KEY) == root / ".venv-engines" / "qwen3"
     assert engine_env.project_dir(root, KEY) == root / "scripts" / "tts" / "engines" / "qwen3"
     assert engine_env.env_python(root, KEY, "win32") == root / ".venv-engines" / "qwen3" / "Scripts" / "python.exe"
-    with pytest.raises(ValueError, match="no environment of its own"):
-        engine_env.env_dir(root, "omnivoice")  # nested until 5B
+    assert engine_env.env_dir(root, "omnivoice") == root / ".venv-engines" / "omnivoice"  # v0.8.2 Phase 5B
+    assert engine_env.project_dir(root, "omnivoice") == root / "scripts" / "tts" / "engines" / "omnivoice"
+    for key in ("kokoro", "chatterbox"):  # in the app's own environment until 5C/5D
+        with pytest.raises(ValueError, match="no environment of its own"):
+            engine_env.env_dir(root, key)
     engine_env.check(root, KEY)  # this copy's own place and project
     (engine_env.project_dir(root, KEY) / "uv.lock").unlink()
     with pytest.raises(uv_runner.TargetRefused):

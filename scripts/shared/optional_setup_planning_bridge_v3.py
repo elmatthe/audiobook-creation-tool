@@ -48,6 +48,9 @@ SOURCES = (
     # (shared.engine_env through shared.uv_runner and shared.venv_integrity; all standard library only).
     'tts/engines/__init__.py', 'tts/engines/registry.py', 'shared/engine_env.py', 'shared/uv_runner.py',
     'shared/venv_integrity.py', 'tts/engines/qwen3/pyproject.toml', 'tts/engines/qwen3/uv.lock',
+    # v0.8.2 Phase 5B: the OmniVoice engine's uv project (the engine unit's source) and the v0.8.1 package sets kept
+    # as its parity reference and download-size source (the model manifest above now holds the model only).
+    'tts/engines/omnivoice/pyproject.toml', 'tts/engines/omnivoice/uv.lock', 'tts/omnivoice_packages.json',
 )
 _SOURCE_ROOT = Path(__file__).resolve().parents[1]
 _REPO = _SOURCE_ROOT.parent
