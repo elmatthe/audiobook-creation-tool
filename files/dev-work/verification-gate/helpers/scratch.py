@@ -79,8 +79,25 @@ def read_owner(child: Path) -> dict | None:
     return record if isinstance(record, dict) and record.get("kind") == OWNER_KIND else None
 
 
+def _posix_pid_alive(pid: int) -> bool:
+    """POSIX: whether *pid* names a running process. Anything but a definite "no such process" counts as running."""
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return True  # EPERM (another account's process) or anything unexpected: not proved gone
+    return True
+
+
 def owner_process_alive(record: dict) -> bool:
     """True only when the very process that created the child still runs. An unknown creation time counts as alive."""
+    if sys.platform != "win32":
+        # Phase 4 D3: POSIX has no portable creation time, so a running pid may be the owner or a reused number. Either
+        # way it is not proved gone, and a run that is not proved gone is never called abandoned.
+        return _posix_pid_alive(int(record.get("pid", 0)))
     created = _process_created(int(record.get("pid", 0)))
     if created is None:
         return False

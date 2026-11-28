@@ -21,7 +21,9 @@ app environment has any packages, and the GUI writes the repair request through 
 
 from __future__ import annotations
 
+import base64
 import csv
+import hashlib
 import io
 import json
 import os
@@ -65,12 +67,12 @@ def pyvenv_home(venv_dir: Path) -> Optional[Path]:
 
 
 def app_python_owner(home: Path) -> Optional[Path]:
-    """The installation root whose own base Python ``home`` is (``<root>/files/runtime-data/python``), else None."""
-    parts = Path(os.path.abspath(str(home))).parts
-    tail = tuple(p.casefold() for p in parts[-3:])
-    if len(parts) > 3 and tail == APP_PYTHON_PARTS:
-        return Path(*parts[:-3])
-    return None
+    """The installation root whose own base Python ``home`` is, else None: ``<root>/files/runtime-data/python`` (the
+    legacy layout) or, since v0.8.2 Phase 4, the managed ``<root>/files/runtime-data/uv/python/<versioned folder>``
+    (``shared.app_python``, the one resolver of both)."""
+    from shared import app_python
+
+    return app_python.owner_of_home(home)
 
 
 def foreign_base_python(venv_dir: Path, root: Path) -> Optional[Path]:
@@ -111,11 +113,15 @@ def _distributions(site: Path) -> Optional[list[str]]:
 
 
 def _record_files(site: Path, dist: str) -> list[list]:
-    """``[relative path, size or -1]`` of the files in ``dist``'s RECORD that a launch checks."""
+    """``[relative path, size or -1]`` of the files in ``dist``'s RECORD that a launch checks.
+
+    v0.8.2 Phase 4: a distribution without a RECORD is damage, never "nothing to check" -- an interrupted uv sync
+    leaves exactly that (a dist-info with no RECORD and most files gone) while ``uv sync --check`` sees nothing wrong
+    (Phase 3A/3B). Its RECORD is then listed as the file that must exist, so the launch reports it missing."""
     try:
         text = (site / dist / "RECORD").read_text(encoding="utf-8", errors="replace")
     except OSError:
-        return []  # no RECORD (a legacy install): nothing to check against, never a finding
+        return [[f"{dist}/RECORD", -1]]
     chosen = []
     for row in csv.reader(io.StringIO(text)):
         if not row or not row[0] or row[0].startswith(("..", "/")) or "__pycache__" in row[0]:
@@ -182,6 +188,85 @@ def package_damage(venv_dir: Path, *, required: Iterable[str] = (), limit: int =
                 findings.append(f"{shown}: {path} has changed")
     if len(findings) > limit:
         return findings[:limit] + [f"and {len(findings) - limit} more"]
+    return findings
+
+
+def _dist_name(dist: str) -> tuple[str, str]:
+    """``(canonical name, version)`` from a ``<name>-<version>.dist-info`` folder name."""
+    name, _sep, version = dist[: -len(".dist-info")].rpartition("-")
+    return _canonical(name), version
+
+
+def installed_distributions(venv_dir: Path) -> list[str]:
+    """``name==version`` of every distribution installed in the environment (its dist-info folders), sorted."""
+    site = site_packages(venv_dir)
+    dists = _distributions(site) if site is not None else None
+    return sorted("==".join(_dist_name(dist)) for dist in (dists or []))
+
+
+def _record_digest(path: Path) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for block in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(block)
+    return "sha256=" + base64.urlsafe_b64encode(digest.digest()).rstrip(b"=").decode("ascii")
+
+
+def record_damage(venv_dir: Path, *, hashes: bool = True) -> dict[str, str]:
+    """``{canonical name: first problem}`` for every installed distribution whose files do not match its RECORD.
+
+    The full check a sync must pass before a receipt is written (v0.8.2 Phase 4; the launch keeps the cheap
+    :func:`package_damage`). The RECORD is parsed here with ``csv``, never through ``importlib.metadata``: Python
+    3.12's ``Distribution.files`` silently drops files that no longer exist. A dist-info without RECORD or METADATA is
+    damage; so is a listed file that is missing, of another size or (``hashes``) of another SHA-256. Entries outside
+    the environment are refused rather than read. uv reuses cached files without checking them, so this is also what
+    notices a damaged repair cache. Measured cost on Windows: about 4 s for the base environment without hashes and
+    about 10 s with them.
+    """
+    venv_dir = Path(venv_dir)
+    site = site_packages(venv_dir)
+    dists = _distributions(site) if site is not None else None
+    if not dists:
+        return {}
+    top = os.path.normcase(os.path.abspath(str(venv_dir)))
+    findings: dict[str, str] = {}
+    for dist in dists:
+        name, _version = _dist_name(dist)
+        folder = site / dist
+        if not (folder / "METADATA").is_file():
+            findings[name] = "its METADATA is missing"
+            continue
+        try:
+            text = (folder / "RECORD").read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            findings[name] = "its RECORD is missing"
+            continue
+        for row in csv.reader(io.StringIO(text)):
+            if not row or not row[0]:
+                continue
+            relative = row[0]
+            target = os.path.abspath(os.path.join(str(site), relative))
+            if os.path.normcase(target) != top and not os.path.normcase(target).startswith(top + os.sep):
+                findings[name] = f"its RECORD names a file outside the environment ({relative})"
+                break
+            expected_hash = row[1] if len(row) > 1 else ""
+            expected_size = row[2] if len(row) > 2 else ""
+            try:
+                size = os.stat(target).st_size
+            except OSError:
+                findings[name] = f"{relative} is missing"
+                break
+            if expected_size.isdigit() and size != int(expected_size):
+                findings[name] = f"{relative} has changed (size)"
+                break
+            if hashes and expected_hash.startswith("sha256="):
+                try:
+                    if _record_digest(Path(target)) != expected_hash:
+                        findings[name] = f"{relative} has changed (SHA-256)"
+                        break
+                except OSError:
+                    findings[name] = f"{relative} cannot be read"
+                    break
     return findings
 
 

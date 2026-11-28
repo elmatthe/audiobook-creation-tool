@@ -1008,13 +1008,13 @@ class EngineAssessment:
 
 
 def app_owned_python() -> Path:
-    """Where setup's stage 0 places the app's own base CPython inside the app's folder (``bootstrap.APP_PYTHON``):
-    ``files/runtime-data/python/python.exe`` on Windows (``qwen3_runtime.app_base_python``, as released) and
-    ``files/runtime-data/python/bin/python3.12`` on a Mac (macOS P1A, D1). The one interpreter inside the app's folder
-    an OmniVoice environment may be built from."""
-    if _system() == "darwin":
-        return repo_root() / "files" / "runtime-data" / "python" / "bin" / "python3.12"
-    return _qwen3.app_base_python()
+    """The app's own base CPython inside the app's folder: the one interpreter inside it an OmniVoice environment may
+    be built from. v0.8.2 Phase 4: one resolver decides on both platforms (``shared.app_python.app_env_base``): uv's
+    managed interpreter (``files/runtime-data/uv/python/<key>/python.exe``, ``.../bin/python3.12`` on a Mac), or the
+    legacy ``files/runtime-data/python`` one (v0.7.0 to v0.8.1) while ``.venv`` still runs on it."""
+    from shared import app_python
+
+    return app_python.app_env_base(repo_root(), "darwin" if _system() == "darwin" else "win32")
 
 
 def app_base_python() -> Path:

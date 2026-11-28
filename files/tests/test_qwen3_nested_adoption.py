@@ -529,11 +529,14 @@ def first_install(env, sandbox, monkeypatch):
     _successful_repair_fakes(monkeypatch)
     faked_create = bootstrap.create_venv
 
-    def create_a_real_looking_parent(argv, log):  # a rebuilt .venv has its pyvenv.cfg, as python -m venv leaves it
+    def create_a_real_looking_parent(argv, log):  # a rebuilt .venv has its pyvenv.cfg, as uv venv leaves it
         made = faked_create(argv, log)
         if made:
-            (bootstrap.VENV_DIR / "pyvenv.cfg").write_text("home = C:/base\ninclude-system-site-packages = false\n",
-                                                          encoding="utf-8")
+            # v0.8.2 Phase 4: uv builds the base environment on this copy's managed CPython and says so (``uv = ``).
+            home = bootstrap.uv_runner.managed_venv_home(bootstrap.REPO_ROOT)
+            (bootstrap.VENV_DIR / "pyvenv.cfg").write_text(
+                f"home = {home}\nuv = {bootstrap.uv_runner.UV_VERSION}\ninclude-system-site-packages = false\n",
+                encoding="utf-8")
         return made
 
     monkeypatch.setattr(bootstrap, "create_venv", create_a_real_looking_parent)

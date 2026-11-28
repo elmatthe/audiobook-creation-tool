@@ -31,6 +31,23 @@ down moved unchanged, byte for byte, to [v0.6.7 to v0.7.3](../files/documentatio
 
 ## [0.8.2] - unreleased (development branch `0.8.2`; nothing is tagged, merged or published)
 
+**Changed (setup and repair install the app with uv, v0.8.2 Phase 4, 2026-11-27; verified on Windows, macOS verification pending)**
+- The app's own Python is now uv's managed CPython 3.12.15, kept in `files/runtime-data/uv` with the pinned uv 0.13.10; setup asks before
+  downloading them, checks both against pinned hashes and installs nothing on the computer.
+- The app's packages come from one locked project (`pyproject.toml` and `uv.lock`, both now in the release ZIP) and are installed from a
+  repair cache kept in the app's folder; anything not kept there is downloaded only after you agree.
+- Damaged packages are reinstalled where they are instead of rebuilding the whole environment; damaged kept files are fetched again (with
+  your agreement).
+- An environment made by v0.8.1 or earlier is rebuilt once, automatically; voice engines installed in it are kept, unchanged.
+- When an IT policy blocks PowerShell, setup now uses Windows' own curl, certutil and tar instead of looking for a Python on the computer.
+
+**Fixed (v0.8.2 Phase 4)**
+- Windows first-run setup failed in a folder whose name has accented letters (for example `Livres été`).
+
+**Changed (development, v0.8.2 Phase 4)**
+- Developers choose the dev profile with `python scripts/shared/bootstrap.py --profile dev`; the gate reads its pytest pin from
+  `pyproject.toml`'s `dev` group. Gate corrections D1-D3 (macOS process-group cleanup, a Windows-only contract test, POSIX scratch ownership).
+
 **Changed (repository cleanup, v0.8.2 Phase 2, 2026-11-27; the app is unchanged)**
 - The long history documents are split, unchanged: Decisions entries from before v0.8.0 and Changelog sections from 0.7.3 down now live in
   `files/documentation-history/decisions/` and `files/documentation-history/changelog/`; this file and `Decisions.md` link to them.

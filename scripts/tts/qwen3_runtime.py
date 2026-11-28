@@ -181,10 +181,13 @@ def venv_python() -> Path:
 
 
 def app_base_python() -> Path:
-    """The app's own base CPython (v0.7.0 portable layout, Windows): placed by setup's stage 0 in
-    ``files/runtime-data/python`` and the base its ``.venv`` and the Qwen3 engine are built from. Kept in step with
-    ``bootstrap.APP_PYTHON``."""
-    return repo_root() / "files" / "runtime-data" / "python" / "python.exe"
+    """The app's own base CPython the Qwen3 engine is built from: the one its ``.venv`` runs on
+    (``shared.app_python.app_env_base``). v0.8.2 Phase 4: the uv-managed interpreter in ``files/runtime-data/uv/python``
+    on a fresh or migrated copy; the legacy ``files/runtime-data/python`` only while ``.venv`` itself still runs on it.
+    An engine built earlier keeps running on whichever it was built from (transitional rule 2)."""
+    from shared import app_python
+
+    return app_python.app_env_base(repo_root())
 
 
 def models_root() -> Path:

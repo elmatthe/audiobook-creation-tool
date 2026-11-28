@@ -61,20 +61,22 @@ renderings (Decisions 2026-11-25).
 
 ```
 README.md  LICENSE  config.toml  pytest.ini
+pyproject.toml  uv.lock     the base environment's project and its one lock (v0.8.2 Phase 4; shipped in the ZIP)
 Setup_and_Run-audiobook-creation-tool.bat / .command   the only files a user double-clicks
 scripts/        all program code (the single import root): launcher.py, shared/, tts/, mp3/, m4b/{converter,maker,metadata}/, artwork/,
-                requirements.txt, hash-pinned locks (Windows py312 and macOS arm64 py312), qwen3-requirements.txt
+                qwen3-requirements.txt; requirements.txt and the two v0.8.1 hash locks stay only as a frozen parity reference
 md-instructions/  exactly five permanent documents (below)
 files/
   plans/                    active implementation plans (current: Developer-Experience-Upgrade.md)
   release-history/          durable release qualification records
   tests/                    the test suite (never shipped)
   dev-work/                 local development workspace: verification-gate/ (verify.py, GATE.md, coverage.json), feature-map/
-  bin/  runtime-data/       runtime, ignored (FFmpeg, settings, logs, models, wheels, receipts)
+  bin/  runtime-data/       runtime, ignored (FFmpeg, settings, logs, models; uv/ = the pinned uv and managed Python, uvc/ = the repair cache)
   Archives/  dist/          protected, local and ignored (historical archives, built ZIPs)
   test-files/               owner fixtures, never touched
   UI-Tool-Screenshots/  voice-previews/  Cloned-Voice-Uploads/  tracked supporting assets
-.venv/          the application environment; also holds .venv/engines/{qwen3,omnivoice}; rebuilt on each machine, never committed
+.venv/          the application environment (uv's); also holds .venv/engines/{qwen3,omnivoice} until 5A/5B move them to .venv-engines/
+                (owner decision A1, 2026-11-27); rebuilt on each machine, never committed
 ```
 
 `scripts/Universal/` no longer exists (Retired: the v0.5.0 layout was lifted to `scripts/` in v0.6.7; any mention of it is stale).
@@ -84,10 +86,20 @@ files/
 - **Entry.** `Setup_and_Run-audiobook-creation-tool.bat/.command` runs a fast health check (about 150 ms) and launches the GUI; an unhealthy
   environment goes to repair. Windows launches on the venv's `python.exe` with a hidden console; `pythonw.exe` is never started because Smart App
   Control blocks it (Decisions 2026-11-18).
-- **Provisioning.** Stage 0 (`bootstrap_host.ps1` / `bootstrap_host_macos.sh`) finds Python 3.11/3.12 or, with consent, installs per-user
-  python.org 3.12.10. The app environment installs only from a complete **hash lock** (170 packages on Windows) through a verified local store;
-  pip, NLTK and Hugging Face caches stay inside the app folder. First run prepares the base app only; the optional-component panel then offers
-  five components (OmniVoice last and unchecked) acquired from pinned identities under a one-use consent (Decisions 2026-10-25, 2026-10-27).
+- **Provisioning (v0.8.2 Phase 4; Windows verified, macOS native verification pending).** Stage 0 (`bootstrap_host.ps1` /
+  `bootstrap_host_macos.sh`; when PowerShell cannot run, `bootstrap_host_fallback.cmd` with Windows' own curl, certutil and tar, owner
+  decision D-6) obtains, with consent and pinned hashes, uv 0.13.10 and uv's managed CPython 3.12.15 (python-build-standalone 20261009,
+  through ACT's own download metadata) into `files/runtime-data/uv`; nothing is installed on the computer and no Python found on it is used.
+  The base environment is `uv sync --locked` of the root `pyproject.toml`/`uv.lock` (one lock for both platforms, a parity translation of the
+  v0.8.1 locks; Kokoro and Chatterbox stay in the base until 5C/5D) through one wrapper, `scripts/shared/uv_runner.py`: exact interpreter,
+  an explicit user or dev profile (`bootstrap.py --profile`, never inferred), offline first from the repair cache `files/runtime-data/uvc`,
+  a download only after consent, link mode copy on Windows and clone on macOS, bytecode at install. The receipt `.venv/.act-environment.json`
+  is written only after every installed file matches its RECORD and every required module imports. Damaged packages are reinstalled in
+  place; anything uv could only recreate (a v0.8.1 pip environment, a moved copy) is rebuilt through the set-aside transaction, engines
+  carried. The v0.8.1 interpreter in `files/runtime-data/python` is kept for engines built on it; `scripts/shared/app_python.py` is the one
+  resolver of the base interpreter. NLTK and Hugging Face caches stay inside the app folder. First run prepares the base app only; the
+  optional-component panel then offers five components (OmniVoice last and unchecked) acquired from pinned identities under a one-use
+  consent (Decisions 2026-10-25, 2026-10-27); the Qwen3 and OmniVoice installers keep their own route until 5A/5B.
 - **Unified layout.** One `.venv` holds `.venv/engines/qwen3` and `.venv/engines/omnivoice`; repair, replace and rollback keep them; engine
   leases refuse a repair while a worker runs; set-aside folders (`.venv.replaced*`, `.venv.discarded*`) are ignored and never packaged. The older
   `.venv-qwen3` is Retired and kept only for rollback until the owner retires it.
@@ -169,16 +181,16 @@ unknown paths and ACL-locked folders. Retention rules for agents' scratch and ga
 
 ## 11. Direction (Approved future; none of it is built)
 
-The active plan `files/plans/Developer-Experience-Upgrade.md` (Revision 4) sets the v0.8.2 direction: Phase 0 documentation (0A done; 0B this
-compaction), 1A/1B a proportional, resource-aware verification gate and lean evidence, 2 artifact lifecycle and cleanup, 3 uv feasibility and
-packaging contracts (Windows then macOS), 4 base bootstrap and locked provisioning, 5 an engine registry with Qwen3 and OmniVoice migrated and
+The active plan `files/plans/Developer-Experience-Upgrade.md` (Revision 8) sets the v0.8.2 direction: Phases 0 to 3 are done (documentation,
+the simplified verification gate, cleanup, uv feasibility on Windows and macOS); **Phase 4, base provisioning through uv, is implemented**
+(above; macOS native verification pending). Still to come: 5 an engine registry with Qwen3 and OmniVoice migrated to `.venv-engines/` and
 Kokoro and Chatterbox Turbo **isolated** into their own environments, 6 migration and legacy retirement, 7 user-facing documentation and
 deterministic distributions (VERSION becomes 0.8.2 only then), 8 performance and native qualification readiness, 9 independent Codex review.
-**None of the following is implemented today**: uv provisioning, six verification modes, isolated Kokoro or isolated Chatterbox on Windows.
-Do not duplicate the plan here.
+**Not implemented today**: engine environments under `.venv-engines/`, isolated Kokoro or isolated Chatterbox on Windows. Do not duplicate
+the plan here.
 
-**Pending decisions:** D-2 external scratch, D-3 ACL-locked folders, D-4 the owner's uncommitted
-plan/release-history archiving, D-6 PowerShell-blocked fallback, D-8 disk cost vs offline repair depth (see `Handoff.md`).
+**Pending decisions:** D-2 external scratch, D-3 ACL-locked folders, D-4 the owner's uncommitted plan/release-history archiving (see
+`Handoff.md`). D-6 was approved and implemented in Phase 4.
 
 ## 12. Known limits (Implemented behaviour; details and evidence in `Handoff.md` and `Decisions.md`)
 
@@ -187,6 +199,9 @@ plan/release-history archiving, D-6 PowerShell-blocked fallback, D-8 disk cost v
   `WORKSPACE-SCALING` features carry a pending macOS standing; no clean Apple Silicon Mac with 16 GB or more has been available.
 - **Security software.** Smart App Control blocks unsigned natives (sklearn `.pyd`, FFmpeg, `pythonw.exe`); a fresh venv can pull unsigned
   transitive wheels. WinError 206 appears on over-deep paths.
+- **uv provisioning (Phase 4).** Not yet run on a Mac; the PowerShell-blocked fallback's download path and a non-admin Windows account are
+  untested; the launch health check samples one file per package, so deep pure-Python damage is found by the import proof (7-day window) or
+  Preferences' Check and repair. A repair cache costs about 2 GB beside the 2.1 GB environment.
 - **Engines.** Two app copies can run Qwen3 and OmniVoice on one GPU together; OmniVoice outputs can reach full scale; Qwen3 is English-only
   and slow (RTF about 1.35); Chatterbox says "Tamar" wrongly and has frozen pause tuning (Decisions 2026-11-25); the 900 s worker stall deadline
   was measured only on CUDA.

@@ -149,13 +149,14 @@ if [ -n "$NEEDS_VENV_REPAIR" ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# First run or repair: the app's OWN Python (v0.8.x P1A, owner decisions D1/D2).
+# First run or repair: the app's OWN uv and Python (v0.8.2 Phase 4).
 #
 # Stage 0 (scripts/shared/bootstrap_host_macos.sh) proves, or downloads with
-# consent and proves, a pinned standalone CPython 3.12 inside this folder
-# (files/runtime-data/python). That interpreter -- never one found on PATH,
-# never Homebrew's, never Apple's -- then runs the setup. Nothing is installed
-# on the Mac and no administrator password is ever asked for.
+# consent, verifies and installs with the pinned uv, a pinned standalone
+# CPython 3.12.15 inside this folder (files/runtime-data/uv/python). That
+# interpreter -- never one found on PATH, never Homebrew's, never Apple's --
+# then runs the setup. Nothing is installed on the Mac and no administrator
+# password is ever asked for. It writes the interpreter's path to a file.
 # Stage 0's codes: 0 = proven, 2 = you declined (nothing downloaded),
 # 3 = it could not be done (the reason is printed above).
 # ---------------------------------------------------------------------------
@@ -164,9 +165,15 @@ echo "  Audiobook Creation Tool - first-time setup"
 echo "============================================================"
 echo
 
-APP_PY="files/runtime-data/python/bin/python3.12"
-/bin/bash "scripts/shared/bootstrap_host_macos.sh"
+APP_PY_FILE="files/temp/bootstrap/selected-python.txt"
+rm -f "$APP_PY_FILE"
+/bin/bash "scripts/shared/bootstrap_host_macos.sh" --out-file "$APP_PY_FILE"
 STAGE0=$?
+APP_PY=""
+[ "$STAGE0" -eq 0 ] && [ -f "$APP_PY_FILE" ] && APP_PY="$(cat "$APP_PY_FILE")"
+if [ "$STAGE0" -eq 0 ] && [ -z "$APP_PY" ]; then
+    STAGE0=3
+fi
 if [ "$STAGE0" -ne 0 ]; then
     echo
     if [ "$STAGE0" -eq 2 ]; then

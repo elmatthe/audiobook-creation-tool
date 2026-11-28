@@ -202,6 +202,10 @@ def _canonical_engine_guard(root: Path) -> dict:
 
 _GUARDED_PATHS = {
     "the real requirements stamp": REPO_ROOT / ".venv" / ".requirements-state.json",
+    # v0.8.2 Phase 4: the uv environment's receipt (shared/bootstrap.py REQUIREMENTS_STATE_NAME) and the explicit
+    # installation-profile choice; a test that wrote either would fake a synced or a developer environment.
+    "the real environment receipt": REPO_ROOT / ".venv" / ".act-environment.json",
+    "the real installation profile": REPO_ROOT / "files" / "runtime-data" / "environment-profile.json",
     "the real import proof": REPO_ROOT / ".venv" / ".import-proof.json",
     # v0.6.7 audit remediation: the Kokoro dependency proof record (shared/bootstrap.py KOKORO_PROOF_NAME).
     "the real Kokoro proof": REPO_ROOT / ".venv" / ".kokoro-proof.json",
@@ -255,7 +259,8 @@ _GUARDED_PATHS = {
 #  side of ~5500 tests is over ten thousand scans, and paying that per test is
 #  what previously perturbed the suite's timing enough to trip a bounded thread
 #  wait in test_job_ui.py.
-_PER_TEST_GUARDED = ("the real requirements stamp", "the real import proof", "the real Kokoro proof",
+_PER_TEST_GUARDED = ("the real requirements stamp", "the real environment receipt", "the real installation profile",
+                     "the real import proof", "the real Kokoro proof",
                      "the real FFmpeg pin", "the real installed FFmpeg build",
                      "the real FFmpeg staging tree", "the real settings file",
                      "the real Qwen3 environment marker", "the real Qwen3 environment launchers",
@@ -277,21 +282,37 @@ _REAL_STAT = os.stat
 
 _BYTECODE_NAME = re.compile(r"(?P<module>[^./]+)\.(?P<tag>[a-z]+-\d+)(?:\.opt-[12])?\.pyc")
 _PYTHON_DLL = re.compile(r"python3(\d+)\.dll")
+#: v0.8.2 Phase 4: uv's managed interpreter, below runtime-data (``shared/uv_runner.py`` ``WINDOWS.python_key``; a test
+#: in test_suite_isolation.py holds the two together). Its standard library is excused exactly like the legacy one.
+_MANAGED_PYTHON_PARTS = ("uv", "python", "cpython-3.12.15-windows-x86_64-none")
+#: uv's minor-version junction beside it (``WINDOWS.python_minor_key``), which points at that same folder. The walk follows
+#: links, so the same first-import bytecode is also seen through it (found by the Phase 4 focused run).
+_MANAGED_MINOR_LINK_PARTS = ("uv", "python", "cpython-3.12-windows-x86_64-none")
+#: The standard-library folders whose first-import bytecode is excused: the legacy ``python/Lib`` (v0.7.0 to v0.8.1,
+#: still the base of engines built on it) and the managed interpreter's ``Lib``, by its own name and through uv's link.
+_STDLIB_PREFIXES = (("python", "Lib"), (*_MANAGED_PYTHON_PARTS, "Lib"), (*_MANAGED_MINOR_LINK_PARTS, "Lib"))
 
 
 def _bundled_cache_tag(root: Path):
     """The interpreter cache tag of the bundled Python under *root* (``cpython-312`` for ``python312.dll``), or ``None``.
 
     Read from the bundled interpreter's own DLL name, not from the interpreter running the tests, so a test Python of
-    another version cannot make the wrong cache look right. No DLL means no tag, and then nothing is excused.
+    another version cannot make the wrong cache look right. No DLL means no tag, and then nothing is excused. v0.8.2
+    Phase 4: both of the copy's own interpreter folders (legacy and managed) are read; each one present must hold
+    exactly one DLL, and they must agree, or nothing is excused.
     """
-    try:
-        with _REAL_SCANDIR(Path(root) / "python") as entries:
-            found = sorted(match.group(1) for entry in entries if entry.is_file()
-                           for match in [_PYTHON_DLL.fullmatch(entry.name)] if match)
-    except OSError:
-        return None
-    return f"cpython-3{found[0]}" if len(found) == 1 else None
+    tags: set = set()
+    for folder in (Path(root) / "python", Path(root).joinpath(*_MANAGED_PYTHON_PARTS)):
+        try:
+            with _REAL_SCANDIR(folder) as entries:
+                found = sorted(match.group(1) for entry in entries if entry.is_file()
+                               for match in [_PYTHON_DLL.fullmatch(entry.name)] if match)
+        except OSError:
+            continue
+        if len(found) != 1:
+            return None
+        tags.add(found[0])
+    return f"cpython-3{tags.pop()}" if len(tags) == 1 else None
 
 
 def _bundled_python_bytecode(relative: str, entry=None, *, root=None, tag=None) -> bool:
@@ -299,7 +320,8 @@ def _bundled_python_bytecode(relative: str, entry=None, *, root=None, tag=None) 
 
     ``relative`` is a path below the runtime-data folder, ``/``-separated; ``entry`` is its ``os.DirEntry``; ``tag`` is
     the bundled interpreter's cache tag (:func:`_bundled_cache_tag`) and ``root`` the runtime-data folder. Two things
-    qualify, both below ``python/Lib/``, never below a ``site-packages`` folder (compared by path component, case-insensitively)
+    qualify, both below ``python/Lib/`` or (v0.8.2 Phase 4) the managed interpreter's ``uv/python/<key>/Lib/``
+    (:data:`_STDLIB_PREFIXES`), never below a ``site-packages`` folder (compared by path component, case-insensitively)
     and never through a link:
 
     * a ``__pycache__`` folder that is not itself inside another ``__pycache__`` (it is not recorded, but the walk still
@@ -312,15 +334,16 @@ def _bundled_python_bytecode(relative: str, entry=None, *, root=None, tag=None) 
     or source-less ``.pyc``, a link, the interpreter, ``Scripts``, a ``__pycache__`` elsewhere) still counts.
     """
     parts = relative.rstrip("/").split("/")
-    if parts[:2] != ["python", "Lib"] or len(parts) < 3 or entry is None or _is_link(entry):
+    prefix = next((p for p in _STDLIB_PREFIXES if tuple(parts[:len(p)]) == p), None)
+    if prefix is None or len(parts) < len(prefix) + 1 or entry is None or _is_link(entry):
         return False
-    if any(part.casefold() == "site-packages" for part in parts[2:]):
+    if any(part.casefold() == "site-packages" for part in parts[len(prefix):]):
         return False  # third-party code (pip and friends) is not the standard library, whatever its case or depth
     if entry.is_dir(follow_symlinks=False):
         return parts[-1] == "__pycache__" and "__pycache__" not in parts[:-1]
     match = _BYTECODE_NAME.fullmatch(parts[-1])
     if (not entry.is_file(follow_symlinks=False) or match is None or tag is None or root is None
-            or match.group("tag") != tag or len(parts) < 4 or parts[-2] != "__pycache__"
+            or match.group("tag") != tag or len(parts) < len(prefix) + 2 or parts[-2] != "__pycache__"
             or "__pycache__" in parts[:-2]):
         return False
     source = Path(root).joinpath(*parts[:-2], match.group("module") + ".py")
@@ -688,6 +711,16 @@ def _no_real_provisioning(monkeypatch):
         return real_run(cmd, **kwargs)
 
     monkeypatch.setattr(bootstrap, "_run", _guarded_run)
+
+    def _refuse_uv(command, **kwargs):
+        # v0.8.2 Phase 4: uv is the base environment's only installer. A real ``uv sync`` from a test would rebuild a
+        # real environment and download or prune the real package cache. A test driving a route stubs ``bootstrap._uv``
+        # (or the function above it) itself; a function-scoped patch wins over this one.
+        raise AssertionError(
+            f"a test tried to run the real uv: {list(command)[:3]!r}. Patch bootstrap._uv, sync_base_packages or "
+            "install_requirements in the test.")
+
+    monkeypatch.setattr(bootstrap, "_uv", _refuse_uv)
 
 
 @pytest.fixture(autouse=True)

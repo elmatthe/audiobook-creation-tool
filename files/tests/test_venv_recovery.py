@@ -69,19 +69,28 @@ class _Log:
 def env(monkeypatch, tmp_path):
     """A disposable venv location, fully detached from the real one."""
     venv = tmp_path / ".venv"
-    reqs = tmp_path / "requirements.txt"
-    reqs.write_text("pillow==12.2.0\n", encoding="utf-8")
     monkeypatch.setattr(bootstrap, "VENV_DIR", venv)
-    monkeypatch.setattr(bootstrap, "REQUIREMENTS_FILE", reqs)
     monkeypatch.setattr(bootstrap, "LOGS_DIR", tmp_path / "logs")
-    return SimpleNamespace(venv=venv, reqs=reqs, tmp=tmp_path)
+    # v0.8.2 Phase 4: the receipt's profile choice lives in runtime data; a test reads a scratch one.
+    monkeypatch.setattr(bootstrap, "PROFILE_FILE", tmp_path / "environment-profile.json")
+    return SimpleNamespace(venv=venv, tmp=tmp_path)
+
+
+def _uv_pyvenv_cfg(root: Path) -> None:
+    """v0.8.2 Phase 4: the ``pyvenv.cfg`` uv writes for an environment on this copy's managed interpreter. Without it
+    the health check rightly calls the environment a legacy (pip-built) one, which is classified on its own below."""
+    (root / "pyvenv.cfg").write_text(
+        f"home = {bootstrap.uv_runner.managed_venv_home(bootstrap.REPO_ROOT)}\nimplementation = CPython\n"
+        f"uv = {bootstrap.uv_runner.UV_VERSION}\nversion_info = 3.12.15\ninclude-system-site-packages = false\n",
+        encoding="utf-8")
 
 
 def _fake_interpreter(env) -> Path:
-    """A file where the venv interpreter goes, so ``exists()`` is satisfied."""
+    """A file where the venv interpreter goes, so ``exists()`` is satisfied, in a uv environment's layout."""
     py = bootstrap.venv_python()
     py.parent.mkdir(parents=True, exist_ok=True)
     py.write_bytes(b"not a real interpreter")
+    _uv_pyvenv_cfg(bootstrap.VENV_DIR)
     return py
 
 
@@ -99,6 +108,7 @@ def _seed_interpreter(root: Path) -> Path:
     interpreter = root / bootstrap.venv_python().relative_to(bootstrap.VENV_DIR)
     interpreter.parent.mkdir(parents=True, exist_ok=True)
     interpreter.write_bytes(b"interpreter")
+    _uv_pyvenv_cfg(root)
     return interpreter
 
 
@@ -408,7 +418,7 @@ def test_a_package_problem_does_not_rebuild_the_environment(env, monkeypatch):
     rebuilt: list[str] = []
     monkeypatch.setattr(bootstrap, "_create_validated_venv",
                         lambda *a, **k: rebuilt.append("rebuild") or True)
-    monkeypatch.setattr(bootstrap, "pip_install_requirements", lambda log: True)
+    monkeypatch.setattr(bootstrap, "install_requirements", lambda log: True)
     monkeypatch.setattr(bootstrap, "validate_installed_packages", lambda log: True)
 
     ok, _msg = bootstrap.repair_missing_requirements(_Log(), "MISSING:pydub")
@@ -597,6 +607,12 @@ def _sandbox(tmp_path: Path, *, exit_code: int | None, runnable: bool = True,
         "    fh.write(' '.join(sys.argv[1:]) + '\\n')\n"
         f"sys.exit({launch} if '--launch-only' in sys.argv else {base})\n",
         encoding="utf-8")
+    # v0.8.2 Phase 4 (D-6): a launcher never falls back to a Python found on PATH any more, so the sandbox carries a
+    # stand-in stage 0 that reports this interpreter the way the real one reports the app's managed Python.
+    (root / "scripts" / "shared" / "bootstrap_host.ps1").write_text(
+        "param([string]$OutFile)\n"
+        f"[IO.File]::WriteAllText((Join-Path (Get-Location) $OutFile), '{sys.executable}')\n"
+        "exit 0\n", encoding="ascii")
     (root / BAT.name).write_bytes(BAT.read_bytes())
     return root
 
@@ -797,7 +813,7 @@ def _reconcile_spy(monkeypatch, *, pip_ok=True, validate_ok=True):
         calls["validate"] += 1
         return validate_ok
 
-    monkeypatch.setattr(bootstrap, "pip_install_requirements", fake_pip)
+    monkeypatch.setattr(bootstrap, "install_requirements", fake_pip)
     monkeypatch.setattr(bootstrap, "validate_installed_packages", fake_validate)
     return calls
 

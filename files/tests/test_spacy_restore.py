@@ -46,6 +46,8 @@ def kept(tmp_path, monkeypatch):
     python.parent.mkdir(parents=True)
     python.write_bytes(b"")
     monkeypatch.setattr(bootstrap, "venv_python", lambda: python)
+    # v0.8.2 Phase 4: the route depends on who built the environment (pip here: no uv pyvenv.cfg), never on the real one.
+    monkeypatch.setattr(bootstrap, "VENV_DIR", tmp_path / ".venv")
     return store / assets.SPACY_WHEEL_NAME
 
 
@@ -129,11 +131,12 @@ def test_a_failed_reinstall_is_reported_and_never_fails_setup(kept, pip):
 
 
 @pytest.mark.parametrize("validated", [True, False])
-def test_reconcile_restores_only_after_every_required_import_is_proved(monkeypatch, validated):
+def test_reconcile_restores_only_after_every_required_import_is_proved(monkeypatch, tmp_path, validated):
     calls = []
-    monkeypatch.setattr(bootstrap, "pip_install_requirements", lambda log: True)
+    monkeypatch.setattr(bootstrap, "VENV_DIR", tmp_path / ".venv")  # the receipt is withdrawn first: never the real one
+    monkeypatch.setattr(bootstrap, "install_requirements", lambda log: True)
     monkeypatch.setattr(bootstrap, "validate_installed_packages", lambda log: validated)
-    monkeypatch.setattr(bootstrap, "record_requirements_state", lambda: calls.append("stamp"))
+    monkeypatch.setattr(bootstrap, "record_requirements_state", lambda **kw: calls.append("stamp"))
     monkeypatch.setattr(bootstrap, "record_import_proof", lambda: calls.append("proof"))
     monkeypatch.setattr(bootstrap, "restore_kept_spacy_model", lambda log: calls.append("restore"))
     ok, _reason = bootstrap.reconcile_requirements(Log())

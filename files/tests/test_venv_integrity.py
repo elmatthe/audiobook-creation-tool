@@ -27,12 +27,19 @@ EXE = ".exe" if os.name == "nt" else ""
 # --------------------------------------------------------------------------- #
 # Fake environments
 # --------------------------------------------------------------------------- #
-def make_venv(venv: Path, *, home: Path | None = None, version: str = "3.12.15") -> Path:
+def make_venv(venv: Path, *, home: Path | None = None, version: str = "3.12.15", uv: bool = False) -> Path:
     venv.mkdir(parents=True, exist_ok=True)
     lines = [] if home is None else [f"home = {home}"]
     lines += ["include-system-site-packages = false", f"version = {version}"]
+    if uv:
+        lines.append(f"uv = {bootstrap.uv_runner.UV_VERSION}")  # what uv writes; pip's venv module never does
     (venv / "pyvenv.cfg").write_text("\n".join(lines) + "\n", encoding="utf-8")
     return venv
+
+
+def make_uv_venv(venv: Path, root: Path) -> Path:
+    """An environment as v0.8.2 Phase 4 setup leaves it: built by uv, on ``root``'s own managed Python."""
+    return make_venv(venv, home=bootstrap.uv_runner.managed_venv_home(root), uv=True)
 
 
 def site_of(venv: Path) -> Path:
@@ -100,7 +107,8 @@ def env(monkeypatch, tmp_path):
     venv = root / ".venv"
     monkeypatch.setattr(bootstrap, "REPO_ROOT", root)
     monkeypatch.setattr(bootstrap, "VENV_DIR", venv)
-    monkeypatch.setattr(bootstrap, "REQUIREMENTS_FILE", root / "scripts" / "requirements.txt")
+    # v0.8.2 Phase 4: the copy's own managed interpreter, which this fake copy does not have (never the real one's).
+    monkeypatch.setattr(bootstrap, "APP_PYTHON", bootstrap.uv_runner.managed_python(root))
     monkeypatch.setattr(bootstrap, "probe_venv", lambda py: {"version": (3, 12), "ssl": True, "tk": True})
     interpreter = bootstrap.venv_python()
     interpreter.parent.mkdir(parents=True, exist_ok=True)
@@ -117,9 +125,33 @@ def test_a_copy_running_on_the_originals_python_is_repaired_not_launched(env, tm
 
 
 def test_a_copy_on_its_own_python_launches(env):
-    make_venv(env.venv, home=env.root / "files" / "runtime-data" / "python")
+    make_uv_venv(env.venv, env.root)
     assert bootstrap.assess_venv_health().state == bootstrap.VENV_HEALTHY
     assert bootstrap._venv_check() == 0
+
+
+def test_an_environment_from_an_earlier_version_is_rebuilt_on_the_managed_python(env):
+    """v0.8.2 Phase 4: a pip-built environment (no ``uv`` line), even on this copy's own legacy Python, is rebuilt
+    once through the set-aside transaction -- never synced in place, where uv would delete the engines inside it."""
+    make_venv(env.venv, home=env.root / "files" / "runtime-data" / "python")
+    health = bootstrap.assess_venv_health()
+    assert (health.state, health.reason) == (bootstrap.VENV_REPAIRABLE, "legacy-environment")
+    assert health.executes
+    assert bootstrap._venv_check() == bootstrap.EXIT_VENV_REPAIR_REQUIRED
+    assert bootstrap.in_place_sync_problem().startswith("it was not built by uv")
+
+
+def test_a_uv_environment_on_another_interpreter_is_rebuilt(env, tmp_path):
+    """Built by uv, but its ``home`` is not this copy's exact managed CPython 3.12.15 (another build, a minor-version
+    link, a moved folder): it is rebuilt, never trusted or synced where it stands."""
+    for home in (env.root / "files" / "runtime-data" / "uv" / "python" / "cpython-3.12-windows-x86_64-none",
+                 env.root / "files" / "runtime-data" / "uv" / "python" / "cpython-3.12.14-windows-x86_64-none"):
+        make_venv(env.venv, home=home, uv=True)
+        health = bootstrap.assess_venv_health()
+        assert (health.state, health.reason) == (bootstrap.VENV_REPAIRABLE, "interpreter-mismatch"), home
+        assert bootstrap.in_place_sync_problem()
+    make_uv_venv(env.venv, env.root)
+    assert bootstrap.in_place_sync_problem() == "its interpreter is missing", "no managed Python in this fake copy"
 
 
 @pytest.mark.skipif(not bootstrap.IS_WINDOWS, reason="the app's own base Python is the Windows layout")
@@ -233,6 +265,7 @@ def test_findings_are_bounded(tmp_path):
 
 def test_a_damaged_environment_is_repaired_by_the_launcher(env, healthy_numpy, monkeypatch):
     monkeypatch.setattr(bootstrap, "VENV_DIR", healthy_numpy)
+    make_uv_venv(healthy_numpy, env.root)
     interpreter = bootstrap.venv_python()
     interpreter.parent.mkdir(parents=True, exist_ok=True)
     interpreter.write_bytes(b"interpreter")
@@ -245,31 +278,28 @@ def test_a_damaged_environment_is_repaired_by_the_launcher(env, healthy_numpy, m
 
 
 def test_a_locked_package_that_vanished_is_damage_once_the_environment_was_reconciled(env, monkeypatch):
-    site_of(make_venv(env.venv))
+    site_of(make_uv_venv(env.venv, env.root))
     monkeypatch.setattr(bootstrap, "_locked_distributions", lambda version: ("numpy",))
     health = bootstrap.assess_venv_health()
     assert (health.state, health.reason) == (bootstrap.VENV_REPAIRABLE, "damaged-packages")
     assert "numpy is not installed" in health.detail
 
 
-def test_the_lock_names_required_packages_only_for_a_reconciled_locked_environment(env, monkeypatch):
-    scripts = env.root / "scripts"
-    scripts.mkdir(parents=True)
-    (scripts / "requirements.txt").write_text("tqdm==4.67.3\n", encoding="utf-8")
-    (scripts / bootstrap.base_packages.lock_path(scripts / "requirements.txt").name).write_text(
-        f"# artifact: tqdm-4.67.3-py3-none-any.whl\ntqdm==4.67.3 --hash=sha256:{'a' * 64}\n", encoding="utf-8")
-    monkeypatch.setattr(bootstrap.base_packages, "lock_applies", lambda version, **kw: True)
+def test_the_receipt_names_required_packages_only_while_it_is_current(env, monkeypatch):
+    """v0.8.2 Phase 4: what must be installed is what the receipt's sync installed -- and only while the receipt
+    matches this lock, interpreter and profile (otherwise the launch syncs first)."""
+    monkeypatch.setattr(bootstrap, "read_receipt", lambda: {"distributions": ["tqdm==4.67.3", "numpy==2.4.4"]})
     monkeypatch.setattr(bootstrap, "requirements_are_current", lambda: False)
     assert bootstrap._locked_distributions((3, 12)) == (), "not yet reconciled: the drift path installs them"
     monkeypatch.setattr(bootstrap, "requirements_are_current", lambda: True)
-    assert bootstrap._locked_distributions((3, 12)) == ("tqdm",)
+    assert bootstrap._locked_distributions((3, 12)) == ("tqdm", "numpy")
 
 
 # --------------------------------------------------------------------------- #
 # D3 — a repair the user can ask for, and a launch that never dead-ends
 # --------------------------------------------------------------------------- #
 def test_a_requested_repair_makes_the_next_launch_rebuild(env):
-    make_venv(env.venv)
+    make_uv_venv(env.venv, env.root)
     assert venv_integrity.request_repair(env.venv, "test")
     health = bootstrap.assess_venv_health()
     assert (health.state, health.reason) == (bootstrap.VENV_REPAIRABLE, "repair-requested")
@@ -387,3 +417,84 @@ def test_a_repair_that_cannot_be_recorded_says_what_to_do(dialog_for, tmp_path):
     dialog, _calls = dialog_for(tmp_path / "ACT-without-environment")
     assert dialog.repair_environment() is False
     assert dialog.status_kind == "error" and "Setup_and_Run-audiobook-creation-tool" in dialog.var_status.get()
+
+
+
+# --------------------------------------------------------------------------- #
+# v0.8.2 Phase 4 — the full RECORD check a sync must pass before its receipt
+# --------------------------------------------------------------------------- #
+def _true_dist(venv: Path, name: str, version: str, files: dict[str, bytes]) -> Path:
+    """A distribution whose RECORD carries the real SHA-256 and size of each file (as uv and pip write it)."""
+    import base64
+    import hashlib
+
+    site = site_of(venv)
+    rows = []
+    for relative, data in files.items():
+        path = site / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+        digest = base64.urlsafe_b64encode(hashlib.sha256(data).digest()).rstrip(b"=").decode("ascii")
+        rows.append(f"{relative},sha256={digest},{len(data)}")
+    info = site / f"{name}-{version}.dist-info"
+    info.mkdir()
+    (info / "METADATA").write_text(f"Name: {name}\nVersion: {version}\n", encoding="utf-8")
+    rows += [f"{name}-{version}.dist-info/METADATA,,", f"{name}-{version}.dist-info/RECORD,,"]
+    (info / "RECORD").write_text("\n".join(rows) + "\n", encoding="utf-8")
+    return site
+
+
+@pytest.fixture
+def recorded(tmp_path):
+    venv = make_venv(tmp_path / ".venv")
+    site = _true_dist(venv, "numpy", "2.4.4", {"numpy/__init__.py": b"# numpy\n", "numpy/linalg/lapack.py": b"x" * 40})
+    _true_dist(venv, "Six", "1.17.0", {"six.py": b"# six\n"})
+    return SimpleNamespace(venv=venv, site=site)
+
+
+def test_a_whole_environment_has_no_record_damage(recorded):
+    assert venv_integrity.record_damage(recorded.venv) == {}
+    assert venv_integrity.installed_distributions(recorded.venv) == ["numpy==2.4.4", "six==1.17.0"]
+
+
+def test_a_missing_record_is_damage_not_nothing_to_check(recorded):
+    """An interrupted sync leaves a dist-info without RECORD; ``uv sync --check`` and ``Distribution.files`` miss it."""
+    (recorded.site / "Six-1.17.0.dist-info" / "RECORD").unlink()
+    assert venv_integrity.record_damage(recorded.venv) == {"six": "its RECORD is missing"}
+    assert venv_integrity.package_damage(recorded.venv) == ["Six-1.17.0: Six-1.17.0.dist-info/RECORD is missing"]
+
+
+def test_a_missing_metadata_is_damage(recorded):
+    (recorded.site / "numpy-2.4.4.dist-info" / "METADATA").unlink()
+    assert venv_integrity.record_damage(recorded.venv) == {"numpy": "its METADATA is missing"}
+
+
+def test_any_listed_file_that_is_missing_is_damage_not_only_the_launch_sample(recorded):
+    """The launch's cheap check samples ``__init__``/top-level/native files; the full check misses nothing."""
+    (recorded.site / "numpy" / "linalg" / "lapack.py").unlink()
+    assert venv_integrity.package_damage(recorded.venv) == [], "outside the launch sample"
+    assert venv_integrity.record_damage(recorded.venv) == {"numpy": "numpy/linalg/lapack.py is missing"}
+
+
+def test_a_changed_size_or_hash_is_damage_and_hashes_can_be_skipped(recorded):
+    target = recorded.site / "numpy" / "linalg" / "lapack.py"
+    target.write_bytes(b"y" * 40)  # same size, other bytes
+    assert venv_integrity.record_damage(recorded.venv) == {"numpy": "numpy/linalg/lapack.py has changed (SHA-256)"}
+    assert venv_integrity.record_damage(recorded.venv, hashes=False) == {}
+    target.write_bytes(b"y" * 41)
+    assert venv_integrity.record_damage(recorded.venv, hashes=False) == {
+        "numpy": "numpy/linalg/lapack.py has changed (size)"}
+
+
+def test_a_record_naming_a_file_outside_the_environment_is_refused_unread(recorded, tmp_path):
+    outside = tmp_path / "outside.txt"
+    outside.write_bytes(b"secret")
+    record = recorded.site / "Six-1.17.0.dist-info" / "RECORD"
+    record.write_text(record.read_text(encoding="utf-8") + "../../../../outside.txt,,6\n", encoding="utf-8")
+    found = venv_integrity.record_damage(recorded.venv)
+    assert found["six"].startswith("its RECORD names a file outside the environment")
+
+
+def test_an_environment_without_site_packages_has_nothing_to_report(tmp_path):
+    assert venv_integrity.record_damage(make_venv(tmp_path / ".venv")) == {}
+    assert venv_integrity.record_damage(tmp_path / "absent") == {}

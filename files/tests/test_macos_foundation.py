@@ -154,29 +154,30 @@ def test_the_generator_renders_each_committed_lock_byte_for_byte(platform, lock)
     assert rendered == lock.read_text(encoding="utf-8")
 
 
-def test_the_requirements_stamp_on_windows_is_computed_exactly_as_released(monkeypatch):
-    monkeypatch.setattr(base_packages, "lock_target", lambda **kw: base_packages.WINDOWS_LOCK)
-    expected = hashlib.sha256(REQUIREMENTS.read_bytes())
-    expected.update(b"\0" + b"requirements-lock-windows-py312.txt" + b"\0" + WINDOWS_LOCK.read_bytes())
-    assert bootstrap.requirements_fingerprint() == expected.hexdigest()
+def test_the_receipt_fingerprint_is_the_same_project_and_lock_on_both_platforms(monkeypatch):
+    """v0.8.2 Phase 4: one base project and one lock for Windows and macOS; the receipt hashes both (line endings
+    normalised), never a per-platform lock file."""
+    expected = hashlib.sha256((REPO_ROOT / "pyproject.toml").read_bytes().replace(b"\r\n", b"\n"))
+    expected.update(b"\0uv.lock\0" + (REPO_ROOT / "uv.lock").read_bytes().replace(b"\r\n", b"\n"))
+    for mac in (False, True):
+        monkeypatch.setattr(bootstrap, "IS_MAC", mac)
+        assert bootstrap.requirements_fingerprint() == expected.hexdigest()
 
 
-def test_a_mac_never_reinstalls_without_the_locks_hashes(monkeypatch):
-    monkeypatch.setattr(bootstrap, "IS_MAC", True)
-    monkeypatch.setattr(bootstrap, "IS_WINDOWS", False)
-    monkeypatch.setattr(bootstrap, "_applicable_lock", lambda venv_py, log=None: None)
-    monkeypatch.setattr(bootstrap, "_run", lambda *a, **k: pytest.fail("an unhashed reinstall was attempted"))
-    assert bootstrap._force_reinstall(Path("/nonexistent/python"), "nltk", lambda line: None) is False
+def test_a_mac_installs_only_hash_checked_files_from_the_one_lock():
+    """v0.8.2 Phase 4: every artifact the base lock names for either platform carries its SHA-256 (uv refuses a file
+    whose hash differs), builds of the two source-only packages are hash-pinned too, and the Mac sync is --locked."""
+    import tomllib
 
-
-def test_a_mac_never_installs_without_the_locks_hashes(monkeypatch):
-    monkeypatch.setattr(bootstrap, "IS_MAC", True)
-    monkeypatch.setattr(bootstrap, "IS_WINDOWS", False)
-    monkeypatch.setattr(bootstrap, "_applicable_lock", lambda venv_py, log=None: None)
-    monkeypatch.setattr(bootstrap, "_pip", lambda *a, **k: pytest.fail("an unhashed pip install was attempted"))
-    lines = []
-    assert bootstrap.install_base_packages(Path("/nonexistent/python"), lines.append) is False
-    assert any("nothing was installed" in line for line in lines)
+    project = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    assert project["tool"]["uv"]["require-build-hashes"] is True
+    lock = tomllib.loads((REPO_ROOT / "uv.lock").read_text(encoding="utf-8"))
+    for package in lock["package"]:
+        for artifact in [*package.get("wheels", []), *([package["sdist"]] if "sdist" in package else [])]:
+            assert str(artifact.get("hash", "")).startswith("sha256:"), package["name"]
+    command = bootstrap.uv_runner.sync_command(REPO_ROOT, REPO_ROOT / ".venv", profile="user", offline=True,
+                                               platform="darwin")
+    assert "--locked" in command and command[command.index("--link-mode") + 1] == "clone"
 
 
 # --------------------------------------------------------------------------- #
@@ -469,7 +470,9 @@ def test_a_case_insensitive_apfs_volume_folds_case_and_the_answer_comes_from_the
 def test_the_launcher_uses_stage_0_and_never_homebrew_or_a_path_python():
     text = LAUNCHER.read_text(encoding="utf-8")
     code = "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
-    assert "bootstrap_host_macos.sh" in code and 'APP_PY="files/runtime-data/python/bin/python3.12"' in code
+    # v0.8.2 Phase 4: stage 0 names the interpreter it proved (uv's managed CPython) in a file; nothing is assumed.
+    assert "bootstrap_host_macos.sh" in code and 'APP_PY_FILE="files/temp/bootstrap/selected-python.txt"' in code
+    assert '--out-file "$APP_PY_FILE"' in code and 'APP_PY="$(cat "$APP_PY_FILE")"' in code
     for forbidden in (r"\bbrew\b", r"install\.sh", r"command -v", r"python3\.11", r"\bpython3\b(?!\.12)",
                       r"--headless", r"right-click"):
         assert not re.search(forbidden, code), forbidden
@@ -522,17 +525,33 @@ def test_on_a_mac_an_environment_whose_creation_was_cut_short_is_rebuilt(monkeyp
     assert (health.state, health.reason) == (bootstrap.VENV_REPAIRABLE, "incomplete")
 
 
+def _uv_built(venv: Path) -> None:
+    """v0.8.2 Phase 4: what uv writes for an environment on this copy's managed interpreter (uv installs no pip)."""
+    (venv / "pyvenv.cfg").write_text(
+        f"home = {bootstrap.uv_runner.managed_venv_home(bootstrap.REPO_ROOT)}\nuv = {bootstrap.uv_runner.UV_VERSION}\n"
+        "version_info = 3.12.15\ninclude-system-site-packages = false\n", encoding="utf-8")
+
+
 def test_a_finished_mac_environment_and_one_without_evidence_are_not_called_incomplete(monkeypatch, tmp_path):
-    _fake_venv(monkeypatch, tmp_path, site=True, pip=True)
+    venv = _fake_venv(monkeypatch, tmp_path, site=True, pip=True)
     monkeypatch.setattr(bootstrap, "IS_MAC", True)
+    assert bootstrap.assess_venv_health().reason == "legacy-environment", "pip-built: rebuilt by uv, not 'incomplete'"
+    _uv_built(venv)
     assert bootstrap.assess_venv_health().state == bootstrap.VENV_HEALTHY
     assert bootstrap.venv_creation_cut_short(tmp_path / "no-such-venv") is False
+
+
+def test_a_uv_environment_has_no_pip_and_is_never_called_incomplete(monkeypatch, tmp_path):
+    venv = _fake_venv(monkeypatch, tmp_path, site=True, pip=False)
+    monkeypatch.setattr(bootstrap, "IS_MAC", True)
+    _uv_built(venv)
+    assert bootstrap.assess_venv_health().state == bootstrap.VENV_HEALTHY
 
 
 def test_windows_health_does_not_apply_the_mac_rule(monkeypatch, tmp_path):
     _fake_venv(monkeypatch, tmp_path, site=True, pip=False)
     monkeypatch.setattr(bootstrap, "IS_MAC", False)
-    assert bootstrap.assess_venv_health().state == bootstrap.VENV_HEALTHY
+    assert bootstrap.assess_venv_health().reason == "legacy-environment", "rebuilt, for the general reason"
 
 
 @native

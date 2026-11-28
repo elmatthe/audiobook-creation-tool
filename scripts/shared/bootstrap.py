@@ -62,6 +62,11 @@ RESOURCES_DIR = FILES_DIR / "runtime-data"
 LOGS_DIR = RESOURCES_DIR / "logs"
 BIN_DIR = FILES_DIR / "bin"
 REQUIREMENTS_FILE = REPO_ROOT / "scripts" / "requirements.txt"
+#: v0.8.2 Phase 4: the base environment's project and lock, installed only through ``shared.uv_runner``. (The old
+#: ``scripts/requirements.txt`` and its hash locks stay for the gate's parity checks until Phase 6; setup no longer
+#: installs from them.)
+PYPROJECT_FILE = REPO_ROOT / "pyproject.toml"
+UV_LOCK_FILE = REPO_ROOT / "uv.lock"
 VENV_DIR = REPO_ROOT / ".venv"
 
 # The unified launcher (built in Phase 3). Until it exists, fall back to the
@@ -87,8 +92,6 @@ from shared import ffmpeg_portable  # noqa: E402
 from shared import venv_layout  # noqa: E402
 # v0.7.0 P04C: the locks that say a voice engine held inside the venv is in use. Standard library only, like the rest.
 from shared import engine_lease  # noqa: E402
-# v0.7.0 portability: the app environment's hash lock, verified package store and pip policy. Standard library only.
-from shared import base_packages  # noqa: E402
 # v0.7.0 portability: the Edge voices' English sentence data, verified and kept in the app's folder. Standard library.
 from shared import nltk_store  # noqa: E402
 # v0.7.0 acceptance D1/D3: whose Python the venv runs on, whether its packages are whole, a requested repair. Stdlib.
@@ -99,6 +102,9 @@ from shared import long_paths  # noqa: E402
 from shared import child_ownership  # noqa: E402
 # v0.8.x P4C: which voice engines this platform offers -- the wizard's choices on a Mac. Standard library only.
 from shared import engine_policy  # noqa: E402
+# v0.8.2 Phase 4: the one uv wrapper (pins, isolation, targets) and the resolver of this copy's two base interpreters.
+from shared import uv_runner  # noqa: E402
+from shared import app_python  # noqa: E402
 
 IS_WINDOWS = sys.platform.startswith("win")
 IS_MAC = sys.platform == "darwin"
@@ -114,12 +120,15 @@ for _stream in (sys.stdout, sys.stderr):
 # Python versions acceptable for the venv. Kokoro's PyPI wheels require <3.13,
 # so 3.12 is the sweet spot; 3.11 is also fine. 3.13+ works but loses Kokoro.
 PREFERRED_PY = ("3.12", "3.11")
-#: v0.7.0 portable layout (Windows): the app's own standalone CPython, placed by stage 0 (bootstrap_host.ps1) inside
-#: the app's folder. Outside .venv on purpose: a repair renames .venv aside while this interpreter runs the repair.
-#: v0.8.x P1A (owner decisions D1/D2): macOS has the same layout, placed by bootstrap_host_macos.sh, at
-#: python/bin/python3.12 -- the only Python a Mac's environment is ever built on.
-APP_PYTHON_DIR = FILES_DIR / "runtime-data" / "python"
-APP_PYTHON = APP_PYTHON_DIR / ("python.exe" if IS_WINDOWS else "bin/python3.12")
+#: v0.8.2 Phase 4: the app's own interpreter is the uv-managed CPython 3.12.15 (PBS 20261009) that stage 0
+#: (bootstrap_host.ps1 / bootstrap_host_macos.sh) installs from ACT's own verified archive into
+#: files/runtime-data/uv/python/<versioned folder>. Outside .venv on purpose: a repair sets .venv aside while this
+#: interpreter runs the repair. It is the only Python the app's environment is ever built on, on both platforms.
+APP_PYTHON_DIR = uv_runner.managed_python_home(REPO_ROOT)
+APP_PYTHON = uv_runner.managed_python(REPO_ROOT)
+#: The interpreter v0.7.0 to v0.8.1 placed in files/runtime-data/python (the same build). Never deleted or moved here:
+#: voice engines installed before Phase 4 run on it (transitional rule 2, ``shared.app_python``).
+LEGACY_APP_PYTHON = app_python.legacy(REPO_ROOT)
 
 # The project's full-feature range, in one place. 3.11 is the floor the project
 # supports; 3.13 is excluded because the pinned Kokoro/Chatterbox wheels require
@@ -258,10 +267,6 @@ def venv_python(windowed: bool = False) -> Path:
     return VENV_DIR / "bin" / "python"
 
 
-def venv_pip() -> list[str]:
-    return [str(venv_python()), "-m", "pip"]
-
-
 # ===========================================================================
 #  Requirements drift — binding an environment to the pins it was built from
 #
@@ -282,8 +287,15 @@ def venv_pip() -> list[str]:
 #  is never tracked, and it travels with the directory — so renaming an old
 #  environment back into place is correctly seen as stale rather than current.
 # ===========================================================================
-#: Filename of the per-environment requirements stamp, inside the venv.
-REQUIREMENTS_STATE_NAME = ".requirements-state.json"
+#: Filename of the per-environment receipt, inside the venv. v0.8.2 Phase 4: it is uv's environment receipt -- the
+#: lock identity (pyproject.toml + uv.lock), the interpreter identity, the installation profile, the distributions the
+#: sync installed and the health it proved -- written only after the RECORD check and the real import proof. (Until
+#: v0.8.1 it was ``.requirements-state.json``, a hash of requirements.txt; such an environment is a legacy one.)
+REQUIREMENTS_STATE_NAME = ".act-environment.json"
+RECEIPT_SCHEMA = 1
+#: The installation profile chosen for this copy, outside .venv so a rebuilt environment keeps it. Absent means the
+#: user profile; only ``bootstrap.py --profile dev`` writes "dev" (transitional rule 3: never inferred from pytest).
+PROFILE_FILE = RESOURCES_DIR / "environment-profile.json"
 
 #: Filename of the per-environment *import proof*, inside the venv. Deliberately
 #: a separate record from the requirements stamp, because it answers a different
@@ -364,6 +376,36 @@ def requirements_state_path() -> Path:
     return VENV_DIR / REQUIREMENTS_STATE_NAME
 
 
+def selected_profile() -> str:
+    """The profile this copy is to have: ``"dev"`` only when a developer chose it explicitly, else ``"user"``."""
+    try:
+        payload = json.loads(PROFILE_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return uv_runner.PROFILE_USER
+    profile = payload.get("profile") if isinstance(payload, dict) else None
+    return profile if profile in uv_runner.PROFILES else uv_runner.PROFILE_USER
+
+
+def select_profile(profile: str) -> None:
+    """Record an explicit profile choice (``bootstrap.py --profile``). The user profile is recorded by removing the
+    file, so a copy that never chose anything and one that chose "user" are the same."""
+    if profile not in uv_runner.PROFILES:
+        raise ValueError(f"unknown profile {profile!r}")
+    if profile == uv_runner.PROFILE_USER:
+        PROFILE_FILE.unlink(missing_ok=True)
+        return
+    PROFILE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    PROFILE_FILE.write_text(json.dumps({"profile": profile, "chosen_at": time.strftime("%Y-%m-%dT%H:%M:%S")},
+                                       indent=2), encoding="utf-8")
+
+
+def _interpreter_record() -> dict:
+    """The managed interpreter the receipt binds to: its folder, uv's BUILD stamp and the pinned archive."""
+    pins = uv_runner.pins()
+    return {"home": str(uv_runner.managed_venv_home(REPO_ROOT)), "build": uv_runner.interpreter_build(REPO_ROOT),
+            "archive_sha256": pins.python_sha256, "sys_version": pins.python_sys_version}
+
+
 def import_proof_path() -> Path:
     return VENV_DIR / IMPORT_PROOF_NAME
 
@@ -434,63 +476,95 @@ def import_proof_is_current() -> bool:
 
 
 def requirements_fingerprint() -> str:
-    """SHA-256 of ``requirements.txt`` and, when there is one, the dependency lock beside it. Empty string when
-    there is no requirements file.
+    """SHA-256 of the base project (``pyproject.toml``) and its lock (``uv.lock``), line endings normalised. Empty
+    string when either is missing.
 
-    Hashing the files' bytes — rather than a parsed package list — means any
-    change that could affect an install (a pin, a marker, an added or removed
-    line, a locked transitive version or hash) counts as drift, with no parser to
-    disagree with pip. Without a lock the value is exactly the requirements
-    file's hash, as before.
+    Hashing the files rather than a parsed package list means any change that could affect an install (a pin, a
+    marker, a locked transitive version or hash, an index) counts as drift, with no parser to disagree with uv.
     """
     try:
-        digest = hashlib.sha256(REQUIREMENTS_FILE.read_bytes())
+        project = PYPROJECT_FILE.read_bytes().replace(b"\r\n", b"\n")
+        lock = UV_LOCK_FILE.read_bytes().replace(b"\r\n", b"\n")
     except OSError:
         return ""
-    lock = base_packages.lock_path(REQUIREMENTS_FILE)
-    try:
-        lock_bytes = lock.read_bytes()
-    except FileNotFoundError:
-        return digest.hexdigest()
-    except OSError:
-        lock_bytes = b"\0unreadable"  # never equal to a stamp, so it is reconciled (and that reports the problem)
-    digest.update(b"\0" + lock.name.encode("ascii") + b"\0" + lock_bytes)
+    digest = hashlib.sha256(project)
+    digest.update(b"\0uv.lock\0" + lock)
     return digest.hexdigest()
 
 
-def requirements_are_current() -> bool:
-    """True when this environment was already reconciled against these pins.
+def read_receipt() -> Optional[dict]:
+    """The environment's receipt, or None when there is none or it cannot be read as one."""
+    try:
+        payload = json.loads(requirements_state_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return payload if isinstance(payload, dict) and payload.get("schema") == RECEIPT_SCHEMA else None
 
-    A missing, unreadable, malformed or mismatched stamp all mean the same
-    thing — reconcile once — because none of them is evidence of success.
+
+def requirements_are_current() -> bool:
+    """True when this environment's receipt says it was synced and proved for exactly this lock, this interpreter,
+    this uv and the profile this copy is to have.
+
+    A missing, unreadable, malformed or mismatched receipt all mean the same thing -- sync once -- because none of
+    them is evidence of success. Cheap: two small file reads and one hash, no subprocess.
     """
     fingerprint = requirements_fingerprint()
     if not fingerprint:
-        return True  # nothing to reconcile against; never loop on pip
-    try:
-        payload = json.loads(requirements_state_path().read_text(encoding="utf-8"))
-        return payload.get("requirements_sha256") == fingerprint
-    except (OSError, ValueError, AttributeError):
+        return True  # nothing to sync against; never loop on uv
+    receipt = read_receipt()
+    if receipt is None or receipt.get("requirements_sha256") != fingerprint:
         return False
+    if receipt.get("uv") != uv_runner.UV_VERSION or receipt.get("profile") != selected_profile():
+        return False
+    recorded = receipt.get("interpreter")
+    current = _interpreter_record()
+    return isinstance(recorded, dict) and current["build"] is not None and all(
+        recorded.get(key) == current[key] for key in ("home", "build", "archive_sha256", "sys_version"))
 
 
-def record_requirements_state() -> None:
-    """Stamp this environment as reconciled. **Only ever call after success.**"""
+def receipt_distributions() -> tuple[str, ...]:
+    """The distributions the receipt's sync installed (``name==version``), when the receipt is current; else ()."""
+    if not requirements_are_current():
+        return ()
+    receipt = read_receipt() or {}
+    names = receipt.get("distributions")
+    return tuple(str(name) for name in names) if isinstance(names, list) else ()
+
+
+def invalidate_receipt() -> None:
+    """Withdraw the receipt and the import proof before anything changes the environment: an interrupted sync must
+    never leave a success record behind (Phase 4)."""
+    for path in (requirements_state_path(), import_proof_path()):
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def record_requirements_state(*, distributions: Optional[list] = None, health: Optional[dict] = None) -> None:
+    """Write the receipt. **Only ever call after the sync, the RECORD check and the real import proof succeeded.**"""
     fingerprint = requirements_fingerprint()
     if not fingerprint:
         return
+    receipt = {
+        "schema": RECEIPT_SCHEMA,
+        "manager": "uv",
+        "uv": uv_runner.UV_VERSION,
+        "requirements_sha256": fingerprint,
+        "lock": uv_runner.lock_identity(REPO_ROOT),
+        "interpreter": _interpreter_record(),
+        "profile": selected_profile(),
+        "distributions": sorted(distributions or []),
+        "health": health or {},
+        "recorded_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
     try:
         requirements_state_path().parent.mkdir(parents=True, exist_ok=True)
-        requirements_state_path().write_text(
-            json.dumps({
-                "requirements_sha256": fingerprint,
-                "requirements_file": str(REQUIREMENTS_FILE),
-                "recorded_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
-            }, indent=2),
-            encoding="utf-8",
-        )
+        temporary = requirements_state_path().with_name(f"{REQUIREMENTS_STATE_NAME}.{os.getpid()}.tmp")
+        temporary.write_text(json.dumps(receipt, indent=2), encoding="utf-8")
+        os.replace(temporary, requirements_state_path())
     except OSError:
-        pass  # an unstamped environment reconciles again; that is safe, not fatal
+        pass  # an environment without a receipt is synced again; that is safe, not fatal
 
 
 # Outcomes of ``reconcile_requirements``. Callers word them for their own
@@ -502,7 +576,7 @@ RECONCILE_IMPORT_FAILED = "import"
 
 
 def reconcile_requirements(log: "SetupLog") -> tuple[bool, str]:
-    """Install the pins, prove they import, and **only then** stamp success.
+    """Sync the pins, prove the installed files and the imports, and **only then** write the receipt.
 
     This is the single owner of the pip → validate → stamp sequence, and the only
     place in this module that calls ``record_requirements_state``. It exists
@@ -520,22 +594,263 @@ def reconcile_requirements(log: "SetupLog") -> tuple[bool, str]:
 
     Returns ``(ok, reason)`` where ``reason`` is one of the ``RECONCILE_*``
     constants.
+
+    v0.8.2 Phase 4: the installer is ``uv sync --locked`` (:func:`install_requirements`), and a uv exit of 0 proves
+    nothing about the files on disk (Phase 3A/3B: an interrupted or cache-poisoned sync leaves damage ``uv sync
+    --check`` does not see). So the receipt is withdrawn before anything changes, and written only after every
+    installed file has matched its RECORD (:func:`prove_installed_files`) and every required module really imported.
     """
-    if not pip_install_requirements(log):
+    invalidate_receipt()
+    if not install_requirements(log):
         return False, RECONCILE_PIP_FAILED
-    # pip exiting 0 is not proof that anything imports — a partial wheel, an ABI
-    # mismatch or a clobbered install all exit 0. Prove it by importing.
+    # uv exiting 0 is not proof that the files are whole or that anything imports — an interrupted sync, a damaged
+    # cache, a partial wheel or an ABI mismatch all exit 0. Prove the files, then import (``_prove_and_record``); the
+    # receipt and the import proof are written only after both.
+    return _prove_and_record(log)
+
+
+class _LineLog:
+    """Gives a plain ``log(text)`` callable the ``.line`` a :class:`SetupLog` has."""
+
+    def __init__(self, log: Callable[[str], None]) -> None:
+        self.line = log
+
+
+def repair_base_packages(names: tuple, log: Callable[[str], None]) -> bool:
+    """A targeted repair of the base environment that ends exactly like any sync: the named distributions and every
+    package failing its RECORD check are reinstalled (offline from the repair cache first), every installed file is
+    proved, the required imports are proved, and only then is the receipt written again."""
+    invalidate_receipt()
+    sink = _LineLog(log)
+    damaged = tuple(sorted(venv_integrity.record_damage(VENV_DIR)))
+    if not sync_base_packages(log, reinstall=tuple(names) + damaged):
+        return False
+    ok, _reason = _prove_and_record(sink)
+    return ok
+
+
+def _prove_and_record(log) -> tuple[bool, str]:
+    """The tail every sync shares: RECORD proof, import proof, receipt, import proof record, kept spaCy model."""
+    if not prove_installed_files(log):
+        return False, RECONCILE_PIP_FAILED
+    before = _REINSTALLS[0]
     if not validate_installed_packages(log):
         return False, RECONCILE_IMPORT_FAILED
-    record_requirements_state()
-    # ``validate_installed_packages`` just imported every required module for
-    # real, so this environment is proved as of now. Recording that here is what
-    # stops a freshly reconciled machine from re-proving on its very next launch.
+    if _REINSTALLS[0] != before and not prove_installed_files(log):
+        return False, RECONCILE_PIP_FAILED  # what the import repair reinstalled is proved too
+    record_requirements_state(distributions=venv_integrity.installed_distributions(VENV_DIR),
+                              health={"record": "ok", "imports": "ok", "proved_at": time.time()})
     record_import_proof()
     restore_kept_spacy_model(log)
-    # Build the launch check's file list now, from the packages just proved, so the first launch reads a cached one.
     venv_integrity.package_damage(VENV_DIR)
     return True, RECONCILE_OK
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+#  The base environment's installer: uv, through shared.uv_runner (v0.8.2 Phase 4)
+# ---------------------------------------------------------------------------------------------------------------------
+#: POSIX: uv is not a Python program, so the contained runner (:func:`_pip`, which adds ACT's lifeline) starts this
+#: one-line Python parent for it; uv runs as its child in the same process group and ends with it.
+_UV_PARENT = "import subprocess, sys; sys.exit(subprocess.call(sys.argv[1:]))"
+#: What uv prints (lower-cased here) when an offline run needed a file its cache does not hold. uv 0.13.10, seen on the
+#: Phase 4 fresh-copy run: "Network connectivity is disabled, but the requested data wasn't found in the cache: <url>";
+#: and, for metadata, "<package> was not found in the cache".
+_OFFLINE_MISSING_MARKERS = ("network connectivity is disabled", "wasn't found in the cache", "not found in the cache")
+#: About how much a sync of the base environment downloads when the repair cache is empty (Phase 3A/3B measurements).
+BASE_DOWNLOAD_ESTIMATE = "about 500 MB" if IS_WINDOWS else "about 350 MB"
+#: Who answers "may setup download?": None asks the person (a repair or a launch); setup itself sets True, because
+#: starting the first-run installation is the consent to download what it installs (as it always has been).
+_DOWNLOAD_ALLOWED: Optional[bool] = None
+
+
+def allow_downloads(allowed: Optional[bool]) -> None:
+    global _DOWNLOAD_ALLOWED
+    _DOWNLOAD_ALLOWED = allowed
+
+
+#: Who asks the download question for work running on a worker thread: the window that owns the main thread
+#: (:func:`show_repair_dialog`) installs it for the time it runs. Tk is never created off the main thread -- a Tk root
+#: made and destroyed on a worker while the main thread runs Tk ends the process inside Tcl.
+_CONSENT_ASKER: Optional[Callable[[str], bool]] = None
+CONSENT_TITLE = "Audiobook Creation Tool - download components"
+
+
+def _ask_download_consent(log: Callable[[str], None], why: str) -> bool:
+    """Ask once before going online. A window when Tk works, the console when there is one, else no."""
+    if _DOWNLOAD_ALLOWED is not None:
+        return _DOWNLOAD_ALLOWED
+    question = (f"{why}\n\nDownload them now ({BASE_DOWNLOAD_ESTIMATE} at most, from the Python Package Index; kept "
+                "inside this folder so later repairs work offline)?\n\nChoose No to leave everything as it is.")
+    answer: Optional[bool] = None
+    if threading.current_thread() is not threading.main_thread():
+        asker = _CONSENT_ASKER
+        try:
+            answer = bool(asker(question)) if asker is not None else False
+        except Exception:  # noqa: BLE001 - no answer is a No
+            answer = False
+    else:
+        try:
+            import tkinter
+            from tkinter import messagebox
+
+            root = tkinter.Tk()
+            root.withdraw()
+            try:
+                answer = bool(messagebox.askyesno(CONSENT_TITLE, question, parent=root))
+            finally:
+                root.destroy()
+        except Exception:  # noqa: BLE001 - no display or no Tk: fall back to the console
+            answer = None
+    if answer is None and sys.stdin is not None and sys.stdin.isatty():
+        try:
+            answer = input(question + " [y/N] ").strip().lower().startswith("y")
+        except (EOFError, OSError):
+            answer = False
+    log("  Download " + ("allowed." if answer else "declined; nothing was downloaded."))
+    return bool(answer)
+
+
+def _uv(command: list[str], *, offline: bool, log: Callable[[str], None], env_dir: Optional[Path]
+        ) -> tuple[int, list[str]]:
+    """Run one uv command with its output streamed to ``log``; ``(exit code, output lines)``. Stop and ownership are
+    :func:`_pip`'s; the contained environment and the operation's own scratch are ``uv_runner``'s."""
+    lines: list[str] = []
+
+    def keep(line: str) -> None:
+        lines.append(line)
+        log(line)
+
+    try:
+        with uv_runner.Operation(REPO_ROOT) as operation:
+            env = uv_runner.environment(REPO_ROOT, operation, offline=offline, env_dir=env_dir)
+            argv = [sys.executable, "-I", "-c", _UV_PARENT, *command] if _contained() else list(command)
+            return _pip(argv, env, keep), lines
+    except (OSError, uv_runner.TargetRefused) as exc:
+        log(f"  ERROR: uv could not be run: {exc}")
+        return -1, lines
+
+
+def in_place_sync_problem() -> str:
+    """Why uv must not sync ``.venv`` where it stands, or ``""``.
+
+    uv deletes the whole environment when it decides to recreate it (an interpreter it cannot use), and with it every
+    voice engine still held in ``.venv/engines`` (Phase 3A/3B). It is therefore only ever run on an environment proved
+    to be uv's own, on exactly this copy's managed interpreter, whose interpreter is there; anything else is rebuilt
+    through the set-aside transaction (:class:`VenvReplacement`), which carries the engines across."""
+    if not VENV_DIR.exists():
+        return ""
+    if not uv_runner.built_by_uv(VENV_DIR):
+        return "it was not built by uv (an environment from an earlier version)"
+    problem = uv_runner.home_problem(REPO_ROOT, VENV_DIR)
+    if problem:
+        return problem
+    if not venv_python().is_file() or not APP_PYTHON.is_file():
+        return "its interpreter is missing"
+    return ""
+
+
+#: How many targeted reinstalls this process has run (so a proof knows when files changed under it).
+_REINSTALLS = [0]
+#: Whether uv really synced in this process since the last prune (only then is there anything to tidy).
+_SYNCED = [False]
+#: What to do when this copy's uv is missing or not the pinned program: stage 0 (the launcher's first step) installs and
+#: proves it on every launch, so this only happens when the app was started some other way.
+_UV_FROM_LAUNCHER = ("The launcher's first step installs and checks the app's pinned uv: start the app from "
+                     "Setup_and_Run.")
+
+
+def sync_base_packages(log: Callable[[str], None], *, reinstall: tuple = (), refresh: tuple = ()) -> bool:
+    """``uv sync --locked`` of ``.venv`` for this copy's profile: offline from the repair cache first, and online only
+    with consent when the cache lacks something. ``reinstall`` names packages to reinstall from the cache (a targeted
+    repair); ``refresh`` names packages whose cached files are fetched again (a damaged cache, online only): after the
+    consent, and only then, their cache entries are removed (``uv cache clean <names>``) so uv must download them."""
+    for path in (PYPROJECT_FILE, UV_LOCK_FILE):
+        if not path.is_file():
+            log(f"  ERROR: {path.name} not found at {path}")
+            return False
+    problem = in_place_sync_problem()
+    if problem:
+        log(f"  [!!] The environment was not synced where it stands: {problem}. It is rebuilt by a repair instead.")
+        return False
+    profile = selected_profile()
+    if reinstall or refresh:
+        _REINSTALLS[0] += 1
+    uv_problem = uv_runner.uv_problem(REPO_ROOT)
+    if uv_problem:
+        log(f"  ERROR: {uv_problem}. {_UV_FROM_LAUNCHER}")
+        return False
+    if not refresh:
+        command = uv_runner.sync_command(REPO_ROOT, VENV_DIR, profile=profile, offline=True, reinstall_packages=reinstall)
+        code, lines = _uv(command, offline=True, log=log, env_dir=VENV_DIR)
+        if code in (0, PIP_STOPPED):
+            _SYNCED[0] = _SYNCED[0] or code == 0
+            return code == 0
+        if not any(marker in line.lower() for line in lines for marker in _OFFLINE_MISSING_MARKERS):
+            log(f"  [!!] uv could not install the packages (exit {code}).")
+            return False
+        why = "Some of the app's Python packages are not kept on this computer yet, so they cannot be installed offline."
+    else:
+        why = "Some of the app's kept package files are damaged and must be downloaded again."
+    if not _ask_download_consent(log, why):
+        log("  The packages were not installed: downloading them was not allowed. Nothing else was changed.")
+        return False
+    if refresh:
+        code, _lines = _uv(uv_runner.cache_clean_command(REPO_ROOT, refresh), offline=True, log=log, env_dir=None)
+        if code != 0:
+            log(f"  [!!] uv could not remove the damaged kept files (exit {code}); nothing was downloaded.")
+            return False
+    command = uv_runner.sync_command(REPO_ROOT, VENV_DIR, profile=profile, offline=False,
+                                     reinstall_packages=tuple(reinstall) + tuple(refresh), refresh_packages=refresh)
+    code, _lines = _uv(command, offline=False, log=log, env_dir=VENV_DIR)
+    _SYNCED[0] = _SYNCED[0] or code == 0
+    return code == 0
+
+
+def install_requirements(log: "SetupLog") -> bool:
+    """Install the app environment's packages (setup, repair and the drift reconcile all come here): one locked uv
+    sync of the whole profile. Nothing else installs into the base environment (Phase 4: uv is its only installer)."""
+    log.line("Installing Python packages (this is the slowest step — "
+             "Kokoro/torch are large)…")
+    if not sync_base_packages(log.line):
+        return False
+    log.line("  All packages installed.")
+    _prune_cache(log)
+    return True
+
+
+def prove_installed_files(log: "SetupLog") -> bool:
+    """Every installed file against its distribution's RECORD (presence, size, SHA-256). Damage is reinstalled from
+    the cache once; damage that survives that came from damaged cached files, which are fetched again (online, with
+    consent). False -- and so no receipt -- whenever anything is still wrong."""
+    for attempt in ("cache", "refresh", None):
+        damaged = venv_integrity.record_damage(VENV_DIR)
+        if not damaged:
+            log.line("  Every installed file matches its record.")
+            return True
+        shown = "; ".join(f"{name}: {why}" for name, why in list(damaged.items())[:4])
+        log.line(f"  [!!] Installed files do not match their records ({len(damaged)} package(s): {shown}).")
+        if attempt is None:
+            return False
+        names = tuple(sorted(damaged))
+        if attempt == "cache":
+            log.line("  Reinstalling them from the files kept on this computer…")
+            ok = sync_base_packages(log.line, reinstall=names)
+        else:
+            log.line("  They were damaged in the kept files themselves; fetching them again…")
+            ok = sync_base_packages(log.line, refresh=names)
+        if not ok:
+            return False
+    return False
+
+
+def _prune_cache(log: "SetupLog") -> None:
+    """``uv cache prune`` after a successful sync: only entries nothing refers to are removed. Never fatal."""
+    if not _SYNCED[0] or uv_runner.uv_problem(REPO_ROOT):
+        return
+    _SYNCED[0] = False
+    code, _lines = _uv(uv_runner.cache_prune_command(REPO_ROOT), offline=True, log=lambda line: None, env_dir=None)
+    if code != 0:
+        log.line(f"  (The package cache could not be tidied, exit {code}; nothing depends on it.)")
 
 
 #: Run in the app environment's interpreter: the installed spaCy and spaCy English model versions, as one JSON line.
@@ -588,12 +903,18 @@ def restore_kept_spacy_model(log: "SetupLog") -> bool:
              "(nothing is downloaded)…")
     try:
         requirement.write_text(store.requirement_line(wheel), encoding="utf-8")
-        env = {k: v for k, v in os.environ.items() if not k.upper().startswith("PIP_")}
-        env["PIP_CONFIG_FILE"] = os.devnull
-        proc = _child_run(store.offline_install_command(py, requirement), capture_output=True,
+        if uv_runner.built_by_uv(VENV_DIR):
+            # v0.8.2 Phase 4: a uv environment has no pip; uv installs the one verified local wheel, offline.
+            code, _lines = _uv(uv_runner.pip_install_command(REPO_ROOT, py, requirement), offline=True,
+                               log=lambda line: None, env_dir=None)
+            ok = code == 0
+        else:
+            env = {k: v for k, v in os.environ.items() if not k.upper().startswith("PIP_")}
+            env["PIP_CONFIG_FILE"] = os.devnull
+            proc = _child_run(store.offline_install_command(py, requirement), capture_output=True,
                               text=True, env=env, cwd=str(requirement.parent), timeout=600, **_hidden())
-        ok = proc.returncode == 0
-    except (OSError, subprocess.SubprocessError):
+            ok = proc.returncode == 0
+    except (OSError, subprocess.SubprocessError, uv_runner.TargetRefused):
         ok = False
     finally:
         try:
@@ -605,10 +926,10 @@ def restore_kept_spacy_model(log: "SetupLog") -> bool:
 
 
 def ensure_requirements_current(log: "SetupLog") -> tuple[bool, str]:
-    """Reconcile this environment with ``requirements.txt`` if the pins changed.
+    """Reconcile this environment with the base project's lock (``pyproject.toml`` + ``uv.lock``) if it changed.
 
     Returns ``(ok, message)``. The environment is **never** deleted or recreated:
-    a changed pin costs one ``pip install -r``, not a rebuild. Weights are not
+    a changed pin costs one locked ``uv sync``, not a rebuild. Weights are not
     touched — package repair and the optional model pre-downloads stay separate,
     so a new pin can never trigger a multi-gigabyte surprise download.
 
@@ -619,7 +940,7 @@ def ensure_requirements_current(log: "SetupLog") -> tuple[bool, str]:
         return True, "Dependencies match the installed requirements."
 
     log.line("Dependencies have changed since this environment was set up — "
-             "reconciling it with scripts/requirements.txt…")
+             "reconciling it with the app's package lock (uv.lock)…")
     ok, reason = reconcile_requirements(log)
     if not ok:
         return False, _reconcile_launch_message(reason)
@@ -751,8 +1072,8 @@ TK_PROOF_TIMEOUT_S = 30
 _NO_DISPLAY_MARKERS = ("no display name", "couldn't connect to display", "cannot open display")
 
 _VENV_PROBE = (
-    "import json, sys\n"
-    "d = {'version': list(sys.version_info[:3])}\n"
+    "import json, platform, sys\n"
+    "d = {'version': list(sys.version_info[:3]), 'sys_version': sys.version, 'machine': platform.machine()}\n"
     "try:\n"
     "    import ssl  # noqa: F401\n"
     "    d['ssl'] = True\n"
@@ -796,6 +1117,8 @@ def probe_venv(venv_py: Path) -> Optional[dict]:
             "ssl": bool(payload["ssl"]),
             "tk": bool(payload["tk"]),
             "tk_error": str(payload.get("tk_error") or ""),
+            "sys_version": str(payload.get("sys_version") or ""),
+            "machine": str(payload.get("machine") or ""),
         }
     except Exception:
         return None
@@ -834,12 +1157,32 @@ def assess_venv_health(*, require_tk: bool = True,
             "copy's own Python, from the package files kept in this folder.",
             version=version, ssl=has_ssl, tk=has_tk, executes=True)
 
-    if IS_MAC and venv_creation_cut_short():
-        # v0.8.x P1A: its creation was interrupted before pip was installed: rebuilt, never filled in place.
+    if IS_MAC and not uv_runner.built_by_uv(VENV_DIR) and venv_creation_cut_short():
+        # v0.8.x P1A: its creation was interrupted before pip was installed: rebuilt, never filled in place. (Checked
+        # before the general rule below, which rebuilds it too, so the person is told the more precise reason.)
         return VenvHealth(
             VENV_REPAIRABLE, "incomplete",
             "The environment's creation was interrupted before it finished (pip was never installed into it). It is "
             "rebuilt on the app's own Python.",
+            version=version, ssl=has_ssl, tk=has_tk, executes=True)
+
+    if not uv_runner.built_by_uv(VENV_DIR):
+        # v0.8.2 Phase 4: an environment pip built (v0.8.1 and earlier). Rebuilt by uv through the set-aside
+        # transaction, which carries any voice engine held in it across at the same path; models, settings and books
+        # are outside the environment and are not touched.
+        return VenvHealth(
+            VENV_REPAIRABLE, "legacy-environment",
+            "This environment was built by an earlier version of the app. It is rebuilt with the app's own pinned "
+            "tools; voice engines, models, settings and books are kept.",
+            version=version, ssl=has_ssl, tk=has_tk, executes=True)
+
+    mismatch = uv_runner.home_problem(REPO_ROOT, VENV_DIR)
+    if mismatch:
+        # Built by uv, but not on exactly this copy's managed interpreter (a moved or copied folder, a link-recorded
+        # home): rebuilt, never synced in place (uv would recreate it and take any held engine with it).
+        return VenvHealth(
+            VENV_REPAIRABLE, "interpreter-mismatch",
+            f"The environment does not run on the app's own Python ({mismatch}). It is rebuilt.",
             version=version, ssl=has_ssl, tk=has_tk, executes=True)
 
     if not has_ssl:
@@ -899,12 +1242,12 @@ def assess_venv_health(*, require_tk: bool = True,
 
     damage = venv_integrity.package_damage(VENV_DIR, required=_locked_distributions(version))
     if damage:
-        # v0.7.0 acceptance D3: files gone below intact metadata pass every other cheap check, and pip calls them
-        # "already satisfied", so only a rebuild from the verified store mends them.
+        # v0.7.0 acceptance D3: files gone below intact metadata pass every other cheap check. v0.8.2 Phase 4: the
+        # repair reinstalls the damaged packages in place from the repair cache first, and rebuilds only if that fails.
         return VenvHealth(
             VENV_REPAIRABLE, "damaged-packages",
-            "Some of the app's Python packages are missing or damaged (" + "; ".join(damage) + "). The "
-            "environment is rebuilt from the package files kept in this folder.",
+            "Some of the app's Python packages are missing or damaged (" + "; ".join(damage) + "). They are "
+            "reinstalled from the package files kept in this folder.",
             version=version, ssl=True, tk=has_tk, executes=True)
 
     return VenvHealth(VENV_HEALTHY, "ok", "The environment is healthy.",
@@ -912,15 +1255,9 @@ def assess_venv_health(*, require_tk: bool = True,
 
 
 def _locked_distributions(version: Optional[tuple]) -> tuple[str, ...]:
-    """Names of every locked package, when the lock describes this environment and it was reconciled against it --
-    so each one must be installed. Empty otherwise (nothing then says what must be there)."""
-    lock = base_packages.lock_path(REQUIREMENTS_FILE)
-    if not base_packages.lock_applies(version) or not requirements_are_current():
-        return ()
-    try:
-        return tuple(entry.name for entry in base_packages.parse_lock(lock.read_text(encoding="utf-8")).entries)
-    except (OSError, base_packages.LockError):
-        return ()
+    """Names of every package the environment's current receipt says its sync installed -- so each one must still be
+    installed. Empty without a current receipt (nothing then says what must be there; the launch syncs first)."""
+    return tuple(entry.split("==", 1)[0] for entry in receipt_distributions())
 
 
 # ===========================================================================
@@ -931,6 +1268,8 @@ def _locked_distributions(version: Optional[tuple]) -> tuple[str, ...]:
 # the optional ~300 MB model weights pre-download (gated by the first-run
 # checkbox / --skip-kokoro-download). torch is pulled in transitively by kokoro.
 KOKORO_PKGS = ["kokoro==0.9.4", "soundfile==0.13.1", "scipy==1.17.1"]
+#: The distributions a Kokoro self-heal reinstalls (with whatever else fails its RECORD check).
+KOKORO_DISTS = ("kokoro", "misaki", "soundfile", "scipy")
 
 # Every Kokoro subprocess this module launches opens with these lines. Building a
 # KPipeline is what first initializes eSpeak NG in native code, and on an
@@ -1145,18 +1484,18 @@ def ensure_kokoro_installed(venv_py: Path, log: Callable[[str], None]) -> Option
     packages installed but the proof could not finish: unverified, so neither claimed as working nor recorded as a
     failed repair (the next launch proves again; an unfinished proof is never a reason to reinstall).
 
-    This is the *self-heal* path: it installs into the venv that already exists (never --user, never system
-    site-packages), through :func:`install_base_packages` -- the dependency lock where it applies, else the
-    authoritative requirements file -- never a hand-kept package list, so every qualified constraint applies, notably
-    ``srsly==2.5.3``, which a resolver left to itself replaced with a build Smart App Control blocks. ``log`` is the
-    same callable the rest of the bootstrap uses, so output is tee'd to the setup log and the repair dialog's live log
-    pane. The result is recorded, so a failed repair is not repeated on every launch. No model weights are downloaded
-    here.
+    This is the *self-heal* path: it reinstalls into the venv that already exists, through the base environment's
+    one installer (v0.8.2 Phase 4: a locked uv sync that reinstalls the Kokoro stack and anything whose files no
+    longer match their RECORD, offline from the repair cache first), never a hand-kept package list, so every
+    qualified pin applies, notably ``srsly==2.5.3``, which a resolver left to itself replaced with a build Smart App
+    Control blocks. The receipt is proved again by the same rules as any sync. ``log`` is the same callable the rest of
+    the bootstrap uses, so output is tee'd to the setup log and the repair dialog's live log pane. The result is
+    recorded, so a failed repair is not repeated on every launch. No model weights are downloaded here.
     """
     log("Repairing the Kokoro voice components…")
     try:
-        if not install_base_packages(venv_py, log):
-            record_kokoro_proof(False, "pip could not install the Kokoro components", after_repair=True)
+        if not repair_base_packages(KOKORO_DISTS, log):
+            record_kokoro_proof(False, "the Kokoro components could not be reinstalled", after_repair=True)
             return False
         present, reason = kokoro_packages_present(venv_py)
         if not present:
@@ -1243,14 +1582,13 @@ def ensure_chatterbox_installed(venv_py: Path, log: Callable[[str], None]) -> bo
     """Install the pinned Chatterbox stack into the existing venv.
 
     Same self-heal shape as ``ensure_kokoro_installed``: into the venv that already
-    exists, never --user, never system site-packages, through the one package
-    installer (:func:`install_base_packages`), whose lock -- or requirements file --
-    carries every pin in ``CHATTERBOX_PKGS``.
+    exists, through the base environment's one installer (a locked uv sync that
+    reinstalls ``CHATTERBOX_PKGS`` and anything whose files fail their RECORD).
     """
     log(f"Installing the Chatterbox stack into the app environment ({' '.join(CHATTERBOX_PKGS)} and their locked "
         "dependencies)")
     try:
-        if not install_base_packages(venv_py, log):
+        if not repair_base_packages(("chatterbox-tts", "setuptools"), log):
             return False
         ok, reason = chatterbox_is_healthy(venv_py)
         log(f"Post-install health-check: {reason}")
@@ -1278,7 +1616,11 @@ def ensure_chatterbox_installed(venv_py: Path, log: Callable[[str], None]) -> bo
 #: own stricter limit, applied only to its own install: ``tts.omnivoice_runtime.install_depth_problem``.)
 DEEPEST_NATIVE_LIBRARY_CHARS = 136
 #: The deepest file of any kind (165 characters, in .venv/engines/qwen3) plus a margin: the limit for every file when
-#: Windows long-path support is switched off (its default on many computers).
+#: Windows long-path support is switched off (its default on many computers). v0.8.2 Phase 4, measured 2026-11-27 on
+#: this exact lock: a uv-built .venv reaches 155 (native 120), the managed Python 164 (a pip .pyc it never imports).
+#: The repair cache reaches 171 (a torch header under files\runtime-data\uvc\archive-v0\<entry>\; natives 147), but
+#: only uv reads or writes it, and uv (Rust) switches to \\?\ paths by itself past MAX_PATH; nothing in the app's
+#: Python opens or removes a file in it (a test holds that), so it is outside this budget.
 DEEPEST_FILE_CHARS = 172
 WINDOWS_MAX_PATH = 259
 
@@ -1511,35 +1853,11 @@ def _candidate_interpreters() -> list[list[str]]:
     ``C:\\Program Files\\Python312\\python.exe`` into two arguments and make a
     machine-scope Python undiscoverable.
     """
-    cands: list[list[str]] = []
-    if IS_WINDOWS:
-        # v0.7.0: the app's own Python first, so a rebuilt environment never comes to depend on a Python that merely
-        # happens to be installed on this computer.
-        cands.append([str(APP_PYTHON)])
-        # The py launcher can target an exact version.
-        for ver in PREFERRED_PY:
-            cands.append(["py", f"-{ver}"])
-        # Common per-user winget / python.org install locations.
-        local = os.environ.get("LOCALAPPDATA", "")
-        progfiles = os.environ.get("ProgramFiles", r"C:\Program Files")
-        for ver in PREFERRED_PY:
-            tag = ver.replace(".", "")
-            if local:
-                cands.append([str(Path(local) / "Programs" / "Python"
-                                  / f"Python{tag}" / "python.exe")])
-            cands.append([str(Path(progfiles) / f"Python{tag}" / "python.exe")])
-        cands.append(["python"])
-    elif IS_MAC:
-        # v0.8.x P1A (owner decisions D1/D2): the app's own Python and nothing else. A PATH or Homebrew Python is
-        # never a base for the app's environment on a Mac (and PATH's python3 may be Apple's developer-tool shim).
-        cands.append([str(APP_PYTHON)])
-    else:
-        for ver in PREFERRED_PY:
-            cands.append([f"python{ver}"])
-        for ver in PREFERRED_PY:
-            cands.append([f"/usr/local/bin/python{ver}"])
-        cands.append(["python3"])
-    return cands
+    # v0.8.2 Phase 4: the app's own uv-managed Python and nothing else, on every platform. uv builds the environment
+    # only on it (``--python 3.12.15`` with managed Pythons only), so a Python that merely happens to be installed on
+    # this computer -- the py launcher, PATH, python.org, Homebrew -- is never a base any more (this retires the
+    # Windows PATH fallback and the unhashed pip route for an interpreter the lock did not describe).
+    return [[str(APP_PYTHON)]]
 
 
 def _is_path_like(token: str) -> bool:
@@ -1580,8 +1898,9 @@ def find_suitable_python(log: SetupLog, prefer_tk: bool = True) -> Optional[list
       3. A full-feature Python that lacks Tk (the GUI may then be unavailable).
       4. Any 3.11+ interpreter (warning that Kokoro needs <3.13).
 
-    macOS (v0.8.x P1A, D1/D2): only the app's own Python (``APP_PYTHON``) is ever selected, including as the running
-    interpreter in step 1; nothing is installed through Homebrew.
+    Every platform (v0.8.2 Phase 4; macOS since v0.8.x P1A, D1/D2): only the app's own uv-managed Python
+    (``APP_PYTHON``) is ever selected, including as the running interpreter in step 1; nothing is installed through
+    winget or Homebrew, and no Python found on the computer is used.
 
     With ``prefer_tk=False`` (the ``--headless`` path) Tk is not required, so the
     first 3.12/3.11 found is accepted. Returns a *list* because ``py -3.12`` is
@@ -1593,7 +1912,9 @@ def find_suitable_python(log: SetupLog, prefer_tk: bool = True) -> Optional[list
     #    accept <3.13 here so we never silently pick 3.13 over an available 3.12
     #    (3.13 loses Kokoro); a 3.13-only system still falls through to step 4.
     cur_ver = sys.version_info[:2]
-    if sys.executable and is_full_feature_python(cur_ver) and (not IS_MAC or _is_app_python(sys.executable)):
+    # v0.8.2 Phase 4: on every platform the running interpreter counts only when it is the app's own managed Python
+    # (a developer's ``python bootstrap.py`` on another Python must not become the environment's base).
+    if sys.executable and is_full_feature_python(cur_ver) and _is_app_python(sys.executable):
         if not prefer_tk or _tcl_tk_ok([sys.executable]):
             log.line(f"  Using the current interpreter: {sys.executable} "
                      f"(Python {cur_ver[0]}.{cur_ver[1]})")
@@ -1668,8 +1989,9 @@ def _interp_version_argv(argv: list[str]) -> Optional[tuple[int, int]]:
 def install_python(log: SetupLog, prefer_tk: bool = True) -> Optional[list[str]]:
     """Attempt to install Python 3.12, then re-locate it. Returns argv or None."""
     if IS_WINDOWS:
-        # v0.7.0 portable layout: nothing is installed on the computer. The app's own Python is downloaded into its
-        # folder by stage 0 (Setup_and_Run-audiobook-creation-tool.bat -> bootstrap_host.ps1), with consent.
+        # v0.8.2 Phase 4: nothing is installed on the computer. Stage 0 (Setup_and_Run-audiobook-creation-tool.bat ->
+        # bootstrap_host.ps1, or bootstrap_host_fallback.cmd when PowerShell cannot run) installs the app's own Python
+        # into this folder with the pinned uv, from ACT's own verified archive, with consent for any download.
         log.line("  The app's own Python is provided by Setup_and_Run-audiobook-creation-tool.bat; run it to "
                  "download it into this folder.")
     elif IS_MAC:
@@ -1701,10 +2023,25 @@ def venv_creation_cut_short(venv_dir: Optional[Path] = None) -> bool:
 
 
 def create_venv(py_argv: list[str], log: SetupLog) -> bool:
+    """Create an empty ``.venv`` on the app's managed interpreter with the pinned uv (v0.8.2 Phase 4); the packages
+    follow in one locked sync. ``py_argv`` is the interpreter :func:`find_suitable_python` proved, which is always
+    ``APP_PYTHON``: uv itself is told only the exact version, with managed Pythons only."""
     log.line(f"Creating virtual environment at {VENV_DIR}…")
-    r = _run(py_argv + ["-m", "venv", str(VENV_DIR)])  # POSIX: contained (``-m venv`` starts ensurepip's pip)
-    if r.returncode != 0:
-        log.line(f"  ERROR creating venv: {r.stderr.strip()}")
+    problem = uv_runner.uv_problem(REPO_ROOT)
+    if problem:
+        log.line(f"  ERROR creating venv: {problem}. {_UV_FROM_LAUNCHER}")
+        return False
+    if py_argv and not app_python.is_own_base(REPO_ROOT, py_argv[0]):
+        log.line(f"  ERROR creating venv: {py_argv[0]} is not the app's own Python.")
+        return False
+    try:
+        command = uv_runner.venv_command(REPO_ROOT, VENV_DIR)
+    except uv_runner.TargetRefused as exc:
+        log.line(f"  ERROR creating venv: {exc}")
+        return False
+    code, lines = _uv(command, offline=True, log=lambda line: None, env_dir=None)
+    if code != 0:
+        log.line("  ERROR creating venv: " + (" ".join(lines[-3:]) or f"uv exit {code}"))
         return False
     log.line("  Virtual environment created.")
     return True
@@ -2268,11 +2605,12 @@ _GATED_BELOW_313 = {"chatterbox"}
 
 
 def validate_installed_packages(log: SetupLog) -> bool:
-    """Import-test each required package; force-reinstall any that fail.
+    """Import-test each required package; reinstall any that fail.
 
-    pip exiting 0 does not guarantee a package imports (a partial wheel, an ABI
+    An installer exiting 0 does not guarantee a package imports (a partial wheel, an ABI
     mismatch, a clobbered install). Probe each import explicitly and try one
-    ``--force-reinstall`` before giving up. Returns True if all import.
+    targeted locked reinstall (v0.8.2 Phase 4: ``uv sync --reinstall-package``) before giving up. Returns True if all
+    import.
     """
     py = venv_python()
     log.line("Verifying required packages import…")
@@ -2287,10 +2625,13 @@ def validate_installed_packages(log: SetupLog) -> bool:
             continue
         dist = _PIP_NAME.get(mod, mod)
         if whole_lock_reinstalled:
-            log.line(f"  [!!] '{mod}' failed to import (every locked package was just reinstalled).")
+            log.line(f"  [!!] '{mod}' failed to import (its packages were just reinstalled).")
         else:
             log.line(f"  [!!] '{mod}' failed to import — reinstalling {dist}…")
-            whole_lock_reinstalled = _force_reinstall(py, dist, log.line)
+            # v0.8.2 Phase 4: one targeted, locked uv reinstall of the module's distribution plus every package whose
+            # files no longer match their RECORD (the cause may be any package below it), offline first.
+            damaged = tuple(sorted(venv_integrity.record_damage(VENV_DIR)))
+            whole_lock_reinstalled = sync_base_packages(log.line, reinstall=(dist, *damaged))
         if not _probe_import(py, mod, timeout=IMPORT_PROBE_TIMEOUT_S):
             failed.append(mod)
     if failed:
@@ -2405,6 +2746,24 @@ def prove_required_imports(venv_py: Path) -> tuple[Optional[bool], str, str]:
         return None, f"probe unavailable: {exc!r}", ""
 
 
+def _repair_damaged_packages_in_place(log: SetupLog, headless: bool) -> Optional[str]:
+    """The targeted repair :func:`repair_venv` tries first (v0.8.2 Phase 4). Only for an environment whose one problem
+    is damaged packages and that uv may sync where it stands (:func:`in_place_sync_problem`); returns the success
+    message when the environment is whole and launchable afterwards, else None (the caller rebuilds it)."""
+    health = assess_venv_health(require_tk=not headless, compatible_base_available=False)
+    if health.reason != "damaged-packages" or in_place_sync_problem():
+        return None
+    log.line("  Reinstalling only the damaged packages, in place, from the files kept on this computer…")
+    if not repair_base_packages((), log.line):
+        log.line("  The damaged packages could not be reinstalled in place; the environment is rebuilt instead.")
+        return None
+    after = assess_venv_health(require_tk=not headless, compatible_base_available=False)
+    if not after.can_launch or after.reason == "damaged-packages":
+        log.line(f"  The environment is still not whole ({after.detail}); it is rebuilt instead.")
+        return None
+    return "The app's damaged Python packages were reinstalled; the rest of the environment was kept."
+
+
 def repair_venv(log: SetupLog, *, headless: bool = False) -> tuple[bool, str]:
     """Rebuild the Python environment, and **only** the Python environment.
 
@@ -2444,6 +2803,13 @@ def repair_venv(log: SetupLog, *, headless: bool = False) -> tuple[bool, str]:
         # before starting a new one, so an aside is never treated as scrap. Same Tk
         # context this repair will judge its own result by.
         recover_interrupted_replacement(log, require_tk=not headless)
+
+        # v0.8.2 Phase 4: damaged packages in uv's own environment on this copy's managed Python are reinstalled in
+        # place first -- only what is damaged, offline from the repair cache -- and the environment is rebuilt only
+        # when that does not make it whole.
+        targeted = _repair_damaged_packages_in_place(log, headless)
+        if targeted is not None:
+            return True, targeted
 
         py_argv = find_suitable_python(log, prefer_tk=not headless)
         if py_argv is not None and not is_full_feature_python(_interp_version_argv(py_argv)):
@@ -2514,23 +2880,6 @@ def repair_venv(log: SetupLog, *, headless: bool = False) -> tuple[bool, str]:
     finally:
         if lease is not None:
             lease.release()
-
-
-def pip_install_requirements(log: SetupLog) -> bool:
-    """Install the app environment's packages (setup, repair and the drift reconcile all come here).
-
-    v0.7.0: pip itself is never upgraded -- the environment keeps the pip its own Python's ``ensurepip`` installed,
-    which the pinned base Python fixes -- and every package comes through :func:`install_base_packages`.
-    """
-    if not REQUIREMENTS_FILE.exists():
-        log.line(f"  ERROR: requirements.txt not found at {REQUIREMENTS_FILE}")
-        return False
-    log.line("Installing Python packages (this is the slowest step — "
-             "Kokoro/torch are large)…")
-    if not install_base_packages(venv_python(), log.line):
-        return False
-    log.line("  All packages installed.")
-    return True
 
 
 #: v0.7.2 Phase 6 (ACT72-039): the first-run window's "Stop setup?" answered Yes. Set once, for this process: no later
@@ -2633,7 +2982,7 @@ def _pip(command: list[str], env: dict, log: Callable[[str], None]) -> int:
     with it, and one holding pip's output open no longer keeps setup waiting. A group that could not be proved pip's
     own, or not confirmed ended, is logged and fails the step (-1), never a success."""
     if _SETUP_STOP.is_set():
-        log("  pip was not started: setup is being stopped.")
+        log("  The package installer was not started: setup is being stopped.")
         return PIP_STOPPED
     global _RUNNING_PIP
     group = {} if IS_WINDOWS else {"start_new_session": True}
@@ -2647,7 +2996,7 @@ def _pip(command: list[str], env: dict, log: Callable[[str], None]) -> int:
             proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
                                     encoding="utf-8", errors="replace", env=env, **_hidden(), **group)
     except (OSError, child_ownership.ContainmentUnavailable) as exc:
-        log(f"  ERROR: pip could not be started: {exc}")
+        log(f"  ERROR: the package installer could not be started: {exc}")
         return -1
     with _PIP_LOCK:
         _RUNNING_PIP = proc
@@ -2677,186 +3026,12 @@ def _pip(command: list[str], env: dict, log: Callable[[str], None]) -> int:
         if _contained() and proc.returncode is not None:
             _owner().forget(proc)
     if problem is not None:
-        log(f"  ERROR: pip ended (exit {code}), but what it started could not be confirmed ended: {problem}.")
+        log(f"  ERROR: the package installer ended (exit {code}), but what it started could not be confirmed ended: "
+            f"{problem}.")
     if _SETUP_STOP.is_set():
-        log("  pip was stopped because setup is being stopped.")
+        log("  The package installer was stopped because setup is being stopped.")
         return PIP_STOPPED
     return -1 if problem is not None else code
-
-
-def _pip_environment() -> dict:
-    """:func:`base_packages.pip_environment` for this installation: pip's cache inside the app's folder."""
-    return base_packages.pip_environment(os.environ, base_packages.cache_dir(REPO_ROOT))
-
-
-def _applicable_lock(venv_py: Path, log: Optional[Callable[[str], None]] = None) -> Optional[Path]:
-    """The dependency lock, when there is one and it describes this environment's interpreter."""
-    lock = base_packages.lock_path(REQUIREMENTS_FILE)
-    if not lock.is_file():
-        return None
-    if base_packages.lock_applies(_interp_version_argv([str(venv_py)])):
-        return lock
-    if log is not None:
-        if IS_MAC:
-            log("  This environment's Python is not the one the macOS dependency lock describes (Apple Silicon "
-                "CPython 3.12); nothing is installed without the lock's hashes.")
-        else:
-            log("  This environment's Python is not the one the dependency lock describes (Windows x86-64 CPython "
-                "3.12); installing from requirements.txt instead.")
-    return None
-
-
-def install_base_packages(venv_py: Path, log: Callable[[str], None]) -> bool:
-    """The one way packages get into the app environment: setup, repair, the drift reconcile and the Kokoro and
-    Chatterbox self-heals.
-
-    Where the dependency lock describes the environment's interpreter (Windows x86-64 CPython 3.12, which stage 0's
-    pinned base Python always is), every package comes from the lock: each artifact is fetched into the verified store
-    in ``files/runtime-data/python-packages`` against its SHA-256 (or found there already), then installed from that
-    store alone. A package the lock does not name cannot be installed, so no resolver can bring in a newer build.
-    Anywhere else the ``==`` pins of ``requirements.txt`` are installed as before. Either way pip runs under
-    :func:`base_packages.pip_environment`: its cache inside the app's folder, no pip configuration, nothing inherited.
-    """
-    env = _pip_environment()
-    lock = _applicable_lock(venv_py, log)
-    if lock is not None:
-        return _install_locked(venv_py, lock, env, log)
-    if IS_MAC:
-        # v0.8.x P1A (MAC-005): on a Mac every install is hash-checked against the macOS lock; an environment the lock
-        # does not describe is rebuilt on the app's own Python instead of being filled from unhashed pins.
-        log("  ERROR: no dependency lock describes this environment, so nothing was installed.")
-        return False
-    code = _pip(base_packages.unlocked_install_command(venv_py, REQUIREMENTS_FILE), env, log)
-    if code != 0:
-        log(f"  ERROR: pip install failed (exit {code}).")
-    return code == 0
-
-
-def _package_store(log: Callable[[str], None]) -> Optional[Path]:
-    store = base_packages.store_dir(REPO_ROOT)
-    unsafe = venv_layout.unsafe_component(REPO_ROOT, store)
-    if unsafe is not None:
-        log(f"  ERROR: the package store {store} is not used: {unsafe} is a link or lies outside the app's folder.")
-        return None
-    try:
-        store.mkdir(parents=True, exist_ok=True)
-    except OSError as exc:
-        log(f"  ERROR: the package store {store} cannot be created: {exc}")
-        return None
-    return store
-
-
-def _sweep_store(lock, store: Path, log: Callable[[str], None]) -> bool:
-    """:func:`base_packages.sweep_store` for this installation, reported. False when the store cannot be made safe to
-    install from (something unauthorised could not be moved out of it): nothing is installed then."""
-    quarantine = base_packages.quarantine_dir(REPO_ROOT)
-    unsafe = venv_layout.unsafe_component(REPO_ROOT, quarantine)
-    if unsafe is not None:
-        log(f"  ERROR: the package quarantine folder {quarantine} is not used: {unsafe} is a link or lies outside the "
-            "app's folder.")
-        return False
-    swept = base_packages.sweep_store(lock, store, quarantine)
-    shown = quarantine.relative_to(REPO_ROOT).as_posix()
-    for name, why in swept.quarantined:
-        log(f"  Moved {name} out of the package store ({why}); it is kept in {shown} and never installed.")
-    if swept.removed:
-        log(f"  Removed {len(swept.removed)} kept package file(s) the lock no longer names.")
-    for problem in swept.problems:
-        log(f"  ERROR: {problem}")
-    return not swept.problems
-
-
-def _install_locked(venv_py: Path, lock_file: Path, env: dict, log: Callable[[str], None]) -> bool:
-    try:
-        lock = base_packages.parse_lock(lock_file.read_text(encoding="utf-8"))
-    except (OSError, base_packages.LockError) as exc:
-        log(f"  ERROR: the dependency lock {lock_file.name} cannot be used: {exc}")
-        return False
-    store = _package_store(log)
-    if store is None or not _sweep_store(lock, store, log):
-        return False
-    log(f"Installing the {len(lock.entries)} locked packages (each checked against its SHA-256; kept in "
-        f"{store.relative_to(REPO_ROOT).as_posix()} for later repairs)…")
-    with tempfile.TemporaryDirectory(dir=str(store.parent), prefix="pip-requirements-") as scratch:
-        backends = base_packages.build_backends(lock)
-        if backends:
-            # The two locked packages that ship no wheel are built by the environment's own locked setuptools.
-            subset = Path(scratch) / "build-backends.txt"
-            subset.write_text(base_packages.requirement_text(backends), encoding="utf-8")
-            if not _fetch_and_install(venv_py, subset, lock, backends, store, env, log, no_deps=True,
-                                      what="the build tools"):
-                return False
-        if not _fetch_and_install(venv_py, lock_file, lock, None, store, env, log, no_deps=False,
-                                  what="the app's packages"):
-            return False
-    return True
-
-
-def _fetch_and_install(venv_py: Path, requirements: Path, lock, entries, store: Path, env: dict,
-                       log: Callable[[str], None], *, no_deps: bool, what: str) -> bool:
-    """Fetch what is missing from the store (hash-checked), then install from the store alone. An install that
-    fails on a kept file (damaged or substituted: pip refuses its hash) fetches once more and tries again."""
-    wanted = list(lock.entries if entries is None else entries)
-    missing = base_packages.missing_artifacts(lock, store, wanted)
-    fetched = False
-    if missing:
-        log(f"Downloading {len(missing)} of {len(wanted)} package files for {what}…")
-        if _pip(base_packages.download_command(venv_py, requirements, store), env, log) != 0:
-            log(f"  ERROR: the package files for {what} could not be downloaded and checked.")
-            return False
-        fetched = True
-    else:
-        log(f"Every package file for {what} is already here and is checked again as it is installed (no download).")
-    install = base_packages.install_command(venv_py, requirements, store, no_deps=no_deps)
-    if _pip(install, env, log) == 0:
-        return True
-    if fetched:
-        log(f"  ERROR: installing {what} failed.")
-        return False
-    log(f"  Installing {what} from the kept files failed; fetching them again and retrying once.")
-    if _pip(base_packages.download_command(venv_py, requirements, store), env, log) != 0:
-        log(f"  ERROR: the package files for {what} could not be downloaded and checked.")
-        return False
-    if _pip(install, env, log) != 0:
-        log(f"  ERROR: installing {what} failed.")
-        return False
-    return True
-
-
-def _force_reinstall(py: Path, dist: str, log: Callable[[str], None]) -> bool:
-    """Reinstall a package that does not import, together with what it depends on, at the pinned versions.
-
-    Never bare: an unconstrained ``--force-reinstall`` would replace the package and its dependency tree with the
-    latest from PyPI, and the requirements stamp could never notice that drift. Without the lock the named package
-    is reinstalled under ``requirements.txt`` as constraints (its dependencies too, as ``--force-reinstall`` does).
-    With the lock, the cause may be any package below it (a dependency whose files are gone while its metadata
-    remains is "already satisfied" to pip), so every locked package is reinstalled from the verified store -- offline
-    when the store is complete, each hash checked again. Returns True when it did that whole-lock reinstall, so the
-    caller does not repeat it for the next module that fails.
-    """
-    env = _pip_environment()
-    lock_file = _applicable_lock(py)
-    if lock_file is None:
-        if IS_MAC:
-            return False  # v0.8.x P1A: never an unhashed reinstall on a Mac
-        _run(venv_pip() + ["install", "--force-reinstall", dist, "-c", str(REQUIREMENTS_FILE)], env=env)
-        return False
-    try:
-        lock = base_packages.parse_lock(lock_file.read_text(encoding="utf-8"))
-    except (OSError, base_packages.LockError) as exc:
-        log(f"  ERROR: the dependency lock {lock_file.name} cannot be used: {exc}")
-        return False
-    store = _package_store(log)
-    if store is None or not _sweep_store(lock, store, log):
-        return False
-    log("  Reinstalling every locked package from the verified store (each hash checked again)…")
-    if base_packages.missing_artifacts(lock, store) and \
-            _pip(base_packages.download_command(py, lock_file, store), env, log) != 0:
-        log("  ERROR: the package files could not be downloaded and checked.")
-        return True
-    if _pip(base_packages.install_command(py, lock_file, store, force=True), env, log) != 0:
-        log("  ERROR: reinstalling the locked packages failed.")
-    return True
 
 
 def _ffmpeg_on_path() -> Optional[str]:
@@ -3272,6 +3447,9 @@ def run_setup(progress: Callable[[int, str], None], log: SetupLog,
     if too_deep:
         log.line(too_deep)
         return False, too_deep
+    # v0.8.2 Phase 4: starting the installation is the consent to download what it installs (as it always was); a
+    # repair or a launch asks first instead (:func:`_ask_download_consent`).
+    allow_downloads(True)
 
     # v0.7.0 P04C: recovery and the environment's own replacement both rename
     # environments that may hold a voice engine, so the same lease as a repair
@@ -3903,12 +4081,14 @@ def show_repair_dialog(
     try:
         import queue
         import tkinter as tk
-        from tkinter import ttk
+        from tkinter import messagebox, ttk
     except Exception:
         return work()
 
     ui_queue: "queue.Queue[object]" = queue.Queue()
     result = {"ok": False, "done": False}
+    #: Download questions from the worker, answered on this (the main) thread; any left when the window ends are No.
+    pending: list[tuple[dict, threading.Event]] = []
 
     try:
         root = tk.Tk()
@@ -3955,6 +4135,15 @@ def show_repair_dialog(
             result["ok"] = ok
             ui_queue.put(("__done__", ok))
 
+    def ask_on_main_thread(question: str) -> bool:
+        reply: dict = {"answer": False}
+        answered = threading.Event()
+        ui_queue.put(("__ask__", question, reply, answered))
+        answered.wait()
+        return bool(reply["answer"])
+
+    global _CONSENT_ASKER
+    _CONSENT_ASKER = ask_on_main_thread
     threading.Thread(target=worker, daemon=True).start()
 
     def poll() -> None:
@@ -3965,6 +4154,15 @@ def show_repair_dialog(
                     result["done"] = True
                     bar.stop()
                     root.after(700, root.destroy)
+                elif isinstance(item, tuple) and item and item[0] == "__ask__":
+                    _tag, question, reply, answered = item
+                    pending.append((reply, answered))
+                    try:
+                        reply["answer"] = bool(messagebox.askyesno(CONSENT_TITLE, question, parent=root))
+                    except Exception:  # noqa: BLE001 - no answer is a No
+                        reply["answer"] = False
+                    finally:
+                        answered.set()
                 else:
                     append(str(item))
         except queue.Empty:
@@ -3977,6 +4175,10 @@ def show_repair_dialog(
         root.mainloop()
     finally:
         LOG.set_ui_sink(None)
+        _CONSENT_ASKER = None
+        for item in [*pending, *[(entry[2], entry[3]) for entry in list(ui_queue.queue)
+                                 if isinstance(entry, tuple) and entry and entry[0] == "__ask__"]]:
+            item[1].set()  # a question the window can no longer show is answered No (the default reply)
     return bool(result["ok"])
 
 
@@ -4354,6 +4556,10 @@ def main(argv: Optional[list[str]] = None) -> int:
                              "the Windows launcher, which cannot wait for the "
                              "detached GUI launch and so asks first. No installs, "
                              "no GUI, no launch.")
+    parser.add_argument("--profile", choices=uv_runner.PROFILES,
+                        help="Developer use: choose this copy's installation profile ('dev' adds pytest and the "
+                             "test tools; 'user', the default, does not), keep it for every later launch, sync "
+                             "the environment to it and exit. A profile is never chosen automatically.")
     parser.add_argument("--repair-venv", action="store_true",
                         help="Rebuild the Python environment and its packages, "
                              "then launch. Must be run from a base interpreter, "
@@ -4373,6 +4579,9 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     if args.self_test:
         return _self_test()
+
+    if args.profile:
+        return _set_profile(args.profile)
 
     if args.venv_check:
         return _venv_check()
@@ -4398,6 +4607,26 @@ def main(argv: Optional[list[str]] = None) -> int:
     if args.headless:
         return _run_headless(skip_kokoro=args.skip_kokoro_download)
     return run_with_gui(skip_kokoro_default=args.skip_kokoro_download)
+
+
+def _set_profile(profile: str) -> int:
+    """``--profile``: record the explicit choice (transitional rule 3), then sync the environment to it in place when
+    that is safe, and exit. Launches keep the recorded profile from then on."""
+    select_profile(profile)
+    LOG.line(f"Installation profile set to '{profile}'; every later launch keeps it.")
+    problem = in_place_sync_problem() or ("" if VENV_DIR.exists() else "there is no environment yet")
+    if problem:
+        LOG.line(f"  The environment is brought to it by the next Setup_and_Run ({problem}).")
+        LOG.close()
+        return 0
+    if requirements_are_current():
+        LOG.line("  The environment already has this profile.")
+        LOG.close()
+        return 0
+    ok, reason = reconcile_requirements(LOG)
+    LOG.line("  The environment now has this profile." if ok else f"  The environment could not be synced ({reason}).")
+    LOG.close()
+    return 0 if ok else 1
 
 
 def _venv_check() -> int:

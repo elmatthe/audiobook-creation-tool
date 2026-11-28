@@ -18,7 +18,7 @@ import pytest
 from gate_locator import GATE_DIR, load_gate
 
 sys.path.insert(0, str(GATE_DIR))
-from helpers import scratch  # noqa: E402
+from helpers import scratch, winproc  # noqa: E402
 
 sys.path.remove(str(GATE_DIR))
 
@@ -55,11 +55,64 @@ def test_a_child_whose_owner_process_still_runs_is_active_and_one_whose_owner_en
 
 
 def test_a_reused_pid_does_not_make_an_ended_owner_look_alive(tmp_path):
+    """Windows proves the owner by its creation time, so a pid reused by another process is not the owner. POSIX has no
+    portable creation time (v0.8.2 Phase 4, D3): a running pid is never called abandoned there, so an active run's
+    scratch is never offered for cleaning; the cost is that a reused pid keeps a dead run's scratch listed as active."""
     root, outputs = tmp_path / "act-gate", tmp_path / "outputs"
     child = _child(root, "cccc")
     record = {"kind": scratch.OWNER_KIND, "run_id": "run", "nonce": "n", "pid": os.getpid(), "process_created": 1}
     (child / scratch.OWNER_NAME).write_text(json.dumps(record), encoding="utf-8")
-    assert _state(scratch.audit(root, outputs), "cccc")["state"] == "abandoned"
+    expected = "abandoned" if sys.platform == "win32" else "active"
+    assert _state(scratch.audit(root, outputs), "cccc")["state"] == expected
+
+
+def test_on_posix_an_owner_is_alive_unless_its_process_is_gone(monkeypatch):
+    """D3 (Phase 3B report §7): `--audit-scratch` on macOS called an active run's scratch abandoned. On POSIX the owner
+    is now alive unless kill(pid, 0) proves the process gone; another account's process (EPERM) is not proved gone."""
+    outcomes = {11: None, 12: ProcessLookupError(3, "No such process"), 13: PermissionError(1, "Not permitted")}
+
+    def kill(pid, signal_number):
+        assert signal_number == 0, "only probed, never signalled"
+        if outcomes[pid] is not None:
+            raise outcomes[pid]
+
+    monkeypatch.setattr(scratch.sys, "platform", "darwin")
+    monkeypatch.setattr(scratch.os, "kill", kill)
+    assert scratch.owner_process_alive({"pid": 11}) is True
+    assert scratch.owner_process_alive({"pid": 12}) is False
+    assert scratch.owner_process_alive({"pid": 13}) is True
+    assert scratch.owner_process_alive({"pid": 0}) is False
+
+
+def test_a_posix_group_that_answers_eperm_while_exiting_is_stopped_without_raising(monkeypatch):
+    """D1 (Phase 3B report §7): Darwin answers killpg with EPERM while a killed group's members exit, and _stop_tree
+    raised before results.json existed. Both signals now treat EPERM like ESRCH, and run_supervised polls the group
+    within kill_wait before it records a survivor."""
+    sent = []
+
+    def killpg(pgid, signal_number):
+        sent.append(signal_number)
+        raise PermissionError(1, "Operation not permitted")
+
+    alive = iter([True, True])  # alive when TERM is due, still answering when KILL is due
+
+    class Proc:
+        pid = 4242
+
+        def wait(self, timeout=None):
+            return 0
+
+        def kill(self):
+            raise AssertionError("not reached: the leader has exited")
+
+    monkeypatch.setattr(winproc.os, "killpg", killpg, raising=False)
+    monkeypatch.setattr(winproc.signal, "SIGKILL", 9, raising=False)
+    monkeypatch.setattr(winproc, "_group_alive", lambda pgid: next(alive, False))
+    winproc._stop_tree(Proc(), None, kill_wait=0.01)
+    assert sent == [winproc.signal.SIGTERM, 9]
+    source = (GATE_DIR / "helpers" / "winproc.py").read_text(encoding="utf-8")
+    poll = source[source.index("        elif proc.pid:\n"):source.index("result.survivors = _alive_owned(proc, job)\n    finally")]
+    assert "deadline = time.monotonic() + kill_wait" in poll and "_group_alive(proc.pid)" in poll
 
 
 def test_a_run_that_names_the_child_in_its_evidence_owns_it(tmp_path):

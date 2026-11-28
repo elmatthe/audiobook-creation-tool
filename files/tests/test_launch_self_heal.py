@@ -781,12 +781,12 @@ def test_a_second_launch_after_a_repair_does_no_work(
 def test_a_second_launch_repairs_nothing_else_either(
         launch, windows, tools, commands, proves_everything, monkeypatch,
         sandbox):
-    """No pip, no venv repair, no Kokoro reinstall on a healthy machine."""
+    """No package sync (v0.8.2 Phase 4: uv), no venv repair, no Kokoro reinstall on a healthy machine."""
     directory = install(sandbox / "pinned")
     monkeypatch.setenv("PATH", str(directory))
     assert ffmpeg_health.establish() is not None
     forbidden = []
-    for name in ("repair_venv", "pip_install_requirements",
+    for name in ("repair_venv", "sync_base_packages", "install_requirements",
                  "ensure_requirements_current", "ensure_kokoro_installed"):
         monkeypatch.setattr(bootstrap, name,
                             lambda *a, **kw: forbidden.append(name))

@@ -146,19 +146,26 @@ source changed. Count results from pytest's own summary or JUnit XML, never from
 
 - The gate needs the checkout's own real `.venv` (`guarded-specification` resolves a pinned numpy source inside it); a
   junction is refused by design. Real-environment work runs in `C:\ACT-Dev` (D-1).
+- **Development environment (v0.8.2 Phase 4).** The checkout's `.venv` is uv's, built on the managed CPython 3.12.15 in
+  `files/runtime-data/uv/python` with the **dev** profile: `python scripts/shared/bootstrap.py --profile dev` records the
+  choice (it is never inferred from pytest) and every later sync keeps it. The gate's one pytest pin is the `dev` dependency
+  group of the root `pyproject.toml` (`verify.py` `_pinned_pytest`, the interpreter preflight); `scripts/requirements.txt`
+  and its hash locks are a frozen parity reference that the `deps` check still validates, held equal to `pyproject.toml`
+  by `test_base_packages.py`, until the seam is removed. `C:\ACT-Dev` was migrated through the repair transaction on
+  2026-11-27 (Handoff, Phase 4).
 - A changed plan that touches suite-wide test infrastructure (`changed.suite_wide`: `conftest.py`, the guard, the runners)
   selects representative controls and records a gap: it is INCOMPLETE by design and owes a component regression or named
   focused runs.
 - Native macOS verification of the simplified routine path ran in Phase 3B (2026-11-27, HOME-MacOS): marker inheritance,
   stall and total-timeout supervision of the stage's process group, canonical routing on case-insensitive APFS and stage/JUnit
-  reporting pass. **D1 (open):** when a stage's leader has exited and left a grandchild, Darwin answers `killpg` with EPERM
-  while the killed group is exiting, so `helpers/winproc.py` reports a false survivor (`cleanup` FAIL) or `_stop_tree` raises
-  before `results.json` exists. Smallest correction: treat `PermissionError` like `ProcessLookupError` around both `killpg`
-  calls, and poll `_group_alive` up to `kill_wait` before recording POSIX survivors. Until it is fixed, a macOS `cleanup`
-  FAIL that names only a "process group" needs a manual check. **D2:** the exit-code verdict contract test assumes the
-  Windows-only `m4b-scaling` scenario (test portability). **D3 (open):** `helpers/scratch.py` has no POSIX process
-  creation time, so on macOS `--audit-scratch` reports every child, an active run's included, as abandoned; do not clean
-  macOS gate scratch by that label alone. Phase 3B report §7.
+  reporting pass. Three defects found there (Phase 3B report §7) are **corrected in v0.8.2 Phase 4, Windows-verified,
+  native macOS re-check PENDING**: **D1** Darwin answers `killpg` with EPERM while a killed group is exiting;
+  `helpers/winproc.py` now treats `PermissionError` like `ProcessLookupError` around both `killpg` calls and polls
+  `_group_alive` up to `kill_wait` before recording POSIX survivors (so no false `cleanup` FAIL and no raise before
+  `results.json`). **D2** the exit-code verdict contract test plants the Windows-only `m4b-scaling` qualification and is now
+  marked Windows-only (test portability). **D3** `helpers/scratch.py` had no POSIX process creation time; on POSIX an owner
+  is now alive unless `kill(pid, 0)` says the process is gone (a reused pid errs towards "alive", never towards cleaning an
+  active run's scratch). Until the Mac re-check, treat a macOS `cleanup` FAIL naming only a "process group" with care.
 
 ## Approved scratch exception
 
@@ -189,9 +196,10 @@ Simple rules, applied by hand; nothing deletes historical evidence automatically
 Phase 2 removed the four obsolete `files/dev-tools/*` programs that nothing imports; the other 13 the entrypoint table calls
 obsolete stay, because a maintained tool or a test that runs production code imports them.
 
-Still open from earlier phases: `scripts/requirements.txt`'s dev/test comment names the retired gate path (byte-locked into
-setup; next dependency change, Phase 4); `coverage.require_reviewed_inventory` and the `source_review` stamps (moved off
-the routine path; Phase 2 or later).
+Still open from earlier phases: `scripts/requirements.txt`'s dev/test comment names the retired gate path; Phase 4 left
+it unchanged on purpose (the file is now a frozen parity reference whose bytes its v0.8.1 hash locks record; it goes with
+the seam, Handoff seam table); `coverage.require_reviewed_inventory` and the `source_review` stamps (moved off the routine
+path; Phase 2 or later).
 
 Consumers of the five-document contract: `verify.py` `CANONICAL_DOCS` and `check_doc_names`;
 `files/tests/test_repository_contract.py`; `files/tests/test_plan3_boundaries.py`; the synthetic tree of
@@ -199,6 +207,6 @@ Consumers of the five-document contract: `verify.py` `CANONICAL_DOCS` and `check
 
 ## Next
 
-Phase 3A (Windows) and 3B (macOS) uv feasibility are done; next is Phase 4, opened with the D1 correction above. The reduced Phase 1A-2 admission is
-built only when the first genuinely needed heavyweight run requires it. See the plan's "Verification simplification"
+Phase 4 (production uv-based base provisioning) is committed with the D1-D3 corrections above; next is Phase 5A, on its own
+prompt. The reduced Phase 1A-2 admission is built only when the first genuinely needed heavyweight run requires it. See the plan's "Verification simplification"
 amendment for the consolidated checkpoint dispositions.

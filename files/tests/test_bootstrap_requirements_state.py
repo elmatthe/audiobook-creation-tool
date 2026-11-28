@@ -42,14 +42,24 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
 @pytest.fixture
 def fake_env(monkeypatch, tmp_path):
-    """A disposable venv + requirements file, fully detached from the real ones."""
+    """A disposable venv + base project, fully detached from the real ones.
+
+    v0.8.2 Phase 4: the pins are the base project (``pyproject.toml``) and its lock (``uv.lock``); ``reqs`` is the
+    lock, whose content stands in for "the pins" in every test below. The receipt also binds to the managed
+    interpreter's uv BUILD stamp, which a test reports as the pinned one."""
     venv = tmp_path / ".venv"
     (venv / "Scripts").mkdir(parents=True)
-    reqs = tmp_path / "requirements.txt"
+    project = tmp_path / "pyproject.toml"
+    project.write_text('[project]\nname = "audiobook-creation-tool"\n', encoding="utf-8")
+    reqs = tmp_path / "uv.lock"
     reqs.write_text("pillow==12.2.0\nedge-tts==7.2.8\n", encoding="utf-8")
     monkeypatch.setattr(bootstrap, "VENV_DIR", venv)
-    monkeypatch.setattr(bootstrap, "REQUIREMENTS_FILE", reqs)
-    return SimpleNamespace(venv=venv, reqs=reqs, tmp=tmp_path)
+    monkeypatch.setattr(bootstrap, "PYPROJECT_FILE", project)
+    monkeypatch.setattr(bootstrap, "UV_LOCK_FILE", reqs)
+    monkeypatch.setattr(bootstrap, "PROFILE_FILE", tmp_path / "environment-profile.json")
+    monkeypatch.setattr(bootstrap.uv_runner, "interpreter_build",
+                        lambda root, platform=None: bootstrap.uv_runner.PYTHON_BUILD)
+    return SimpleNamespace(venv=venv, reqs=reqs, project=project, tmp=tmp_path)
 
 
 class _Log:
@@ -155,7 +165,7 @@ def install_spy(monkeypatch):
         calls["validate"] += 1
         return calls["validate_ok"]
 
-    monkeypatch.setattr(bootstrap, "pip_install_requirements", fake_pip)
+    monkeypatch.setattr(bootstrap, "install_requirements", fake_pip)
     monkeypatch.setattr(bootstrap, "validate_installed_packages", fake_validate)
     return calls
 
@@ -176,17 +186,91 @@ def test_a_stale_environment_reconciles_exactly_once(fake_env, install_spy):
     assert install_spy["validate"] == 1
 
 
-def test_reconciliation_installs_from_the_requirements_file(fake_env, monkeypatch):
-    seen: list[Path] = []
+def test_reconciliation_installs_from_the_base_project_and_its_lock(fake_env, monkeypatch):
+    seen: list[tuple] = []
 
     def fake_pip(log):
-        seen.append(bootstrap.REQUIREMENTS_FILE)
+        seen.append((bootstrap.PYPROJECT_FILE, bootstrap.UV_LOCK_FILE))
         return True
 
-    monkeypatch.setattr(bootstrap, "pip_install_requirements", fake_pip)
+    monkeypatch.setattr(bootstrap, "install_requirements", fake_pip)
     monkeypatch.setattr(bootstrap, "validate_installed_packages", lambda log: True)
     bootstrap.ensure_requirements_current(_Log())
-    assert seen == [fake_env.reqs]
+    assert seen == [(fake_env.project, fake_env.reqs)]
+
+
+def test_a_changed_base_project_is_drift_too(fake_env):
+    bootstrap.record_requirements_state()
+    fake_env.project.write_text('[project]\nname = "audiobook-creation-tool"\nversion = "9"\n', encoding="utf-8")
+    assert bootstrap.requirements_are_current() is False
+
+
+def test_line_endings_alone_are_not_drift(fake_env):
+    """A checkout with CRLF working copies (core.autocrlf) is the same lock."""
+    fake_env.reqs.write_bytes(b"pillow==12.2.0\nedge-tts==7.2.8\n")
+    bootstrap.record_requirements_state()
+    fake_env.reqs.write_bytes(b"pillow==12.2.0\r\nedge-tts==7.2.8\r\n")
+    assert bootstrap.requirements_are_current() is True
+
+
+def test_the_receipt_binds_the_lock_the_interpreter_and_the_profile(fake_env):
+    bootstrap.record_requirements_state(distributions=["b==2", "a==1"], health={"imports": "ok"})
+    receipt = bootstrap.read_receipt()
+    assert receipt["manager"] == "uv" and receipt["uv"] == bootstrap.uv_runner.UV_VERSION
+    assert receipt["profile"] == "user" and receipt["distributions"] == ["a==1", "b==2"]
+    interpreter = receipt["interpreter"]
+    pins = bootstrap.uv_runner.pins()
+    assert interpreter["build"] == bootstrap.uv_runner.PYTHON_BUILD
+    assert interpreter["archive_sha256"] == pins.python_sha256
+    assert interpreter["sys_version"] == pins.python_sys_version
+    assert interpreter["home"] == str(bootstrap.uv_runner.managed_venv_home(bootstrap.REPO_ROOT))
+    assert set(interpreter) == {"home", "build", "archive_sha256", "sys_version"}, "every field it records is checked"
+    assert bootstrap.receipt_distributions() == ("a==1", "b==2")
+
+
+def test_a_different_interpreter_build_makes_the_receipt_stale(fake_env, monkeypatch):
+    bootstrap.record_requirements_state()
+    monkeypatch.setattr(bootstrap.uv_runner, "interpreter_build", lambda root, platform=None: "20250101")
+    assert bootstrap.requirements_are_current() is False
+    monkeypatch.setattr(bootstrap.uv_runner, "interpreter_build", lambda root, platform=None: None)
+    assert bootstrap.requirements_are_current() is False, "no managed interpreter is never 'current'"
+
+
+def test_a_profile_change_makes_the_receipt_stale_and_dev_is_never_inferred(fake_env):
+    bootstrap.record_requirements_state()
+    assert bootstrap.selected_profile() == "user"
+    bootstrap.select_profile("dev")
+    assert bootstrap.selected_profile() == "dev"
+    assert bootstrap.requirements_are_current() is False
+    bootstrap.record_requirements_state()
+    assert bootstrap.requirements_are_current() is True
+    bootstrap.select_profile("user")
+    assert not bootstrap.PROFILE_FILE.exists() and bootstrap.requirements_are_current() is False
+    bootstrap.PROFILE_FILE.write_text("{not json", encoding="utf-8")
+    assert bootstrap.selected_profile() == "user", "an unreadable choice is the user profile"
+
+
+def test_an_older_stamp_format_is_not_a_receipt(fake_env):
+    """A v0.8.1 ``requirements_sha256``-only stamp (pip era) never passes for a uv receipt."""
+    bootstrap.requirements_state_path().write_text(
+        json.dumps({"requirements_sha256": bootstrap.requirements_fingerprint()}), encoding="utf-8")
+    assert bootstrap.read_receipt() is None
+    assert bootstrap.requirements_are_current() is False
+
+
+def test_the_receipt_is_withdrawn_before_anything_is_installed(fake_env, monkeypatch):
+    bootstrap.record_requirements_state()
+    bootstrap.record_import_proof("3.12.15")
+    seen: list[bool] = []
+
+    def fake_install(log):
+        seen.append(bootstrap.requirements_state_path().exists() or bootstrap.import_proof_path().exists())
+        return False
+
+    monkeypatch.setattr(bootstrap, "install_requirements", fake_install)
+    ok, _reason = bootstrap.reconcile_requirements(_Log())
+    assert ok is False and seen == [False]
+    assert not bootstrap.requirements_state_path().exists()
 
 
 def test_after_a_successful_repair_the_next_launch_is_fast(fake_env, install_spy):
@@ -225,7 +309,7 @@ def test_reconciliation_never_downloads_the_chatterbox_model(fake_env, monkeypat
     # v0.7.0: the bootstrap has no model download at all any more (the consented setup worker owns it).
     for gone in ("predownload_chatterbox", "predownload_kokoro", "warmup_kokoro_pipeline", "warmup_chatterbox"):
         assert not hasattr(bootstrap, gone), gone
-    monkeypatch.setattr(bootstrap, "pip_install_requirements", lambda log: True)
+    monkeypatch.setattr(bootstrap, "install_requirements", lambda log: True)
     monkeypatch.setattr(bootstrap, "validate_installed_packages", lambda log: True)
     monkeypatch.setattr(bootstrap.subprocess, "Popen", lambda *a, **k: pytest.fail("a model download was started"))
     bootstrap.ensure_requirements_current(_Log())
@@ -427,19 +511,29 @@ def test_setup_never_reaches_the_stamp_writer_when_validation_fails(
 def test_one_function_owns_pip_validation_and_the_stamp():
     """Structural, via AST: no second call site can reintroduce the bypass.
 
-    Asserted on the parsed tree, never on source substrings or their ordering.
+    Asserted on the parsed tree, never on source substrings or their ordering. v0.8.2 Phase 4: the shared tail
+    ``_prove_and_record`` (RECORD proof, import proof, receipt) is the one writer; only the full reconcile and the
+    targeted repair reach it, and both withdraw the receipt first.
     """
     import ast
 
-    src = Path(bootstrap.__file__).read_text(encoding="utf-8")
-    enclosing = sorted(
-        n.name for n in ast.walk(ast.parse(src))
-        if isinstance(n, ast.FunctionDef)
-        and any(isinstance(c, ast.Call) and isinstance(c.func, ast.Name)
-                and c.func.id == "record_requirements_state"
-                for c in ast.walk(n))
-    )
-    assert enclosing == ["reconcile_requirements"]
+    tree = ast.parse(Path(bootstrap.__file__).read_text(encoding="utf-8"))
+
+    def callers(name):
+        return sorted(
+            n.name for n in ast.walk(tree)
+            if isinstance(n, ast.FunctionDef)
+            and any(isinstance(c, ast.Call) and isinstance(c.func, ast.Name) and c.func.id == name
+                    for c in ast.walk(n)))
+
+    assert callers("record_requirements_state") == ["_prove_and_record"]
+    assert callers("_prove_and_record") == ["reconcile_requirements", "repair_base_packages"]
+    for owner in ("reconcile_requirements", "repair_base_packages"):
+        fn = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == owner)
+        body = [s for s in fn.body if not (isinstance(s, ast.Expr) and isinstance(s.value, ast.Constant))]
+        first = body[0]
+        assert (isinstance(first, ast.Expr) and isinstance(first.value, ast.Call)
+                and isinstance(first.value.func, ast.Name) and first.value.func.id == "invalidate_receipt"), owner
 
 
 # --------------------------------------------------------------------------- #

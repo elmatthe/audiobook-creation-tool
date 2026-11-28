@@ -895,8 +895,19 @@ _MISSING_OR_LINKED = "the app environment's console Python is missing or reached
 
 
 def app_python(repo_root: Path) -> Path:
-    """This copy's own base interpreter on POSIX (``bootstrap.APP_PYTHON``): what its ``.venv`` is built from."""
-    return Path(repo_root).joinpath(*APP_PYTHON_PARTS, "bin", POSIX_APP_PYTHON)
+    """This copy's own base interpreter on POSIX (``bootstrap.APP_PYTHON``): what its ``.venv`` is built from.
+
+    v0.8.2 Phase 4: the one resolver decides (``shared.app_python.app_env_base``): the uv-managed interpreter in
+    ``files/runtime-data/uv/python/<versioned folder>/bin/python3.12``, or the legacy ``files/runtime-data/python``
+    one while ``.venv`` still runs on it (``APP_PYTHON_PARTS``, transitional rule 2)."""
+    from shared import app_python as resolver
+
+    return resolver.app_env_base(Path(repo_root), "darwin")
+
+
+def _base_dir(repo_root: Path) -> Path:
+    """The folder of :func:`app_python` (its ``bin``'s parent)."""
+    return app_python(repo_root).parent.parent
 
 
 def interpreter_problem(repo_root: Path, python: Optional[Path] = None) -> str:
@@ -942,7 +953,7 @@ def _venv_link_problem(root: Path, python: Path) -> str:
         return "this copy's own Python is reached through a link"
     roots = (Path(os.path.abspath(str(root))), Path(os.path.realpath(str(root))))  # two spellings of one folder
     venv_bins = [r / ".venv" / "bin" for r in roots]
-    base_bins = [r.joinpath(*APP_PYTHON_PARTS, "bin") for r in roots]
+    base_bins = [_base_dir(r) / "bin" for r in roots]
     owner = os.geteuid()
     links: list[Path] = []
     current = Path(os.path.abspath(str(python)))
@@ -1007,8 +1018,9 @@ def _chain_members(root: Path) -> list[tuple[Path, bool]]:
     change them; ``files`` and ``files/runtime-data`` only lead there (the copy's own folders are where the person
     put them, with the permissions they gave them)."""
     venv = main_venv(root)
-    python_dir = Path(root).joinpath(*APP_PYTHON_PARTS)
-    members = [(Path(root).joinpath(*APP_PYTHON_PARTS[:depth]), False) for depth in range(1, len(APP_PYTHON_PARTS))]
+    python_dir = _base_dir(Path(root))
+    parts = python_dir.relative_to(Path(root)).parts
+    members = [(Path(root).joinpath(*parts[:depth]), False) for depth in range(1, len(parts))]
     members += [(path, True) for path in (venv, venv / "bin", venv / "pyvenv.cfg", python_dir, python_dir / "bin",
                                           python_dir / "bin" / POSIX_APP_PYTHON)]
     return members
@@ -1021,7 +1033,20 @@ def _pyvenv_problem(venv: Path, roots: tuple) -> str:
     cfg = venv_layout.read_pyvenv_cfg(venv)
     if cfg is None:
         return "the app environment has no readable pyvenv.cfg"
-    homes = [r.joinpath(*APP_PYTHON_PARTS, "bin") for r in roots]
+    homes = [_base_dir(r) / "bin" for r in roots]
+    if "uv" in cfg:
+        # v0.8.2 Phase 4: uv's own pyvenv.cfg names no ``executable`` or ``command``; its ``home`` must be exactly this
+        # copy's managed interpreter folder (never the minor-version link), and the chain above already ended at
+        # that interpreter's own file.
+        home = cfg.get("home") or ""
+        if not os.path.isabs(home) or not any(venv_layout.same_path(home, h) for h in homes):
+            return "the app environment was not built from this copy's own Python (pyvenv.cfg home)"
+        if cfg.get("include-system-site-packages", "").lower() != "false":
+            return "the app environment is not isolated (include-system-site-packages is not false)"
+        version = (cfg.get("version_info") or cfg.get("version") or "").split(".")[:2]
+        if version != [str(part) for part in MAIN_PYTHON]:
+            return f"the app environment is not CPython {MAIN_PYTHON[0]}.{MAIN_PYTHON[1]} (pyvenv.cfg version)"
+        return ""
     # v0.8.x P5-A: both must be absolute (a relative one would be judged against wherever the check runs from), and
     # ``executable`` must be there. CPython 3.12's ``venv`` always writes it -- ``os.path.realpath(sys.executable)``, in
     # the same step as ``command``, which is required below -- so for this copy it is always its own ``python3.12``,

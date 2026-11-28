@@ -150,16 +150,31 @@ def test_the_stamp_is_only_written_from_a_path_that_just_succeeded():
     Narrowing this list from two writers to one is the point: a second writer is
     how the bypass was reintroduced last time. Neither route is reachable from a
     cancelled dialog, because Cancel never starts either one.
+
+    v0.8.2 Phase 4: the one writer is ``_prove_and_record`` -- RECORD proof, import
+    proof, then the receipt -- the tail every uv sync shares. It has exactly two
+    callers, ``reconcile_requirements`` (the whole lock) and
+    ``repair_base_packages`` (a targeted repair); each withdraws the receipt first
+    and reaches the writer only after its sync succeeded.
     """
-    enclosing = sorted(
-        n.name for n in ast.walk(ast.parse(SRC))
-        if isinstance(n, ast.FunctionDef)
-        and any(isinstance(c, ast.Call) and isinstance(c.func, ast.Name)
-                and c.func.id == "record_requirements_state"
-                for c in ast.walk(n))
-    )
-    assert enclosing == ["reconcile_requirements"]
-    assert "record_requirements_state" not in _run_with_gui_source()
+    def callers_of(name: str) -> list[str]:
+        return sorted(
+            n.name for n in ast.walk(ast.parse(SRC))
+            if isinstance(n, ast.FunctionDef)
+            and any(isinstance(c, ast.Call) and isinstance(c.func, ast.Name) and c.func.id == name
+                    for c in ast.walk(n)))
+
+    assert callers_of("record_requirements_state") == ["_prove_and_record"]
+    assert callers_of("_prove_and_record") == ["reconcile_requirements", "repair_base_packages"]
+    for caller, sync in (("reconcile_requirements", "if not install_requirements(log):"),
+                         ("repair_base_packages", "if not sync_base_packages(log, ")):
+        body = SRC[SRC.index(f"def {caller}("):]
+        body = body[:body.index("\ndef ", 1)]
+        withdrawn, synced = body.index("invalidate_receipt()"), body.index(sync)
+        assert withdrawn < synced < body.index("_prove_and_record(", synced), caller
+        assert body.index("return False", synced) < body.index("_prove_and_record(", synced), caller
+    gui = _run_with_gui_source()
+    assert "record_requirements_state" not in gui and "_prove_and_record" not in gui
 
 
 def test_setup_only_starts_from_the_begin_button():

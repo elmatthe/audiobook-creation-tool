@@ -98,7 +98,10 @@ ENTRY_FILES = {
 # ``LICENSE`` (v0.8.0 macOS Revision 1) is the complete, unmodified GNU GPL v3 text. The project inherits GPL-3.0 from
 # epub2tts-edge (README, Credits / License), and a distributed copy has to carry the licence itself, not only a link.
 # Like every root file it must be tracked and committed: ``_write_archive`` refuses an untracked one.
-ROOT_FILES = ("README.md", "config.toml", "LICENSE")
+# ``pyproject.toml`` and ``uv.lock`` (v0.8.2 Phase 4, transitional rule 8): the base environment's project and lock,
+# which setup installs through uv. Without them a release cannot build its environment, so they ship in both archives.
+# (The Python download pin, ``scripts/shared/python-downloads.json``, ships with the tracked ``scripts/`` tree.)
+ROOT_FILES = ("README.md", "config.toml", "LICENSE", "pyproject.toml", "uv.lock")
 
 # CLOSED ALLOWLIST: never walk files/ or the reference directory. MP3 originals,
 # extra recordings, transcripts, the owner's upload archive, derivatives and caches

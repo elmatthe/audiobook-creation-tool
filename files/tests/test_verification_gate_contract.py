@@ -16,6 +16,7 @@ import functools
 import hashlib
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -79,7 +80,9 @@ class Tree:
         # The real static gates judge this tree, so they read the real rules and the real pinned files.
         shutil.copytree(REPO_ROOT / "scripts" / "shared", root / "scripts" / "shared",
                         ignore=shutil.ignore_patterns("__pycache__"))
-        for name in ("scripts/requirements.txt", "scripts/requirements-lock-windows-py312.txt", "config.toml"):
+        # v0.8.2 Phase 4: the gate's pytest pin is the base project's dev group (pyproject.toml), its lock beside it.
+        for name in ("scripts/requirements.txt", "scripts/requirements-lock-windows-py312.txt", "config.toml",
+                     "pyproject.toml", "uv.lock"):
             shutil.copyfile(REPO_ROOT / name, root / name)
         self.write("scripts/launcher.py", "# the entry point config.toml names\n")
         for name in ("Briefing.md", "Decisions.md", "Feature-Map.md", "Handoff.md"):
@@ -1330,10 +1333,12 @@ def test_a_scratch_or_guarded_root_that_is_a_junction_stops_the_run_and_its_targ
 
 
 def test_a_failing_stage_still_runs_the_others_but_a_blocked_preflight_stops_everything(tree):
-    tree.write("scripts/requirements.txt", "pytest==0.0.1\n")
+    project = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    assert project.count('"pytest==') == 1
+    tree.write("pyproject.toml", re.sub(r'"pytest==[^"]+"', '"pytest==0.0.1"', project))
     outcome = tree.focused("files/tests/test_ordinary.py")
     assert outcome.code == 2, outcome
-    assert "the requirements pin 0.0.1" in outcome.check("interpreter")["detail"]
+    assert "pyproject.toml's dev group pins 0.0.1" in outcome.check("interpreter")["detail"]
     assert outcome.results["counts"]["executed"] == 0 and not (outcome.directory / "logs" / "pytest.log").exists()
 
 
@@ -2222,6 +2227,7 @@ def test_a_verdict_that_is_not_this_scenarios_is_no_verdict_and_the_run_fails(tr
     ("FAIL", 0, "FAIL"), ("FAIL", 1, "FAIL"), ("FAIL", 2, "FAIL"),
     ("BLOCKED", 0, "BLOCKED"), ("BLOCKED", 2, "BLOCKED"), ("BLOCKED", 1, "BLOCKED"),
 ], ids=lambda value: str(value))
+@WINDOWS_ONLY  # Phase 4 D2: it plants the m4b-scaling qualification, which the planner targets at Windows only
 def test_no_exit_code_can_raise_a_verdict_and_only_exit_zero_lets_a_pass_stand(tree, status, code, sealed):
     """The verdict and the runner's exit are held against each other in one direction only: downwards."""
     answers = _answers(tree, _qualification(tree, _verdict(status), code))

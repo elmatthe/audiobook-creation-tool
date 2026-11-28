@@ -83,12 +83,14 @@ echo.
 
 REM ---------------------------------------------------------------------------
 REM  First run, or an environment repair: we need a proven Python outside the venv.
-REM  Stage 0 (scripts\shared\bootstrap_host.ps1) uses the app's OWN Python in
-REM  files\runtime-data\python, proved by RUNNING it (3.12 with ssl, venv and Tk),
-REM  or - only after asking - downloads the pinned, hash-verified standalone
-REM  Python into that folder. Nothing is installed on the computer: no installer,
-REM  no administrator rights, no PATH change. It writes the interpreter's full
-REM  path to a file; exit 2 means the user said No, 3 means it could not be done.
+REM  Stage 0 (scripts\shared\bootstrap_host.ps1) uses the app's OWN pinned uv and
+REM  Python in files\runtime-data\uv, proved by RUNNING it (the pinned build with
+REM  ssl, venv and Tk), or - only after asking - downloads the pinned, hash-verified
+REM  uv and standalone Python archive into that folder and lets uv install the
+REM  Python from it. Nothing is installed on the computer: no installer, no
+REM  administrator rights, no PATH change. It writes the interpreter's path, relative
+REM  to this folder, to a file; exit 2 means the user said No, 3 means it could not
+REM  be done.
 REM ---------------------------------------------------------------------------
 :findpython
 echo Preparing the app's own Python (kept inside this folder)...
@@ -113,12 +115,26 @@ if "%HOSTRC%"=="2" (
 if "%HOSTRC%"=="0" if exist "%PYFILE%" for /f "usebackq delims=" %%P in ("%PYFILE%") do set "PYCMD=%%P"
 
 REM PowerShell itself could not run (for example, scripts are blocked by an IT
-REM policy): fall back to a Python that is already on this computer, if any.
-REM bootstrap.py still checks it and refuses one it cannot build from.
-if not defined PYCMD if not "%HOSTRC%"=="3" (
-    where py >nul 2>nul && set "PYCMD=py"
-    if not defined PYCMD where python >nul 2>nul && set "PYCMD=python"
+REM policy): do the same with Windows' own curl.exe, certutil and tar.exe
+REM (scripts\shared\bootstrap_host_fallback.cmd; owner decision D-6). Never a
+REM Python that merely happens to be on this computer.
+if defined PYCMD goto havepython
+if "%HOSTRC%"=="3" goto havepython
+if "%HOSTRC%"=="0" goto havepython
+echo PowerShell could not run here; setting the app up with Windows' own tools instead...
+call "scripts\shared\bootstrap_host_fallback.cmd" "%PYFILE%"
+set "HOSTRC=%errorlevel%"
+if "%HOSTRC%"=="2" (
+    echo.
+    echo Setup cancelled. Python was not installed and nothing was changed.
+    echo Run this file again whenever you are ready to set the app up.
+    echo.
+    pause
+    exit /b 0
 )
+if "%HOSTRC%"=="0" if exist "%PYFILE%" for /f "usebackq delims=" %%P in ("%PYFILE%") do set "PYCMD=%%P"
+
+:havepython
 
 if not defined PYCMD (
     echo.

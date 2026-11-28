@@ -740,7 +740,8 @@ def test_the_archive_is_not_importable_through_production():
 def test_the_release_packager_can_never_reach_the_archive():
     from shared import release
 
-    assert release.ROOT_FILES == ("README.md", "config.toml", "LICENSE")
+    # v0.8.2 Phase 4: the base project and its lock ship at the root (uv syncs from them); nothing else was added.
+    assert release.ROOT_FILES == ("README.md", "config.toml", "LICENSE", "pyproject.toml", "uv.lock")
     assert release.SCRIPTS_DIR.name == "scripts"
     assert not str(ARCHIVE).startswith(str(release.SCRIPTS_DIR))
     text = (SHARED / "release.py").read_text(encoding="utf-8")

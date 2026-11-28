@@ -12,6 +12,12 @@ Three properties, each proved here rather than assumed:
 
 The real-pip tests run the test interpreter's own pip offline (``--no-index``) against tiny generated wheels in a
 disposable folder; nothing touches the working environment, the network or the user's pip cache.
+
+**v0.8.2 Phase 4.** uv is now the base environment's only installer: ``pyproject.toml`` + ``uv.lock`` (a parity
+translation of these pins), synced by ``shared/uv_runner.py``. ``requirements.txt`` and the two hash locks stay as a
+frozen parity reference -- this module's lock rules, the deps gate and the parity tests at the end hold them to
+``uv.lock`` -- until Phase 6 retires them. The tests of the retired pip installer (``install_base_packages``,
+``_force_reinstall`` and the store routes) were retired with it; the uv route is held by test_uv_provisioning.py.
 """
 
 from __future__ import annotations
@@ -134,7 +140,7 @@ def test_this_test_environment_is_exactly_the_locked_set():
         if installed != entry.version:
             wrong.append(f"{entry.name}: locked {entry.version}, installed {installed}")
     assert not wrong, ("this environment is not the locked set; reconcile it (start the app, or run "
-                       "bootstrap.install_base_packages): " + "; ".join(wrong))
+                       "scripts/shared/bootstrap.py --profile dev): " + "; ".join(wrong))
 
 
 def test_the_lock_is_closed_and_minimal_under_its_packages_own_dependency_metadata():
@@ -215,11 +221,10 @@ def test_pip_is_never_upgraded_and_no_shipped_module_builds_an_unmanaged_pip_com
         if relative not in allowed:
             elsewhere += [(relative, where) for where in _literal_pip_sites(ast.parse(path.read_text(encoding="utf-8")))]
     assert elsewhere == [LONG_PATH_PROBE_PIP], elsewhere
-    # bootstrap's only literal is venv_pip(); every bootstrap pip command passes the policy environment.
-    tree = ast.parse(source)
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name in ("_force_reinstall", "install_base_packages"):
-            assert "_pip_environment()" in ast.get_source_segment(source, node), node.name
+    # v0.8.2 Phase 4: bootstrap builds no pip command for the base environment any more (uv is its only installer).
+    assert _literal_pip_sites(ast.parse(source)) == []
+    for retired in ("venv_pip", "install_base_packages", "_force_reinstall", "pip_install_requirements"):
+        assert not hasattr(bootstrap, retired), retired
 
 
 def test_the_other_pip_users_keep_their_own_contained_policy():
@@ -282,12 +287,12 @@ def test_the_long_path_probe_installs_only_its_own_wheel_offline_into_its_own_fo
     assert sorted(keywords) == ["capture_output", "creationflags", "text", "timeout"] and keywords["timeout"] == "180", keywords
 
 
-def _run_pip(*args, env):
-    return subprocess.run([sys.executable, "-m", "pip", *args], capture_output=True, text=True, env=env,
-                          timeout=180)
+def _run_pip(python, *args, env):
+    # v0.8.2 Phase 4: a uv-built environment has no pip, so real pip runs in the module's disposable venv (ensurepip's).
+    return subprocess.run([str(python), "-m", "pip", *args], capture_output=True, text=True, env=env, timeout=180)
 
 
-def test_real_pip_uses_the_named_cache_and_no_configuration_whatever_the_profile_says(tmp_path):
+def test_real_pip_uses_the_named_cache_and_no_configuration_whatever_the_profile_says(tmp_path, disposable_venv):
     """pip resolves its default cache through the Windows known-folder API, so a redirected LOCALAPPDATA does not
     move it (measured 2026-10-31). The explicit policy does, and a hostile config file is not read at all."""
     hostile = tmp_path / "hostile.ini"
@@ -296,8 +301,8 @@ def test_real_pip_uses_the_named_cache_and_no_configuration_whatever_the_profile
     cache = tmp_path / "app" / "files" / "runtime-data" / "pip-cache"
     env = base_packages.pip_environment({**os.environ, "PIP_CONFIG_FILE": str(hostile),
                                          "LOCALAPPDATA": str(tmp_path / "fake-profile")}, cache)
-    assert _run_pip("cache", "dir", env=env).stdout.strip().lower() == str(cache).lower()
-    listed = _run_pip("config", "list", env=env)
+    assert _run_pip(disposable_venv, "cache", "dir", env=env).stdout.strip().lower() == str(cache).lower()
+    listed = _run_pip(disposable_venv, "config", "list", env=env)
     lines = listed.stdout.strip().splitlines()
     assert listed.returncode == 0 and lines, listed.stderr
     assert all(line.startswith(":env:.") for line in lines), "only the policy's own settings; no configuration file"
@@ -377,158 +382,6 @@ def test_real_pip_refuses_a_kept_file_whose_hash_is_not_the_locked_one(disposabl
 # --------------------------------------------------------------------------- #
 # Setup and repair install only through the lock
 # --------------------------------------------------------------------------- #
-#: SHA-256 of the bytes the installer fixture's kept files hold.
-KEPT_SHA256 = hashlib.sha256(b"kept").hexdigest()
-
-
-@pytest.fixture
-def installer(tmp_path, monkeypatch):
-    """bootstrap's installer against a disposable installation, with pip itself replaced by a recorder."""
-    root = tmp_path / "app"
-    (root / "scripts").mkdir(parents=True)
-    requirements = root / "scripts" / "requirements.txt"
-    requirements.write_text("tqdm==4.67.3\nsetuptools==80.9.0\n", encoding="utf-8")
-    entries = {"setuptools": ("80.9.0", "setuptools-80.9.0-py3-none-any.whl"),
-               "tqdm": ("4.67.3", "tqdm-4.67.3-py3-none-any.whl")}
-    # The fixture's kept files hold b"kept"; the lock names that content's hash, so the store sweep keeps them.
-    body = "".join(f"# {base_packages.ARTIFACT_PREFIX} {artifact}\n{name}=={version} --hash=sha256:{KEPT_SHA256}\n"
-                   for name, (version, artifact) in entries.items())
-    base_packages.lock_path(requirements).write_text(body, encoding="utf-8")
-    monkeypatch.setattr(bootstrap, "REPO_ROOT", root)
-    monkeypatch.setattr(bootstrap, "REQUIREMENTS_FILE", requirements)
-    monkeypatch.setattr(bootstrap, "_interp_version_argv", lambda argv: (3, 12))
-    monkeypatch.setattr(base_packages, "lock_applies", lambda version, **kw: tuple(version or ())[:2] == (3, 12))
-    monkeypatch.setenv("PIP_INDEX_URL", "https://egress.invalid/simple")
-    monkeypatch.setenv("PIP_CACHE_DIR", r"C:\Users\someone\AppData\Local\pip\cache")
-    calls = []
-    outcomes = []
-
-    def fake_pip(command, env, log):
-        calls.append((list(command), dict(env)))
-        return outcomes.pop(0) if outcomes else 0
-
-    monkeypatch.setattr(bootstrap, "_pip", fake_pip)
-    store = base_packages.store_dir(root)
-    return type("Installer", (), {"root": root, "calls": calls, "outcomes": outcomes, "store": store,
-                                  "entries": entries, "python": root / ".venv" / "Scripts" / "python.exe"})
-
-
-def _verbs(calls):
-    return [(command[3], "--no-deps" in command) for command, _env in calls]
-
-
-def test_a_fresh_install_fetches_into_the_store_then_installs_from_it_alone(installer):
-    assert bootstrap.install_base_packages(installer.python, lambda line: None) is True
-    assert _verbs(installer.calls) == [("download", True), ("install", True), ("download", True),
-                                       ("install", False)], "build tools first, then the whole lock"
-    for command, env in installer.calls:
-        assert "--require-hashes" in command and "--upgrade" not in command
-        assert env["PIP_CONFIG_FILE"] == os.devnull and "PIP_INDEX_URL" not in env
-        assert env["PIP_CACHE_DIR"] == str(base_packages.cache_dir(installer.root))
-        if command[3] == "install":
-            assert "--no-index" in command and command[command.index("--find-links") + 1] == str(installer.store)
-    first_backend = installer.calls[0][0]
-    assert Path(first_backend[first_backend.index("-r") + 1]).name == "build-backends.txt"
-    full = installer.calls[3][0]
-    assert full[full.index("-r") + 1] == str(base_packages.lock_path(bootstrap.REQUIREMENTS_FILE))
-    runtime_data = installer.root / "files" / "runtime-data"
-    assert installer.store.is_dir() and runtime_data in base_packages.cache_dir(installer.root).parents \
-        and runtime_data in installer.store.parents
-
-
-def test_a_complete_store_reinstalls_without_any_download(installer):
-    installer.store.mkdir(parents=True)
-    for _version, artifact in installer.entries.values():
-        (installer.store / artifact).write_bytes(b"kept")
-    assert bootstrap.install_base_packages(installer.python, lambda line: None) is True
-    assert [verb for verb, _ in _verbs(installer.calls)] == ["install", "install"]
-
-
-def test_a_kept_file_that_fails_its_check_is_fetched_once_more(installer):
-    installer.store.mkdir(parents=True)
-    for _version, artifact in installer.entries.values():
-        (installer.store / artifact).write_bytes(b"kept")
-    installer.outcomes.extend([0, 1, 0, 0])  # backends ok; the full install refuses a damaged file; fetch; install
-    assert bootstrap.install_base_packages(installer.python, lambda line: None) is True
-    assert [verb for verb, _ in _verbs(installer.calls)] == ["install", "install", "download", "install"]
-
-
-def test_a_failed_fetch_leaves_the_environment_alone(installer):
-    installer.outcomes.extend([1])
-    assert bootstrap.install_base_packages(installer.python, lambda line: None) is False
-    assert [verb for verb, _ in _verbs(installer.calls)] == ["download"], "nothing is installed after a failed fetch"
-
-
-def test_an_interpreter_the_lock_does_not_describe_installs_requirements_txt_under_the_same_policy(installer,
-                                                                                                    monkeypatch):
-    monkeypatch.setattr(bootstrap, "_interp_version_argv", lambda argv: (3, 13))
-    # Windows and Linux; a Mac never installs without its lock's hashes (test_macos_foundation, v0.8.x P1A).
-    monkeypatch.setattr(bootstrap, "IS_MAC", False)
-    assert bootstrap.install_base_packages(installer.python, lambda line: None) is True
-    [(command, env)] = installer.calls
-    assert command[3] == "install" and command[command.index("-r") + 1] == str(bootstrap.REQUIREMENTS_FILE)
-    assert env["PIP_CONFIG_FILE"] == os.devnull and env["PIP_CACHE_DIR"] == str(base_packages.cache_dir(installer.root))
-
-
-def test_setup_and_every_repair_route_use_the_one_installer():
-    for function in (bootstrap.pip_install_requirements, bootstrap.ensure_kokoro_installed,
-                     bootstrap.ensure_chatterbox_installed):
-        assert "install_base_packages(" in inspect.getsource(function), function.__name__
-
-
-def test_a_force_reinstall_reinstalls_the_whole_lock_from_the_store(installer):
-    """A package that does not import may be broken below it: a dependency whose files are gone while its metadata
-    remains is "already satisfied" to pip (found by the offline-repair qualification, 2026-10-31). So the forced
-    reinstall covers every locked package, from the verified store, dependencies checked."""
-    assert bootstrap._force_reinstall(installer.python, "tqdm", lambda line: None) is True
-    (download, _env), (install, env) = installer.calls
-    assert download[3] == "download", "the store was empty, so it is filled first"
-    assert install[3] == "install" and {"--force-reinstall", "--no-index", "--require-hashes"} <= set(install)
-    assert "--no-deps" not in install
-    assert install[install.index("-r") + 1] == str(base_packages.lock_path(bootstrap.REQUIREMENTS_FILE))
-    assert env["PIP_CONFIG_FILE"] == os.devnull
-
-
-def test_a_force_reinstall_from_a_complete_store_needs_no_network(installer):
-    installer.store.mkdir(parents=True)
-    for _version, artifact in installer.entries.values():
-        (installer.store / artifact).write_bytes(b"kept")
-    assert bootstrap._force_reinstall(installer.python, "tqdm", lambda line: None) is True
-    assert [command[3] for command, _env in installer.calls] == ["install"]
-
-
-def test_a_dependency_damaged_below_its_metadata_is_repaired_by_one_whole_lock_reinstall(installer, monkeypatch):
-    """The real case: numpy's files deleted, its .dist-info left. chatterbox (and nltk) fail to import; one forced
-    reinstall of the lock fixes both, and it is not repeated for the second module."""
-    installer.store.mkdir(parents=True)
-    for _version, artifact in installer.entries.values():
-        (installer.store / artifact).write_bytes(b"kept")
-    monkeypatch.setattr(bootstrap, "REQUIRED_IMPORTS", ["edge_tts", "chatterbox", "nltk"])
-    monkeypatch.setattr(bootstrap, "venv_python", lambda windowed=False: installer.python)
-    repaired = {"done": False}
-
-    def probe(py, module, timeout=30):
-        return module == "edge_tts" or repaired["done"]
-
-    def fake_pip(command, env, log):
-        installer.calls.append((list(command), dict(env)))
-        repaired["done"] = "--force-reinstall" in command
-        return 0
-
-    monkeypatch.setattr(bootstrap, "_probe_import", probe)
-    monkeypatch.setattr(bootstrap, "_pip", fake_pip)
-
-    class Log:
-        lines: list = []
-
-        def line(self, text):
-            self.lines.append(text)
-
-    assert bootstrap.validate_installed_packages(Log()) is True
-    forced = [command for command, _env in installer.calls if "--force-reinstall" in command]
-    assert len(forced) == 1, "one whole-lock reinstall, not one per failing module"
-
-
 def _sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
@@ -617,52 +470,9 @@ def test_real_pip_prefers_a_stray_same_release_file_and_the_sweep_lets_the_insta
     assert (quarantine / stray.name).is_file() and not stray.exists()
 
 
-def test_every_store_install_route_sweeps_the_store_first(installer):
-    """setup, repair and the drift reconcile (install_base_packages) and the whole-lock force reinstall both move a
-    stray out of the store before pip runs, and nothing is quarantined outside the app's folder."""
-    installer.store.mkdir(parents=True)
-    for _version, artifact in installer.entries.values():
-        (installer.store / artifact).write_bytes(b"kept")
-    stray = installer.store / "tqdm-4.67.3-cp312-cp312-win_amd64.whl"
-    lines = []
-    for run in (lambda: bootstrap.install_base_packages(installer.python, lines.append),
-                lambda: bootstrap._force_reinstall(installer.python, "tqdm", lines.append)):
-        stray.write_bytes(b"stray")
-        installer.calls.clear()
-        assert run() is True
-        assert not stray.exists(), "pip never saw it"
-        assert all(command[3] == "install" for command, _env in installer.calls), "complete store: no download"
-    quarantined = sorted(p.name for p in base_packages.quarantine_dir(installer.root).iterdir())
-    assert quarantined == [stray.name, stray.name + ".1"]
-    assert any("Moved tqdm-4.67.3-cp312-cp312-win_amd64.whl out of the package store" in line for line in lines)
-
-
-def test_a_store_that_cannot_be_made_safe_installs_nothing(installer, monkeypatch):
-    installer.store.mkdir(parents=True)
-    (installer.store / "tqdm-4.67.3-cp312-cp312-win_amd64.whl").write_bytes(b"stray")
-    monkeypatch.setattr(base_packages, "_move_aside", lambda path, quarantine: "in use")
-    lines = []
-    assert bootstrap.install_base_packages(installer.python, lines.append) is False
-    assert installer.calls == [], "no pip command ran against a store pip could be misled by"
-    assert any("could not be moved out of the store" in line for line in lines)
-
-
 # --------------------------------------------------------------------------- #
 # Drift and the gate
 # --------------------------------------------------------------------------- #
-def test_the_requirements_fingerprint_covers_the_lock(tmp_path, monkeypatch):
-    requirements = tmp_path / "requirements.txt"
-    requirements.write_text("tqdm==4.67.3\n", encoding="utf-8")
-    monkeypatch.setattr(bootstrap, "REQUIREMENTS_FILE", requirements)
-    plain = bootstrap.requirements_fingerprint()
-    assert plain == hashlib.sha256(requirements.read_bytes()).hexdigest(), "no lock: the old value exactly"
-    lock = base_packages.lock_path(requirements)
-    lock.write_text(f"tqdm==4.67.3 --hash=sha256:{'a' * 64}\n", encoding="utf-8")
-    first = bootstrap.requirements_fingerprint()
-    lock.write_text(f"tqdm==4.67.3 --hash=sha256:{'b' * 64}\n", encoding="utf-8")
-    assert len({plain, first, bootstrap.requirements_fingerprint()}) == 3
-
-
 @pytest.mark.parametrize("damage, expected", [
     (lambda text: text.replace("filelock==4.2.5", "filelock==4.2.4"), "is not that release"),
     (lambda text: text.replace("torch==2.6.0", "torch==2.7.0"), "requirements.txt pins 2.6.0"),
@@ -693,3 +503,51 @@ def test_the_deps_gate_passes_on_the_committed_files_and_requires_the_lock(tmp_p
     monkeypatch.setattr(verify, "REQUIREMENTS", requirements)
     name, ok, detail = verify.check_requirements()
     assert ok is False and base_packages.LOCK_NAME in detail
+
+
+
+# --------------------------------------------------------------------------- #
+# v0.8.2 Phase 4: uv.lock is a parity translation of the frozen hash locks
+# --------------------------------------------------------------------------- #
+def _uv_locked() -> dict[str, set]:
+    import tomllib
+
+    found: dict[str, set] = {}
+    for package in tomllib.loads((REPO_ROOT / "uv.lock").read_text(encoding="utf-8"))["package"]:
+        if package.get("source", {}).get("virtual") == ".":
+            continue  # the project itself
+        found.setdefault(base_packages.canonical_name(package["name"]), set()).add(package["version"])
+    return found
+
+
+def test_uv_lock_carries_every_hash_locked_release_and_nothing_else():
+    """Until Phase 6 retires them, the Windows and macOS hash locks and uv.lock name exactly the same releases: uv
+    installs what v0.8.1 qualified, no more and no fewer (Phase 3A measured 170 packages, identical as data)."""
+    uv = _uv_locked()
+    hashed: dict[str, set] = {}
+    for platform, machine in (("win32", "AMD64"), ("darwin", "arm64")):
+        lock = base_packages.parse_lock(
+            base_packages.lock_path(REQUIREMENTS, platform=platform, machine=machine).read_text(encoding="utf-8"))
+        for entry in lock.entries:
+            assert entry.version in uv.get(entry.key, set()), f"{platform}: {entry.key}=={entry.version} not in uv.lock"
+            hashed.setdefault(entry.key, set()).add(entry.version)
+    assert uv == hashed, {name: (uv.get(name), hashed.get(name)) for name in set(uv) | set(hashed)
+                          if uv.get(name) != hashed.get(name)}
+    assert len(uv) == 170
+
+
+def test_the_base_project_pins_exactly_requirements_txt_with_pytest_in_the_dev_group():
+    import tomllib
+
+    project = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    declared = {line.strip() for line in project["project"]["dependencies"]}
+    dev = set(project["dependency-groups"]["dev"])
+    required = {line.split("#", 1)[0].strip() for line in REQUIREMENTS.read_text(encoding="utf-8").splitlines()}
+    required.discard("")
+
+    def plain(entries):
+        return {" ".join(entry.replace(" ;", ";").replace("; ", ";").split()) for entry in entries}
+
+    assert plain(declared | dev) == plain(required), plain(declared | dev) ^ plain(required)
+    assert dev == {"pytest==9.1.1"}, "the developer profile adds pytest only"
+    assert not any(entry.startswith("pytest") for entry in declared), "a user install never carries pytest"

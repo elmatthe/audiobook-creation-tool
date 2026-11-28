@@ -40,7 +40,8 @@ LAUNCHERS = {
     "Windows": "Setup_and_Run-audiobook-creation-tool.bat",
     "MacOS": "Setup_and_Run-audiobook-creation-tool.command",
 }
-ROOT_MEMBERS = {"README.md", "config.toml", "LICENSE"}
+#: v0.8.2 Phase 4: the base environment's project and lock ship too (setup installs them through uv).
+ROOT_MEMBERS = {"README.md", "config.toml", "LICENSE", "pyproject.toml", "uv.lock"}
 #: The canonical GNU GPL v3 text (https://www.gnu.org/licenses/gpl-3.0.txt, 674 lines), byte for byte. The upstream
 #: project (aedocw/epub2tts-edge) carries the identical file. Pinned so a paraphrase, an edit or a line-ending change fails.
 GPL3_SHA256 = "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
@@ -106,6 +107,8 @@ def fake_repo(root: Path, config_text: str = SHIPPABLE_CONFIG) -> Path:
     (root / "README.md").write_text("readme\n", encoding="utf-8")
     (root / "config.toml").write_text(config_text, encoding="utf-8")
     (root / "LICENSE").write_bytes((REPO_ROOT / "LICENSE").read_bytes())
+    (root / "pyproject.toml").write_text('[project]\nname = "x"\n', encoding="utf-8")
+    (root / "uv.lock").write_text("version = 1\n", encoding="utf-8")
     (root / "config-template.toml").write_text("# unrelated maintainer file\n", encoding="utf-8")
     for launcher in LAUNCHERS.values():
         (root / launcher).write_text("launcher\n", encoding="utf-8")
@@ -501,8 +504,28 @@ def test_the_license_is_tracked_by_git():
     assert "LICENSE" in tracked, "an untracked LICENSE would not be a committed, auditable release input"
 
 
-def test_the_packager_allowlist_names_the_license_and_no_other_root_file():
-    assert release.ROOT_FILES == ("README.md", "config.toml", "LICENSE")
+def test_the_packager_allowlist_names_the_license_the_base_project_and_no_other_root_file():
+    assert release.ROOT_FILES == ("README.md", "config.toml", "LICENSE", "pyproject.toml", "uv.lock")
+
+
+@pytest.mark.parametrize("os_name", OS_NAMES)
+def test_each_archive_carries_the_uv_provisioning_inputs_byte_for_byte(archives, os_name):
+    """v0.8.2 Phase 4: without the project, its lock, the Python download pin and the uv runner a copy cannot build
+    its environment. They ship as committed; no environment, cache, uv or interpreter ever does."""
+    shipped = names(archives[os_name])
+    with zipfile.ZipFile(archives[os_name]) as zf:
+        for name in ("pyproject.toml", "uv.lock", "scripts/shared/python-downloads.json",
+                     "scripts/shared/uv_runner.py", "scripts/shared/app_python.py"):
+            assert shipped.count(name) == 1, name
+            assert zf.read(name).replace(b"\r\n", b"\n") == (REPO_ROOT / name).read_bytes().replace(b"\r\n", b"\n"), name
+    stage0 = {"Windows": ("scripts/shared/bootstrap_host.ps1", "scripts/shared/bootstrap_host_fallback.cmd"),
+              "MacOS": ("scripts/shared/bootstrap_host_macos.sh",)}[os_name]
+    for name in stage0:
+        assert name in shipped, name
+    for name in shipped:
+        parts = name.split("/")
+        assert not ({".venv", ".venv-engines", "uvc", "uv"} & set(parts[:-1])), name
+        assert not name.endswith((".exe", ".pyd", ".dll", ".dylib", ".so", ".tar.gz", ".whl")), name
 
 
 @pytest.mark.parametrize("os_name", OS_NAMES)
@@ -572,7 +595,7 @@ def run_main(root: Path, dist: Path, os_names=OS_NAMES) -> int:
 
 
 @pytest.mark.parametrize("edited", [
-    "scripts/launcher.py", "README.md", "config.toml", "LICENSE",
+    "scripts/launcher.py", "README.md", "config.toml", "LICENSE", "pyproject.toml", "uv.lock",
     "Setup_and_Run-audiobook-creation-tool.bat",
     "Setup_and_Run-audiobook-creation-tool.command",
 ] + sorted(REFERENCE_MEMBERS))
@@ -737,14 +760,22 @@ def test_packaged_macos_launcher_routes_bootstrap_exit_code(
     )
     # v0.8.x P1A (D1/D2): a repair runs on the app's own Python, which stage 0 proves first; a Python on PATH is never
     # used. Stage 0 has its own tests (test_bootstrap_host_macos.py); here it is a stand-in that reports it proved.
-    for relative in (".venv/bin/python", "files/runtime-data/python/bin/python3.12", "shim-bin/python3.12"):
+    # v0.8.2 Phase 4: the app's Python is uv's managed install, and stage 0 reports its path in --out-file.
+    managed = "files/runtime-data/uv/python/cpython-3.12.15-macos-aarch64-none/bin/python3.12"
+    for relative in (".venv/bin/python", managed, "shim-bin/python3.12"):
         path = root / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(shim, encoding="utf-8", newline="\n")
         path.chmod(0o755)
     stage0 = root / "scripts" / "shared" / "bootstrap_host_macos.sh"
-    stage0.write_text('#!/bin/bash\nprintf "stage0 %s\\n" "$*" >> "$RC_CALLS"\nexit 0\n', encoding="utf-8",
-                      newline="\n")
+    stage0.write_text(
+        '#!/bin/bash\nprintf "stage0 %s\\n" "$*" >> "$RC_CALLS"\n'
+        'while [ $# -gt 0 ]; do\n'
+        '  case "$1" in\n'
+        f'    --out-file) mkdir -p "$(dirname "$2")"; printf "%s\\n" "$PWD/{managed}" > "$2"; shift 2 ;;\n'
+        '    *) shift ;;\n'
+        '  esac\n'
+        'done\nexit 0\n', encoding="utf-8", newline="\n")
     calls = root / "calls.txt"
     env = dict(os.environ, RC_CALLS=calls.as_posix(), RC_LAUNCH_EXIT=str(launch_rc))
     # Use MSYS paths on Windows so a drive colon is not a PATH separator.
@@ -763,7 +794,8 @@ def test_packaged_macos_launcher_routes_bootstrap_exit_code(
     recorded = calls.read_text(encoding="utf-8").splitlines()
     assert recorded[0].endswith("--launch-only")
     assert any("--repair-venv" in call for call in recorded) is repairs
-    assert all("files/runtime-data/python/bin/python3.12" in call for call in recorded if "--repair-venv" in call)
+    assert all(managed in call for call in recorded if "--repair-venv" in call)
+    assert any(call.startswith("stage0 ") and "--out-file" in call for call in recorded) is repairs
     assert not any("shim-bin" in call for call in recorded), "a Python on PATH is never used"
     assert not any("close_terminal.py" in call for call in recorded)
 

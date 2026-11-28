@@ -198,14 +198,18 @@ def test_the_venv_interpreter_survives_a_spaced_repository_path(spaced_repo):
 
 
 def test_pip_is_one_argv_element_per_token_not_a_command_string(spaced_repo):
-    """The failure this prevents is ``["C:/My", "Audio", "Books/...", "-m"]``."""
-    argv = bootstrap.venv_pip()
+    """The failure this prevents is ``["C:/My", "Audio", "Books/...", "-m"]``. v0.8.2 Phase 4: the base environment's
+    installer is uv (``uv_runner.sync_command``; the venv's own pip is gone), held to the same rule: every path is
+    exactly one argument."""
+    for name in ("pyproject.toml", "uv.lock"):  # the wrapper refuses a project that is not there
+        (spaced_repo / name).write_text("x = 1\n", encoding="utf-8")
+    argv = bootstrap.uv_runner.sync_command(spaced_repo, bootstrap.VENV_DIR, profile="user", offline=True)
 
-    assert isinstance(argv, list)
-    assert argv[1:] == ["-m", "pip"]
+    assert isinstance(argv, list) and all(isinstance(part, str) for part in argv)
     assert " " in argv[0], "the fixture did not actually produce a spaced path"
-    assert argv[0] == str(bootstrap.venv_python())
-    assert len(argv) == 3, f"a spaced path was split into extra tokens: {argv}"
+    assert argv[0] == str(bootstrap.uv_runner.uv_exe(spaced_repo))
+    assert argv[argv.index("--project") + 1] == str(spaced_repo), f"a spaced path was split into extra tokens: {argv}"
+    assert argv[1] == "sync" and argv.count("--project") == 1
 
 
 def test_no_production_command_is_built_by_splitting_a_string():

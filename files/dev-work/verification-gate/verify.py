@@ -1142,7 +1142,7 @@ class GateRun:
                                                  "run the gate with the project environment's python")
             return False
         if pin is None or found.group(1) != pin:
-            self.check("interpreter", "BLOCKED", f"pytest {found.group(1)} here; the requirements pin {pin}")
+            self.check("interpreter", "BLOCKED", f"pytest {found.group(1)} here; pyproject.toml's dev group pins {pin}")
             return False
         self.check("interpreter", "PASS", f"pytest {pin} under {sys.executable}")
         if not result.clean:
@@ -2040,12 +2040,20 @@ def _guard_identity_problems(report: dict, config: Path) -> list[str]:
 
 
 def _pinned_pytest() -> str | None:
+    """The gate's one pytest pin: the ``dev`` dependency group of the root ``pyproject.toml`` (v0.8.2 Phase 4; the
+    developer profile installs exactly it through uv). ``scripts/requirements.txt`` is a frozen parity reference until
+    Phase 6 and is not read here."""
+    import tomllib
+
     try:
-        text = REQUIREMENTS.read_text(encoding="utf-8")
-    except OSError:
+        project = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
         return None
-    found = re.search(r"^pytest==(\S+)", text, re.MULTILINE)
-    return found.group(1) if found else None
+    for entry in project.get("dependency-groups", {}).get("dev", []):
+        found = re.fullmatch(r"pytest==(\S+)", str(entry).strip())
+        if found:
+            return found.group(1)
+    return None
 
 
 def _report_lines(results: dict, directory: Path) -> list[str]:

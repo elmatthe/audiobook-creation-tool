@@ -48,6 +48,15 @@ def test_the_guard_watches_the_real_requirements_stamp():
         set(conftest._GUARDED_PATHS.values())
 
 
+def test_the_guard_watches_the_real_uv_receipt_and_profile_choice_every_test():
+    """v0.8.2 Phase 4: the receipt the launch trusts and the profile every sync keeps."""
+    from shared import bootstrap
+
+    watched = {conftest._GUARDED_PATHS[name] for name in conftest._PER_TEST_GUARDED}
+    assert REPO_ROOT / ".venv" / bootstrap.REQUIREMENTS_STATE_NAME in watched
+    assert bootstrap.PROFILE_FILE in watched
+
+
 def test_the_guard_watches_the_real_setup_log_directory():
     assert (REPO_ROOT / "files" / "runtime-data" / "logs") in \
         set(conftest._GUARDED_PATHS.values())
@@ -211,6 +220,75 @@ def test_stdlib_bytecode_stays_excused_beside_a_site_packages_tree(tmp_path):
     (cache / "heap.cpython-312.pyc").write_bytes(b"first written")
     (cache / "heap.cpython-312.opt-1.pyc").write_bytes(b"optimised")
     assert conftest._fingerprint_named("the real runtime data", root) == before
+
+
+def _managed_like(root):
+    """v0.8.2 Phase 4: uv's managed interpreter beside the legacy one, the same build."""
+    home = root.joinpath(*conftest._MANAGED_PYTHON_PARTS)
+    (home / "Lib" / "json" / "__pycache__").mkdir(parents=True)
+    (home / "Lib" / "json" / "decoder.py").write_text("x", encoding="utf-8")
+    (home / "Lib" / "site-packages" / "pip" / "__pycache__").mkdir(parents=True)
+    (home / "Lib" / "site-packages" / "pip" / "util.py").write_text("x", encoding="utf-8")
+    (home / "python312.dll").write_bytes(b"dll")
+    return home
+
+
+def test_the_managed_interpreter_folder_is_the_pinned_one():
+    from shared import uv_runner
+
+    assert conftest._MANAGED_PYTHON_PARTS == ("uv", "python", uv_runner.pins("win32").python_key)
+    assert conftest._MANAGED_MINOR_LINK_PARTS == ("uv", "python", uv_runner.pins("win32").python_minor_key)
+
+
+def test_bytecode_seen_through_uvs_minor_version_link_is_excused_too(tmp_path):
+    """uv keeps a ``cpython-3.12-...`` link to the managed interpreter and the runtime-data walk follows links, so the
+    same first-import bytecode also appears under the link's name (the Phase 4 focused run failed on exactly that)."""
+    root = _runtime_data_like(tmp_path)
+    home = _managed_like(root)
+    link = root.joinpath(*conftest._MANAGED_MINOR_LINK_PARTS)
+    if sys.platform == "win32":
+        import _winapi
+
+        _winapi.CreateJunction(str(home), str(link))  # a junction needs no privilege, as uv's own does not
+    else:
+        link.symlink_to(home, target_is_directory=True)
+    before = conftest._fingerprint_named("the real runtime data", root)
+    (home / "Lib" / "json" / "__pycache__" / "decoder.cpython-312.pyc").write_bytes(b"x")
+    assert conftest._fingerprint_named("the real runtime data", root) == before
+    (home / "Lib" / "json" / "stray.txt").write_text("x", encoding="utf-8")
+    assert conftest._fingerprint_named("the real runtime data", root) != before, "anything else still counts"
+
+
+def test_the_managed_pythons_own_first_import_bytecode_is_excused_and_nothing_else(tmp_path):
+    root = _runtime_data_like(tmp_path)
+    home = _managed_like(root)
+    before = conftest._fingerprint_named("the real runtime data", root)
+    (home / "Lib" / "json" / "__pycache__" / "decoder.cpython-312.pyc").write_bytes(b"x")
+    assert conftest._fingerprint_named("the real runtime data", root) == before
+    (home / "Lib" / "site-packages" / "pip" / "__pycache__" / "util.cpython-312.pyc").write_bytes(b"x")
+    assert conftest._fingerprint_named("the real runtime data", root) != before, "site-packages is never excused"
+
+
+def test_a_new_cache_folder_in_a_nested_managed_stdlib_package_is_excused(tmp_path):
+    """Seen in the Phase 4 focused run: the managed interpreter's first import of xml.dom.minidom made
+    ``Lib/xml/dom/__pycache__`` where there was none."""
+    root = _runtime_data_like(tmp_path)
+    home = _managed_like(root)
+    package = home / "Lib" / "xml" / "dom"
+    package.mkdir(parents=True)
+    (package / "minidom.py").write_text("x", encoding="utf-8")
+    before = conftest._fingerprint_named("the real runtime data", root)
+    (package / "__pycache__").mkdir()
+    (package / "__pycache__" / "minidom.cpython-312.pyc").write_bytes(b"x")
+    assert conftest._fingerprint_named("the real runtime data", root) == before
+
+
+def test_the_two_interpreters_must_agree_on_the_cache_tag(tmp_path):
+    root = _runtime_data_like(tmp_path)
+    home = _managed_like(root)
+    assert conftest._bundled_cache_tag(root) == "cpython-312"
+    (home / "python312.dll").rename(home / "python313.dll")
+    assert conftest._bundled_cache_tag(root) is None
 
 
 def test_a_bundled_python_with_no_identifiable_cache_tag_excuses_nothing(tmp_path):

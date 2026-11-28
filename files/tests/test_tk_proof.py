@@ -118,6 +118,13 @@ def test_a_hung_tk_counts_as_no_tk_within_the_bound(monkeypatch):
 def _assess(monkeypatch, tmp_path, tk_error: str, require_tk: bool = True):
     py = tmp_path / "python.exe"
     py.write_bytes(b"")
+    venv = tmp_path / "venv"
+    venv.mkdir(exist_ok=True)
+    # v0.8.2 Phase 4: an environment uv built on this copy's managed Python (anything else is rebuilt before Tk counts).
+    (venv / "pyvenv.cfg").write_text(
+        f"home = {bootstrap.uv_runner.managed_venv_home(bootstrap.REPO_ROOT)}\nuv = {bootstrap.uv_runner.UV_VERSION}\n",
+        encoding="utf-8")
+    monkeypatch.setattr(bootstrap, "VENV_DIR", venv)
     monkeypatch.setattr(bootstrap, "venv_python", lambda windowed=False: py)
     monkeypatch.setattr(bootstrap, "probe_venv",
                         lambda p: {"version": (3, 12), "ssl": True, "tk": False, "tk_error": tk_error})
@@ -149,24 +156,31 @@ def test_stage_zero_uses_the_same_real_tk_proof_and_a_bounded_run():
 @pytest.mark.skipif(not sys.platform.startswith("win"), reason="stage 0 is Windows PowerShell")
 def test_stage_zero_rejects_a_python_whose_tk_cannot_initialise(tmp_path):
     """Real stage 0 with Tk broken: no Python is accepted and nothing is downloaded. (v0.7.0: stage 0 only ever uses
-    the app's own Python in files/runtime-data/python, never one installed on the computer.)
+    the app's own Python, never one installed on the computer; v0.8.2 Phase 4: that is uv's managed CPython in
+    files/runtime-data/uv/python, accepted only beside the pinned uv.)
 
     Hermetic since v0.8.1 Checkpoint F1. Stage 0 probes the app's own Python with ``-I``, which ignores PYTHONPATH, so
     breaking Tk through the environment never reached the probe: on a machine that has the app's Python (every installed
     copy, and the maintainer's) stage 0 accepted the real one and the test failed, passing before only where that Python
     was absent. The probe now runs a copy of stage 0 in a throwaway repository layout whose app Python is a copy of this
     interpreter's base Python: first healthy (the control: it is accepted), then with a sitecustomize in that copy that
-    breaks Tk the way a missing tk.tcl does (it is rejected and nothing is downloaded or written)."""
+    breaks Tk the way a missing tk.tcl does (it is rejected and nothing is downloaded or written).
+
+    v0.8.2 Phase 4: the copy is this checkout's own pinned uv and managed CPython (stage 0 proves the exact build and
+    uv's SHA-256, so nothing else can stand in); a development checkout always has both once its launcher has run."""
     import shutil
 
-    base = Path(sys.base_prefix)
-    if not (base / "python.exe").is_file() or not (base / "Lib").is_dir():
-        pytest.skip("this interpreter's base Python is not a Windows install tree that can be copied")
+    uv_runner = bootstrap.uv_runner
+    base = uv_runner.managed_python_home(bootstrap.REPO_ROOT)
+    if uv_runner.uv_problem(bootstrap.REPO_ROOT) or uv_runner.interpreter_build(bootstrap.REPO_ROOT) != \
+            uv_runner.PYTHON_BUILD or not (base / "python.exe").is_file():
+        pytest.skip("this checkout has no pinned uv and managed Python to copy")
     repo = tmp_path / "repo"
     (repo / "scripts" / "shared").mkdir(parents=True)
     shutil.copyfile(STAGE_ZERO, repo / "scripts" / "shared" / STAGE_ZERO.name)
-    home = repo / "files" / "runtime-data" / "python"
+    home = uv_runner.managed_python_home(repo)
     shutil.copytree(base, home, ignore=shutil.ignore_patterns("__pycache__", "*.pdb", "include", "libs", "Scripts"))
+    shutil.copyfile(uv_runner.uv_exe(bootstrap.REPO_ROOT), uv_runner.uv_exe(repo))
     site_packages = home / "Lib" / "site-packages"
     assert not (site_packages / "sitecustomize.py").exists()
 

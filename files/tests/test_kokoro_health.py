@@ -27,7 +27,7 @@ from pathlib import Path
 
 import pytest
 
-from shared import base_packages, bootstrap
+from shared import bootstrap
 from conftest import stand_in_for_setups_python_children  # noqa: E402  (v0.8.x P5-C: setup's child seam)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -50,11 +50,12 @@ class Child:
         self.present, self.proof, self.facts = present, proof, facts or {"english_model": True, "weights": True}
         self.calls: list[list[str]] = []
         stand_in_for_setups_python_children(monkeypatch, self.run)
-        # v0.7.0: every package install goes through the one installer (the dependency lock); recorded as a pip call.
-        monkeypatch.setattr(bootstrap, "install_base_packages", self.install)
+        # v0.7.0: every package install goes through the one installer; v0.8.2 Phase 4: a targeted locked uv sync
+        # (``repair_base_packages``). Recorded as a pip call.
+        monkeypatch.setattr(bootstrap, "repair_base_packages", self.install)
 
-    def install(self, venv_py, log):
-        self.calls.append([str(venv_py), "-m", "pip", "<install_base_packages>"])
+    def install(self, names, log):
+        self.calls.append(["<repair_base_packages>", "pip", *names])
         return True
 
     def run(self, argv, **kwargs):
@@ -198,21 +199,26 @@ def test_every_repair_goes_through_the_one_package_installer(venv, monkeypatch):
     child = Child(monkeypatch)
     assert bootstrap.ensure_kokoro_installed(PY, lambda line: None) is True
     pip = [a for a in child.calls if "pip" in a]
-    assert pip == [[str(PY), "-m", "pip", "<install_base_packages>"]]
+    assert pip == [["<repair_base_packages>", "pip", *bootstrap.KOKORO_DISTS]]
     source = inspect.getsource(bootstrap.ensure_kokoro_installed)
     assert "KOKORO_PKGS" not in source and '"pip"' not in source, "a hand-kept list would bypass the srsly pin"
 
 
-def test_the_requirements_file_carries_the_qualified_srsly_pin_and_the_kokoro_pins():
-    lines = {line.split(";")[0].strip() for line in
-             bootstrap.REQUIREMENTS_FILE.read_text(encoding="utf-8").splitlines()}
+def test_the_base_project_carries_the_qualified_srsly_pin_and_the_kokoro_pins():
+    """v0.8.2 Phase 4: the pins live in the base project (``pyproject.toml``) and its lock (``uv.lock``)."""
+    import tomllib
+
+    project = tomllib.loads(bootstrap.PYPROJECT_FILE.read_text(encoding="utf-8"))
+    lines = {entry.split(";")[0].strip() for entry in project["project"]["dependencies"]}
     assert "srsly==2.5.3" in lines
     assert set(bootstrap.KOKORO_PKGS) <= lines
-    locked = {entry.key: entry.version for entry in base_packages.parse_lock(
-        base_packages.lock_path(bootstrap.REQUIREMENTS_FILE).read_text(encoding="utf-8")).entries}
+    locked: dict[str, set] = {}
+    for package in tomllib.loads(bootstrap.UV_LOCK_FILE.read_text(encoding="utf-8"))["package"]:
+        locked.setdefault(package["name"], set()).add(package.get("version"))
     for pin in ("srsly==2.5.3", *bootstrap.KOKORO_PKGS):
         name, version = pin.split("==")
-        assert locked[base_packages.canonical_name(name)] == version, pin
+        assert locked[name] == {version}, pin
+    assert set(bootstrap.KOKORO_DISTS) <= set(locked), "a targeted repair names only locked distributions"
 
 
 def test_a_repair_whose_proof_still_fails_is_recorded_and_not_rerun_today(venv, monkeypatch):

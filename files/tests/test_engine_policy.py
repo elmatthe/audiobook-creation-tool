@@ -764,6 +764,10 @@ def test_a_mac_environment_on_an_incompatible_python_names_only_kokoro(on_platfo
     monkeypatch.setattr(bootstrap, "probe_venv", lambda _py: {"version": (3, 13), "ssl": True, "tk": True})
     monkeypatch.setattr(bootstrap.venv_integrity, "foreign_base_python", lambda *a, **k: None)
     monkeypatch.setattr(bootstrap, "venv_creation_cut_short", lambda *a, **k: False)
+    # v0.8.2 Phase 4: an environment pip built is rebuilt before its version is weighed ("legacy-environment"), so the
+    # wording is reached by one uv built on the copy's own managed home that nevertheless reports another version.
+    monkeypatch.setattr(bootstrap.uv_runner, "built_by_uv", lambda *a, **k: True)
+    monkeypatch.setattr(bootstrap.uv_runner, "home_problem", lambda *a, **k: "")
 
     on_platform(MAC)
     mac = bootstrap.assess_venv_health(compatible_base_available=True)

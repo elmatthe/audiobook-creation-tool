@@ -36,6 +36,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from . import maintenance
+from . import app_python as _app_python  # v0.8.2 Phase 4: standard library only, like uv_runner below
+from . import uv_runner as _uv_runner
 
 # --------------------------------------------------------------------------- #
 # Names — narrow, fixed, and never derived from anything a request carries
@@ -581,15 +583,16 @@ def interpreter_candidates() -> list[Path]:
     return ordered
 
 
-#: v0.7.0 portable layout (Windows): the app's own base Python, placed by setup's stage 0 -- kept in step with
-#: ``bootstrap.APP_PYTHON``. It lies outside ``.venv`` and outside every cleanup target, so the coordinator may run on it.
-#: v0.8.x P1A: on a Mac, stage 0 (bootstrap_host_macos.sh) places it at ``python/bin/python3.12``.
-APP_BASE_PYTHON_PARTS = (("files", "runtime-data", "python", "bin", "python3.12") if sys.platform == "darwin"
-                         else ("files", "runtime-data", "python", "python.exe"))
+#: The app's own base Python, placed by setup's stage 0 -- kept in step with ``bootstrap.APP_PYTHON``. It lies outside
+#: ``.venv`` and outside every cleanup target, so the coordinator may run on it. v0.8.2 Phase 4: the uv-managed
+#: interpreter (``files/runtime-data/uv/python/<versioned folder>``) on both platforms.
+APP_BASE_PYTHON_PARTS = tuple(_uv_runner.managed_python(Path("ROOT")).relative_to(Path("ROOT")).parts)
 
 
 def app_base_python(repo_root) -> Path:
-    return maintenance.absolute(repo_root).joinpath(*APP_BASE_PYTHON_PARTS)
+    """The base interpreter the copy's ``.venv`` runs on (``shared.app_python``): the managed one above, or the legacy
+    ``files/runtime-data/python`` while ``.venv`` still runs on it (transitional rule 2)."""
+    return _app_python.app_env_base(maintenance.absolute(repo_root))
 
 
 def find_non_venv_python(repo_root, *, candidates=None, probe=None):

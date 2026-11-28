@@ -43,14 +43,11 @@ class _Log:
 def env(monkeypatch, tmp_path):
     venv = tmp_path / ".venv"
     (venv / "Scripts").mkdir(parents=True)
-    reqs = tmp_path / "requirements.txt"
-    reqs.write_text("nltk==3.9.4\ntqdm==4.67.3\n", encoding="utf-8")
     monkeypatch.setattr(bootstrap, "VENV_DIR", venv)
-    monkeypatch.setattr(bootstrap, "REQUIREMENTS_FILE", reqs)
     monkeypatch.setattr(bootstrap, "REQUIRED_IMPORTS", ["nltk"])
     # The venv's version decides the <3.13 gate only; nltk is not gated.
     monkeypatch.setattr(bootstrap, "_interp_version_argv", lambda argv: (3, 12))
-    return SimpleNamespace(reqs=reqs)
+    return SimpleNamespace(venv=venv)
 
 
 def _fake_run(monkeypatch, *, import_seconds: float, import_rc: int = 0):
@@ -90,16 +87,18 @@ def test_the_setup_check_uses_the_launch_proof_window(env, monkeypatch):
     assert bootstrap.IMPORT_PROBE_TIMEOUT_S >= 600
 
 
-def test_a_real_import_failure_reinstalls_within_the_pins(env, monkeypatch):
-    # The unlocked route (Windows and Linux); a Mac never reinstalls without its lock's hashes (v0.8.x P1A).
-    monkeypatch.setattr(bootstrap, "IS_MAC", False)
+def test_a_real_import_failure_reinstalls_within_the_lock(env, monkeypatch):
+    """v0.8.2 Phase 4: one targeted locked uv reinstall of the module's distribution and of every package whose files
+    no longer match their RECORD (the cause may be any package beneath it), on both platforms; never a free pip."""
     calls = _fake_run(monkeypatch, import_seconds=0.1, import_rc=1)
+    synced: list[tuple] = []
+    monkeypatch.setattr(bootstrap.venv_integrity, "record_damage", lambda venv, **kw: {"tqdm": "x is missing"})
+    monkeypatch.setattr(bootstrap, "sync_base_packages",
+                        lambda log, reinstall=(), refresh=(): synced.append(tuple(reinstall)) or True)
     log = _Log()
-    assert bootstrap.validate_installed_packages(log) is False
-    [pip] = _pip_calls(calls)
-    assert "--force-reinstall" in pip and "nltk" in pip
-    constraint = pip[pip.index("-c") + 1]
-    assert constraint == str(env.reqs)
+    assert bootstrap.validate_installed_packages(log) is False, "it still does not import afterwards"
+    assert synced == [("nltk", "tqdm")]
+    assert _pip_calls(calls) == [], "no pip is ever started"
 
 
 def test_a_hung_import_is_still_a_failure_after_the_full_window(env, monkeypatch):

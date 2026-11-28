@@ -526,15 +526,23 @@ def test_on_a_mac_the_configured_device_is_validated_and_reaches_the_policy(tmp_
 
 
 def test_on_a_mac_the_installer_builds_from_the_app_s_own_python_and_no_other_inside_the_app(sandbox, monkeypatch):
-    """macOS P4B: setup places the app's base CPython inside the app's folder (``files/runtime-data/python/bin/
-    python3.12``). The installer must accept exactly that interpreter there -- the first real Mac install found it
-    refused -- and still refuse anything else inside the folder (an environment's python). Windows' rule is as
-    released."""
+    """macOS P4B: setup places the app's base CPython inside the app's folder. The installer must accept exactly that
+    interpreter there -- the first real Mac install found it refused -- and still refuse anything else inside the
+    folder (an environment's python). Windows' rule is as released.
+
+    v0.8.2 Phase 4: that interpreter is uv's managed CPython (``files/runtime-data/uv/python/<key>/bin/python3.12``),
+    or the legacy ``files/runtime-data/python/bin/python3.12`` while ``.venv`` still runs on it (one resolver)."""
     from tts import omnivoice_setup as osu
 
     root = ov.repo_root()
     monkeypatch.setattr(ov, "_system", lambda: "darwin")
-    owned = root / "files" / "runtime-data" / "python" / "bin" / "python3.12"
+    legacy = root / "files" / "runtime-data" / "python" / "bin" / "python3.12"
+    venv_cfg = root / ".venv" / "pyvenv.cfg"
+    venv_cfg.parent.mkdir(parents=True, exist_ok=True)
+    venv_cfg.write_text(f"home = {legacy.parent}\n", encoding="utf-8")
+    assert ov.app_owned_python() == legacy, "an environment from v0.8.1 keeps building engines on its own base"
+    venv_cfg.unlink()
+    owned = root / "files" / "runtime-data" / "uv" / "python" / "cpython-3.12.15-macos-aarch64-none" / "bin" / "python3.12"
     assert ov.app_owned_python() == owned
     other = root / ".venv" / "bin" / "python3.12"
     for path in (owned, other):
@@ -557,7 +565,10 @@ def test_on_a_mac_the_installer_builds_from_the_app_s_own_python_and_no_other_in
         osu.verified_base_python(runner=runner)
     assert asked == [str(owned)], "a refused interpreter is never started"
     monkeypatch.setattr(ov, "_system", lambda: "win32")
-    assert ov.app_owned_python() == rt.app_base_python()
+    # v0.8.2 Phase 4: Windows asks the same resolver (it was the running interpreter's base, which is the same file
+    # whenever the app runs from its own .venv).
+    assert ov.app_owned_python() == root / "files" / "runtime-data" / "uv" / "python" / \
+        "cpython-3.12.15-windows-x86_64-none" / "python.exe"
 
 
 def test_the_worker_environment_never_carries_the_mps_fallback_switch(sandbox):

@@ -35,12 +35,13 @@ not listed is history, recoverable here and through Git.
 - 2026-11-22 — v0.8.2: Windows excuses the `files/dev-work/` "no colliding test basename" skip, and only that one.
 
 **Setup, environment and packaging**
+- 2026-11-27 — v0.8.2 Phase 4: the base environment is provisioned only by uv (one wrapper, one locked base project, offline-first repair cache, receipts after RECORD and import proof); D-6 fallback approved and implemented; the legacy interpreter stays for engines through one resolver (supersedes 2026-10-31's local-store route for the base).
 - 2026-11-27 — v0.8.2 Phase 3B (macOS uv feasibility) and the owner's approvals: uv 0.13.10, A2 exact pinned build, A1 sibling engine environments `.venv-engines/<engine>/` (supersedes the engine part of 2026-11-13), A4/D-8 Windows copy and macOS clone, base repair cache kept, no GPU-engine cache by default, bytecode at install.
 - 2026-11-27 — v0.8.2 Phase 3A (Windows uv feasibility): uv 0.13.10 and an ACT-owned CPython 3.12.15+20261009 download pin reproduce today's interpreter and every locked artifact; A1 (siblings recommended), A2, A4/D-8 (copy) proposed to the owner.
 - 2026-11-13 — v0.8.0 unified `.venv` layout: OmniVoice at `.venv/engines/omnivoice`; an earlier `.venv-omnivoice` is never used. Engine placement superseded by 2026-11-27 Phase 3B (A1 siblings) as each engine migrates to uv.
 - 2026-11-13 — v0.8.0 Phase 3: OmniVoice is the fifth component of the optional installer, used only with the installer's receipt.
 - 2026-11-18 — Windows starts the app on the venv's `python.exe` with a hidden console; `pythonw.exe` is never started (Smart App Control).
-- 2026-10-31 — The app environment installs only from a complete hash lock through a verified local store.
+- 2026-10-31 — The app environment installs only from a complete hash lock through a verified local store. Superseded for the base by 2026-11-27 Phase 4 (uv).
 - 2026-10-27 — Owner-approved Option B: base preparation is separate from optional acquisition (an out-of-order entry near the end of the file; see the ordering note).
 - 2026-10-25 — P04C closes on the nested Qwen3 layout: `.venv/engines/qwen3` is canonical; legacy `.venv-qwen3` kept unused for rollback.
 - 2026-10-25 — Optional voices are acquired only from pinned identities, under a spent consent; inference loads only verified local copies.
@@ -82,6 +83,56 @@ entries moved unchanged, byte for byte and in their original order, to two per-e
 12 November 2026, with the eight late-appended entries at its end) and [v0.5.0 to v0.6.6](../files/documentation-history/decisions/Decisions-v0.5.0-to-v0.6.6.md)
 (July to September 2026). The ordering breaks above are in those files. The whole file before the split:
 `git show dabb02d:md-instructions/Decisions.md`.
+
+## 2026-11-27 — v0.8.2 Phase 4: the base environment is provisioned only by uv; D-6 approved and implemented; the legacy interpreter stays for engines through one resolver
+
+**Owner decision D-6 (APPROVED in the Phase 4 prompt).** When PowerShell cannot run, setup uses a contained fallback built from Windows'
+own `curl.exe`, `certutil` and `tar.exe` with the pinned hashes (`scripts/shared/bootstrap_host_fallback.cmd`); a Python that merely
+happens to be on the computer is never used (this retires the `.bat` PATH-Python fallback).
+
+**Decisions taken while implementing the approved plan (agent-implemented, not independently reviewed).**
+1. One wrapper, `scripts/shared/uv_runner.py`, runs every uv command: `--python 3.12.15` with managed interpreters only and no
+   downloads by uv itself, `--project`, `--locked`, an explicit profile (`user` = `--no-dev`, `dev` = `--group dev`), link mode `copy` on
+   Windows and `clone` on macOS (never a hard link), `--compile-bytecode`, and a scrubbed environment (`UV_`, `PIP_`, `PYTHON*`,
+   `SSL_CERT_` and activation settings dropped; the cache, Python installs and per-operation scratch inside the app folder). It refuses
+   any target but `.venv` or `.venv-engines/<engine>`.
+2. The base project is the root `pyproject.toml` with its `uv.lock`: a parity translation of the v0.8.1 hash locks (the same releases and
+   SHA-256s; Kokoro and Chatterbox stay until 5C/5D). pytest lives only in the `dev` group, which is the gate's single pytest pin. A profile
+   is recorded only by `bootstrap.py --profile`, never inferred.
+3. Offline first, from the persistent repair cache `files/runtime-data/uvc`. A download happens only after consent: starting first-run
+   setup is that consent; a launch or repair asks once, on the main thread (a worker never creates Tk); no one to ask means No. A package
+   whose kept files are damaged is fetched again only after its cache entries are removed (`uv cache clean <package>`), because
+   `--refresh-package` alone reinstalled the same damaged unpacked files. `uv cache prune` runs only after a real successful sync.
+4. The receipt `.venv/.act-environment.json` binds the base project and lock (line endings normalised), the interpreter (home, `BUILD`,
+   archive SHA-256, `sys.version`), the profile and the health. It is withdrawn before any sync and written only after every installed file
+   matched its RECORD (read directly; a missing RECORD is damage) and the required imports were proved. A v0.8.1 stamp is not a receipt.
+5. uv never syncs an environment it could recreate (recreation deletes nested engines): only a uv-built `.venv` on exactly this copy's
+   managed interpreter is synced in place. Anything else (a v0.8.1 pip environment, another home, a moved copy) is rebuilt through the
+   existing set-aside transaction, which carries `.venv/engines/*` byte for byte and puts the old environment back on failure. Package damage
+   in a uv environment is repaired in place first, and only then rebuilt.
+6. Transitional rule 2: `files/runtime-data/python` is never deleted or moved. `scripts/shared/app_python.py` names the base of the copy's
+   `.venv` (the managed interpreter, or the legacy one while `.venv` still runs on it) for the Qwen3 and OmniVoice installers, the cleanup
+   coordinator and the optional-setup checks.
+7. Stage 0 accepts only the pinned uv binary (its SHA-256) and the exact interpreter (`BUILD`, `sys.version`, ssl, venv, ensurepip, a real Tk
+   root on Windows), proved at its final place with its own path compared inside it; it refreshes uv's minor-version link after a move and
+   reports a relative ASCII path, so any folder name works.
+8. The path budget stays 172 characters: measured, a uv `.venv` reaches 155 and the managed interpreter 164; only uv (long-path aware)
+   touches the deeper cache (171).
+9. Gate: the pytest pin comes from `pyproject.toml`'s `dev` group; D1-D3 of the Phase 3B report are corrected; the test guard excuses the
+   managed interpreter's first-import standard-library bytecode exactly as it excuses the legacy one's.
+
+**Why.** Exact, hash-locked, offline-repairable installs with one tool on both platforms, without ever trusting a Python found on the
+computer, and without risking the voice engines that still live inside `.venv`.
+
+**Evidence (HOME-PC, agent-run).** Real disposable scenarios: fresh cold install, relocation, warm launch, package repair, cache damage,
+interruption, legacy migration with a rollback, the legacy engine route on both layouts, the fallback `.cmd`, a cached offline install of a
+fresh copy; registry, PATH and user-profile state unchanged. `C:\ACT-Dev` migrated to the dev profile. Details: `Handoff.md` (Phase 4).
+**macOS: implemented, native verification PENDING** (`files/plans/ACT-v0.8.2-Phase4-macOS-Verification.md`).
+
+**Not changed.** VERSION 0.8.1; the Qwen3 and OmniVoice installers' own route (5A/5B); FFmpeg, NLTK, eSpeak and model handling; the owner's
+installations and checkouts. Nothing merged, tagged or released.
+
+— D-6 decided by the owner; implemented and recorded by Claude Code under the owner's Phase 4 prompt.
 
 ## 2026-11-27 — v0.8.2 Phase 3B: native macOS uv feasibility PASS; the owner approves the Phase 3A proposals (uv 0.13.10, A2, A1 siblings, A4/D-8, bytecode); Phase 4 may start
 

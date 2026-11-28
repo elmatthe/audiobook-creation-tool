@@ -299,7 +299,9 @@ def _stop_tree(proc, job, *, kill_wait: float) -> None:
     elif proc.pid and _group_alive(proc.pid):
         try:
             os.killpg(proc.pid, signal.SIGTERM)
-        except ProcessLookupError:
+        except (ProcessLookupError, PermissionError):
+            # Darwin answers EPERM for a group whose members are exiting (killed, not yet reaped): nothing more can be
+            # sent to it, and the bounded survivor poll in run_supervised decides whether it really ended (Phase 4 D1).
             pass
         try:
             proc.wait(timeout=kill_wait)
@@ -308,7 +310,7 @@ def _stop_tree(proc, job, *, kill_wait: float) -> None:
         if _group_alive(proc.pid):
             try:
                 os.killpg(proc.pid, signal.SIGKILL)
-            except ProcessLookupError:
+            except (ProcessLookupError, PermissionError):
                 pass
     try:
         proc.wait(timeout=kill_wait)
@@ -391,7 +393,12 @@ def run_supervised(argv, *, log_path: Path, cwd, env, timeout: float, stall: flo
                 survivors = _alive_owned(proc, job)
             result.survivors = survivors
             result.peak_memory_bytes = job.peak_memory()
-        elif proc.pid and _group_alive(proc.pid):
+        elif proc.pid:
+            # POSIX: a group just killed can still answer for a few tens of milliseconds while its members exit, so wait
+            # for it within the same bound as the job branch; one still alive after that is a real survivor (D1).
+            deadline = time.monotonic() + kill_wait
+            while _group_alive(proc.pid) and time.monotonic() < deadline:
+                time.sleep(min(poll, 0.05))
             result.survivors = _alive_owned(proc, job)
     finally:
         result.seconds = time.monotonic() - began

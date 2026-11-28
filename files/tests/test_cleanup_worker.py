@@ -41,7 +41,9 @@ UTC = timezone.utc
 #: offers (standard library only; it acts on nothing).
 COORDINATOR_MODULES = ("__init__.py", "maintenance.py", "cleanup_state.py",
                        "cleanup_worker.py", "venv_layout.py", "engine_lease.py",
-                       "engine_policy.py")
+                       "engine_policy.py",
+                       # v0.8.2 Phase 4: cleanup_state resolves the base interpreter through these (standard library only)
+                       "app_python.py", "uv_runner.py")
 #: The lease's lock files, relative to a root (``shared.engine_lease``).
 LEASE_LOCK_FILES = frozenset(f"files/runtime-data/qwen3/{name}"
                              for name in ("setup.lock", "inference.lock", "engine.lock")) | frozenset(
@@ -880,10 +882,15 @@ def test_deletion_of_a_catalog_target_is_reachable_only_from_the_coordinator():
     this is its only tree removal and that the path can come from nowhere else. ``child_ownership.py`` is the owner's side of
     the same scheme: it removes the permit folder it created (``self._permits``) and each per-launch folder it just made
     (``launch.directory``); both are pinned by the same test.
+
+    (v0.8.2 Phase 4) ``uv_runner.py`` is the ninth: each uv call gets its own scratch folder,
+    ``files/runtime-data/uv/t/<random id>/`` (uv's temporary files and its Python download cache), which the call
+    created a moment before and removes when it ends -- only that folder, only directly under ``t``, never through a
+    link. ``test_uv_provisioning.py::test_an_operations_scratch_is_its_own_and_is_removed_alone`` pins it.
     """
     shared = REPO_ROOT / "scripts" / "shared"
     allowed_rmtree = {"bootstrap.py", "metadata.py", "ffmpeg_portable.py", "nltk_store.py", "work_area.py",
-                      "long_paths.py", "child_guardian.py", "child_ownership.py"}
+                      "long_paths.py", "child_guardian.py", "child_ownership.py", "uv_runner.py"}
     allowed_rmdir = {"cleanup_worker.py", "work_area.py", "child_ownership.py"}
     for path in sorted(shared.glob("*.py")):
         source = path.read_text(encoding="utf-8")

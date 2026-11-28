@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import os
 import re
-from pathlib import Path, PureWindowsPath
+from pathlib import Path
 
 import pytest
 
@@ -96,9 +96,11 @@ def test_a_freshly_extracted_tree_therefore_runs_first_run_setup(bat_text):
     assert fast < first_run
 
 
-def test_it_looks_for_both_py_and_python_before_installing(bat_text):
-    assert "where py " in bat_text or "where py>" in bat_text or "where py >" in bat_text
-    assert "where python " in bat_text or "where python >" in bat_text
+def test_it_never_falls_back_to_a_python_that_happens_to_be_on_the_computer(bat_text):
+    """v0.8.2 Phase 4 (owner decision D-6): when PowerShell cannot run, the launcher sets the app's own Python up with
+    Windows' own curl.exe, certutil and tar.exe; it no longer looks for ``py`` or ``python`` on PATH."""
+    assert "where py" not in bat_text and "where python" not in bat_text
+    assert 'call "scripts\\shared\\bootstrap_host_fallback.cmd" "%PYFILE%"' in bat_text
 
 
 def _stage0() -> str:
@@ -116,11 +118,13 @@ def test_it_provides_the_apps_own_python_312_when_none_is_there(bat_text):
 
 
 def test_the_unpacked_python_is_proved_at_its_final_place_not_trusted_from_the_archive(bat_text):
-    """Unpacking is not proof: the interpreter is run where the app will use it, after it was moved into place."""
+    """Unpacking is not proof: the interpreter is run where the app will use it, after uv installed it there (v0.8.2
+    Phase 4: uv unpacks the verified archive into files/runtime-data/uv/python; stage 0 then runs it)."""
     stage0 = _stage0()
-    moved_at = stage0.index("Move-Item -LiteralPath $unpacked -Destination $PythonHome")
-    proved_at = stage0.index("return Test-Candidate (Join-Path $PythonHome 'python.exe')", moved_at)
-    assert moved_at < proved_at
+    installed_at = stage0.index("Install-Managed ($stale -or (Test-Path -LiteralPath $PyHome))")
+    proved_at = stage0.index("$python = Test-Python", installed_at)
+    assert installed_at < proved_at
+    assert stage0.index("if (-not $python) {", proved_at) < stage0.index("Write-Result $python", proved_at)
 
 
 def test_the_located_interpreter_is_what_runs_the_bootstrap(bat_text):
@@ -144,39 +148,19 @@ def test_a_cancelled_setup_is_not_reported_as_a_failure(bat_text):
     assert "Setup cancelled" in bat_text
 
 
-def test_the_bootstrap_probes_the_winget_user_scope_python_location(monkeypatch):
-    """The same PATH-independence, on the Python side of the boundary.
+def test_the_bootstrap_probes_only_the_apps_own_python(monkeypatch):
+    """The same PATH-independence, on the Python side of the boundary (v0.8.2 Phase 4: the app's own uv-managed
+    CPython is the only candidate; a Python merely installed on the computer -- py, PATH, the winget user-scope
+    location v0.8.1 still probed -- is never a base, on either platform).
 
     Forced onto the Windows branch rather than skipped off it: this is a
     Windows contract, and a macOS run that quietly skipped it would stop
-    protecting it. Plan 5 adds no new conditional coverage.
+    protecting it.
     """
     monkeypatch.setattr(bootstrap, "IS_WINDOWS", True)
     monkeypatch.setenv("LOCALAPPDATA", r"C:\Users\someone\AppData\Local")
-    candidates = bootstrap._candidate_interpreters()
-
-    # Compared under *Windows* path semantics rather than the host's. Forcing
-    # ``IS_WINDOWS`` picks the Windows branch but cannot turn ``pathlib.Path``
-    # into ``WindowsPath``, so off Windows that branch joins with ``/`` and
-    # yields ``C:\Users\...\Local/Programs/Python/Python312/python.exe``. That is
-    # the *same path* Windows itself builds with backslashes — identical
-    # ``PureWindowsPath.parts`` — so the old raw ``str.endswith`` was really
-    # asserting which host ran the suite. On Windows this compares exactly the
-    # value it always did; the contract itself is unchanged and no weaker.
-    # Candidates are structured argv sequences (PRE-PLAN-6 Phase 1): a path
-    # candidate is a one-element list whose single element may contain spaces,
-    # and a launcher candidate is ["py", "-3.12"]. Only the single-token path
-    # candidates can name a user-scope install.
-    paths = [argv[0] for argv in candidates if len(argv) == 1]
-    # v0.7.0 portable layout: the app's own Python is always the first candidate.
-    assert candidates[0] == [str(bootstrap.APP_PYTHON)]
-    user_scope = [PureWindowsPath(c) for c in paths
-                  if PureWindowsPath(c).parts[-4:]
-                  == ("Programs", "Python", "Python312", "python.exe")]
-    assert user_scope, candidates
-    assert user_scope[0] == PureWindowsPath(
-        r"C:\Users\someone\AppData\Local\Programs\Python\Python312\python.exe")
-    assert ["py", "-3.12"] in candidates
+    assert bootstrap._candidate_interpreters() == [[str(bootstrap.APP_PYTHON)]]
+    assert bootstrap.APP_PYTHON == bootstrap.uv_runner.managed_python(bootstrap.REPO_ROOT)
 
 
 def test_installing_python_re_probes_even_if_winget_reports_a_problem(monkeypatch):

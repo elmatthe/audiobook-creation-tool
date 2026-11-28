@@ -18,7 +18,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from shared import base_packages, bootstrap  # noqa: E402
+from shared import bootstrap  # noqa: E402
 from conftest import stand_in_for_setups_python_children  # noqa: E402  (v0.8.x P5-C: setup's child seam)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -34,13 +34,14 @@ def recorded_runs(monkeypatch):
         runs.append(list(cmd))
         return SimpleNamespace(returncode=0, stdout="OK", stderr="")
 
-    def fake_install(venv_py, log):
-        # v0.7.0: the one package installer (the dependency lock); recorded in its place in the sequence.
-        runs.append([str(venv_py), "-m", "pip", "<install_base_packages>"])
+    def fake_install(names, log):
+        # v0.7.0: the one package installer; v0.8.2 Phase 4: a targeted locked uv sync (``repair_base_packages``),
+        # recorded in its place in the sequence.
+        runs.append(["<repair_base_packages>", *names])
         return True
 
     stand_in_for_setups_python_children(monkeypatch, fake_run)
-    monkeypatch.setattr(bootstrap, "install_base_packages", fake_install)
+    monkeypatch.setattr(bootstrap, "repair_base_packages", fake_install)
     return runs
 
 
@@ -139,13 +140,16 @@ def test_a_crashed_probe_is_reported_rather_than_swallowed(monkeypatch, tmp_path
 # --------------------------------------------------------------------------- #
 def test_the_repair_installs_into_the_existing_venv_only(recorded_runs, tmp_path):
     bootstrap.ensure_chatterbox_installed(tmp_path / "python.exe", lambda _m: None)
-    assert recorded_runs[0] == [str(tmp_path / "python.exe"), "-m", "pip", "<install_base_packages>"]
-    # The one installer installs the lock, which carries every pin of the Chatterbox repair set.
-    locked = {entry.key: entry.version for entry in base_packages.parse_lock(
-        base_packages.lock_path(bootstrap.REQUIREMENTS_FILE).read_text(encoding="utf-8")).entries}
+    assert recorded_runs[0] == ["<repair_base_packages>", "chatterbox-tts", "setuptools"]
+    # The one installer syncs the lock, which carries every pin of the Chatterbox repair set.
+    import tomllib
+
+    locked: dict[str, set] = {}
+    for package in tomllib.loads(bootstrap.UV_LOCK_FILE.read_text(encoding="utf-8"))["package"]:
+        locked.setdefault(package["name"], set()).add(package.get("version"))
     for pkg in bootstrap.CHATTERBOX_PKGS:
         name, version = pkg.split("==")
-        assert locked[base_packages.canonical_name(name)] == version, pkg
+        assert locked[name] == {version}, pkg
 
 
 def test_the_repair_verifies_itself_with_the_health_probe(recorded_runs, tmp_path):
@@ -156,7 +160,7 @@ def test_the_repair_verifies_itself_with_the_health_probe(recorded_runs, tmp_pat
 
 def test_a_failed_repair_returns_false(monkeypatch, tmp_path):
     probes = []
-    monkeypatch.setattr(bootstrap, "install_base_packages", lambda venv_py, log: False)
+    monkeypatch.setattr(bootstrap, "repair_base_packages", lambda names, log: False)
     stand_in_for_setups_python_children(monkeypatch, lambda *a, **k: probes.append(a) or SimpleNamespace(
         returncode=0, stdout="OK", stderr=""))
     assert bootstrap.ensure_chatterbox_installed(tmp_path / "python.exe", lambda _m: None) is False

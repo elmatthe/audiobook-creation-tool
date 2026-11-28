@@ -23726,7 +23726,7 @@
     {
       "id": "ACT.SETUP.APP-PYTHON",
       "tool": "setup",
-      "title": "App-local Python (stage 0) and interpreter selection",
+      "title": "App-local Python (stage 0: uv's managed CPython) and the one interpreter resolver",
       "release_required": true,
       "applicability": {
         "platforms": [
@@ -23736,6 +23736,10 @@
       "source": [
         {
           "path": "scripts/shared/bootstrap_host.ps1",
+          "symbols": []
+        },
+        {
+          "path": "scripts/shared/bootstrap_host_fallback.cmd",
           "symbols": []
         },
         {
@@ -23761,13 +23765,49 @@
         {
           "path": "scripts/shared/bootstrap_host_macos.sh",
           "symbols": []
+        },
+        {
+          "path": "scripts/shared/app_python.py",
+          "symbols": [
+            "app_env_base",
+            "is_own_base",
+            "owner_of_home",
+            "legacy",
+            "legacy_home",
+            "managed",
+            "own_homes"
+          ]
+        },
+        {
+          "path": "scripts/shared/uv_runner.py",
+          "symbols": [
+            "managed_python",
+            "managed_python_home",
+            "managed_venv_home",
+            "python_install_dir",
+            "python_install_command",
+            "interpreter_build",
+            "home_problem",
+            "built_by_uv",
+            "read_pyvenv_home",
+            "file_sha256",
+            "downloads_json",
+            "mirror_dir",
+            "mirror_archive",
+            "mirror_uri",
+            "uv_home",
+            "runtime_dir",
+            "venv_python"
+          ]
         }
       ],
       "contracts": [
-        "On Windows the app's Python is its own pinned standalone CPython 3.12 in files/runtime-data/python; nothing is installed on the computer (no installer, no WinGet, no administrator rights, no PATH change)",
-        "The archive is downloaded only after the person says yes; declining exits 2, downloads nothing and changes nothing",
-        "The archive is checked against its pinned SHA-256 before it is unpacked and the result is accepted only by running it (ssl, venv, ensurepip and a real Tk window)",
-        "A Python whose Tk cannot initialise is rejected; the full-feature range is 3.11 to 3.12 and a compatible 3.12 wins over a newer interpreter"
+        "The app's Python is uv's managed CPython 3.12.15 (python-build-standalone 20261009) in files/runtime-data/uv/python, installed by the pinned uv 0.13.10 from ACT's own verified archive and download metadata; nothing is installed on the computer (no installer, no registry, no PATH change, no administrator rights)",
+        "uv and the Python archive are downloaded only after the person says yes; declining exits 2, downloads nothing and changes nothing",
+        "Both downloads are checked against their pinned size and SHA-256 before use, and the interpreter is accepted only by running it at its final place (the exact sys.version, ssl, venv, ensurepip and a real Tk root), its own path compared inside it so a folder with spaces or any Unicode name works; stage 0 reports it as a relative ASCII path",
+        "When PowerShell cannot run, the launcher does the same with Windows' own curl.exe, certutil and tar.exe (bootstrap_host_fallback.cmd, owner decision D-6), and never uses a Python that happens to be on the computer",
+        "The only base candidate is the app's own managed Python; one resolver (shared/app_python.py) names it, or the legacy files/runtime-data/python only while .venv and the engines built on it still run on it (never deleted)",
+        "A Python whose Tk cannot initialise is rejected; a moved or copied folder has uv's minor-version link refreshed"
       ],
       "selection": [
         "files/tests/test_bootstrap_host.py",
@@ -23775,7 +23815,8 @@
         "files/tests/test_bootstrap_python_version.py",
         "files/tests/test_tk_proof.py",
         "files/tests/test_first_run_contract.py",
-        "files/tests/test_launch_self_heal.py"
+        "files/tests/test_launch_self_heal.py",
+        "files/tests/test_uv_provisioning.py"
       ],
       "journeys": [],
       "verification": {
@@ -23786,7 +23827,11 @@
           },
           {
             "kind": "behavior",
-            "test": "files/tests/test_bootstrap_host.py::test_a_tampered_archive_is_rejected_before_anything_is_unpacked"
+            "test": "files/tests/test_bootstrap_host.py::test_a_tampered_uv_archive_is_rejected_before_anything_is_unpacked"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_bootstrap_host.py::test_a_right_sized_archive_with_the_wrong_hash_is_rejected_by_its_sha256_under_a_powershell7_module_path"
           },
           {
             "kind": "behavior",
@@ -23794,15 +23839,47 @@
           },
           {
             "kind": "behavior",
+            "test": "files/tests/test_bootstrap_host.py::test_stage_zero_reports_the_interpreter_relative_to_the_app_folder_in_plain_ascii"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_bootstrap_host.py::test_the_fallback_declines_when_no_one_can_answer_and_downloads_nothing"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_bootstrap_host.py::test_the_python_of_an_earlier_version_is_neither_used_nor_touched"
+          },
+          {
+            "kind": "behavior",
             "test": "files/tests/test_tk_proof.py::test_stage_zero_rejects_a_python_whose_tk_cannot_initialise"
           },
           {
             "kind": "behavior",
-            "test": "files/tests/test_bootstrap_python_selection.py::test_312_wins_when_312_and_313_are_both_installed"
+            "test": "files/tests/test_bootstrap_python_selection.py::test_the_only_candidate_on_every_platform_is_the_apps_own_python"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_bootstrap_python_selection.py::test_no_python_on_the_computer_is_ever_probed"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_first_run_contract.py::test_it_never_falls_back_to_a_python_that_happens_to_be_on_the_computer"
           },
           {
             "kind": "behavior",
             "test": "files/tests/test_launch_self_heal.py::test_windows_never_installs_python_on_the_computer"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_uv_provisioning.py::test_the_interpreter_is_installed_from_acts_own_archive_and_never_registered"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_uv_provisioning.py::test_the_resolver_keeps_a_migrated_copys_engines_on_their_own_interpreter"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_uv_provisioning.py::test_every_engine_installer_asks_the_one_resolver"
           },
           {
             "kind": "qualification",
@@ -23844,20 +23921,24 @@
             "app_python_owner",
             "foreign_base_python",
             "site_packages",
-            "package_damage"
+            "package_damage",
+            "record_damage",
+            "installed_distributions"
           ]
         }
       ],
       "contracts": [
         "An interpreter that does not run, has no ssl, runs on another copy's Python, or has package files missing under intact metadata is repairable (exit 3 to the launcher)",
+        "An environment pip built (v0.8.1 and earlier), or one uv built on anything but this copy's exact managed CPython, is repairable and rebuilt through the set-aside transaction, never synced where it stands",
         "An out-of-range Python or broken Tk is repairable only when a better base Python exists; otherwise the environment launches degraded (exit 0)",
         "No display is reported as degraded, never as a broken environment, so it cannot trigger a rebuild loop",
         "A healthy assessment costs one subprocess and never installs anything"
       ],
       "selection": [
-        "files/tests/test_venv_recovery.py",
+        "files/tests/test_tk_proof.py",
+        "files/tests/test_uv_provisioning.py",
         "files/tests/test_venv_integrity.py",
-        "files/tests/test_tk_proof.py"
+        "files/tests/test_venv_recovery.py"
       ],
       "journeys": [],
       "verification": {
@@ -23885,6 +23966,18 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_tk_proof.py::test_no_display_is_not_mistaken_for_a_broken_environment"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_venv_integrity.py::test_an_environment_from_an_earlier_version_is_rebuilt_on_the_managed_python"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_venv_integrity.py::test_a_uv_environment_on_another_interpreter_is_rebuilt"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_uv_provisioning.py::test_an_environment_on_the_exact_managed_folder_passes_and_nothing_else_does"
           }
         ]
       },
@@ -23922,7 +24015,9 @@
             "_discard_venv_aside",
             "_finish_discarding",
             "_carry_held_environments",
-            "_replace_retrying"
+            "_replace_retrying",
+            "_repair_damaged_packages_in_place",
+            "repair_base_packages"
           ]
         },
         {
@@ -23946,14 +24041,17 @@
         "An interrupted repair is finished first on the next start before anything else touches the environment",
         "After a repair the launch never asks for a second repair; a still-running environment whose repair failed opens with a notice",
         "What setup says about FFmpeg is what it does: the environment rebuild never touches FFmpeg, and the launch that follows a repair run checks it and repairs it like every launch; the --repair-venv help and repair_venv's docstring say exactly that.",
-        "A .venv folder that is present but holds no Python interpreter is replaced like any environment that cannot run -- set aside, rebuilt, its engines carried home byte for byte -- by first-run setup and by the repair alike; it is never kept as it is, and it comes back whole when the rebuild fails"
+        "A .venv folder that is present but holds no Python interpreter is replaced like any environment that cannot run -- set aside, rebuilt, its engines carried home byte for byte -- by first-run setup and by the repair alike; it is never kept as it is, and it comes back whole when the rebuild fails",
+        "Package damage in a uv environment on the exact managed Python is first repaired in place (the damaged distributions reinstalled from the repair cache, then RECORD and import proof); only if that does not make it whole is the environment rebuilt",
+        "uv never syncs an environment it could recreate (and so delete a voice engine held in it): anything else is rebuilt through the set-aside transaction, which carries .venv/engines across byte for byte"
       ],
       "selection": [
-        "files/tests/test_venv_recovery.py",
-        "files/tests/test_venv_integrity.py",
+        "files/tests/test_omnivoice_layout.py",
         "files/tests/test_qwen3_lifecycle_locks.py",
         "files/tests/test_setup_help_text.py",
-        "files/tests/test_omnivoice_layout.py"
+        "files/tests/test_uv_provisioning.py",
+        "files/tests/test_venv_integrity.py",
+        "files/tests/test_venv_recovery.py"
       ],
       "journeys": [],
       "verification": {
@@ -24077,6 +24175,26 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_omnivoice_layout.py::test_a_parent_folder_without_an_interpreter_that_cannot_be_rebuilt_is_put_back_with_both_engines"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_uv_provisioning.py::test_damaged_packages_are_reinstalled_in_place_and_nothing_is_rebuilt"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_uv_provisioning.py::test_a_targeted_repair_that_does_not_make_it_whole_falls_back_to_the_rebuild"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_uv_provisioning.py::test_other_reasons_go_straight_to_the_rebuild"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_uv_provisioning.py::test_uv_never_syncs_an_environment_it_could_delete_with_its_engines"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_uv_provisioning.py::test_creating_the_environment_uses_uv_on_the_managed_python_only"
           }
         ]
       },
@@ -24155,7 +24273,7 @@
     {
       "id": "ACT.SETUP.DEPENDENCY-LOCK",
       "tool": "setup",
-      "title": "Hash-locked pinned dependencies and the verified package store",
+      "title": "The uv-locked base project, the one uv wrapper and the persistent repair cache",
       "release_required": true,
       "applicability": {
         "platforms": [
@@ -24164,6 +24282,50 @@
       },
       "source": [
         {
+          "path": "scripts/shared/uv_runner.py",
+          "symbols": [
+            "pins",
+            "PlatformPins",
+            "sync_command",
+            "venv_command",
+            "pip_install_command",
+            "cache_prune_command",
+            "lock_command",
+            "environment",
+            "Operation",
+            "run",
+            "check_target",
+            "TargetRefused",
+            "uv_problem",
+            "uv_exe",
+            "cache_dir",
+            "scratch_root",
+            "confined_dir",
+            "project_dir",
+            "base_env",
+            "engine_env",
+            "lock_identity",
+            "text_sha256",
+            "cache_clean_command"
+          ]
+        },
+        {
+          "path": "scripts/shared/bootstrap.py",
+          "symbols": [
+            "sync_base_packages",
+            "install_requirements",
+            "_uv",
+            "_pip",
+            "allow_downloads",
+            "_ask_download_consent",
+            "_prune_cache",
+            "select_profile",
+            "selected_profile",
+            "_set_profile",
+            "in_place_sync_problem"
+          ]
+        },
+        {
           "path": "scripts/shared/base_packages.py",
           "symbols": [
             "parse_lock",
@@ -24171,45 +24333,25 @@
             "requirement_pins",
             "lock_applies",
             "lock_path",
-            "store_dir",
-            "cache_dir",
-            "quarantine_dir",
-            "pip_environment",
-            "download_command",
-            "install_command",
-            "unlocked_install_command",
-            "missing_artifacts",
-            "sweep_store",
-            "build_backends",
             "requirement_text",
             "lock_target"
-          ]
-        },
-        {
-          "path": "scripts/shared/bootstrap.py",
-          "symbols": [
-            "install_base_packages",
-            "pip_install_requirements",
-            "_install_locked",
-            "_fetch_and_install",
-            "_sweep_store",
-            "_package_store",
-            "_pip",
-            "_pip_environment",
-            "_applicable_lock",
-            "_force_reinstall"
           ]
         }
       ],
       "contracts": [
-        "Where the lock describes the interpreter (Windows x86-64 CPython 3.12) every package comes from the lock, each checked against its SHA-256, and installs never reach an index",
-        "A package the lock does not name cannot be installed, and a kept file whose hash is not the locked one is refused",
-        "Only the lock's exact verified artifacts stay in files/runtime-data/python-packages; anything else is quarantined, never installed",
-        "A complete store reinstalls with no download; pip is never upgraded and runs with its cache inside the app folder and no inherited pip configuration",
-        "The committed lock is a faithful, complete freeze of scripts/requirements.txt"
+        "The base environment is installed only by `uv sync --locked` of the root pyproject.toml and uv.lock (one lock for Windows x86-64 and Apple Silicon macOS), with the pinned uv 0.13.10 on exactly the managed CPython 3.12.15, an explicit user or dev profile, link mode copy on Windows and clone on macOS (never a hard link), and bytecode compiled at install",
+        "Every locked artifact carries its SHA-256, the two source-only builds are hash-pinned too, and uv refuses a file whose hash differs; the lock is a parity translation of the v0.8.1 hash locks (same releases, same hashes)",
+        "Every uv call runs through scripts/shared/uv_runner.py: inherited UV_/PIP_/PYTHON*/SSL_CERT_ and activation settings are dropped, uv's cache, Python downloads and scratch stay inside the app folder, and a sync targets only .venv or an engine environment under .venv-engines",
+        "A sync runs offline from the persistent repair cache (files/runtime-data/uvc) first; only when the cache lacks a file is the person asked, once and on the main thread, and a yes syncs online once; a no, no one to ask, or any other failure downloads nothing",
+        "A package whose kept files are themselves damaged is fetched again only after consent, and only after its cache entries are removed (uv cache clean <package>), since a revalidation alone reinstalls the same damaged unpacked files; a no removes and downloads nothing",
+        "The cache is tidied (uv cache prune) only after a real successful sync, never after a failed one",
+        "The dev profile adds the dev group, whose one pytest pin is the gate's only pytest pin; a chosen profile is kept by every sync and never inferred from pytest",
+        "scripts/requirements.txt, its two v0.8.1 hash locks and base_packages.py are kept only as the developer lock generator's input until that seam is removed (Handoff seam table); the app never installs from them"
       ],
       "selection": [
+        "files/tests/test_uv_provisioning.py",
         "files/tests/test_base_packages.py",
+        "files/tests/test_macos_foundation.py",
         "files/tests/test_bootstrap_import_validation.py",
         "files/tests/test_normal_exit_group_retirement.py"
       ],
@@ -24218,27 +24360,83 @@
         "all_of": [
           {
             "kind": "behavior",
-            "test": "files/tests/test_base_packages.py::test_the_commands_check_every_hash_and_the_installs_never_reach_an_index"
+            "test": "files/tests/test_uv_provisioning.py::test_the_sync_is_locked_exact_and_profile_explicit"
           },
           {
             "kind": "behavior",
-            "test": "files/tests/test_base_packages.py::test_real_pip_refuses_a_kept_file_whose_hash_is_not_the_locked_one"
+            "test": "files/tests/test_uv_provisioning.py::test_the_base_project_requires_the_pinned_uv_and_python_and_is_this_version"
           },
           {
             "kind": "behavior",
-            "test": "files/tests/test_base_packages.py::test_real_pip_refuses_a_dependency_the_lock_does_not_name"
+            "test": "files/tests/test_uv_provisioning.py::test_the_environment_drops_every_inherited_steering_and_confines_uv"
           },
           {
             "kind": "behavior",
-            "test": "files/tests/test_base_packages.py::test_a_complete_store_reinstalls_without_any_download"
+            "test": "files/tests/test_uv_provisioning.py::test_every_uv_path_is_inside_the_copy"
           },
           {
             "kind": "behavior",
-            "test": "files/tests/test_base_packages.py::test_the_store_keeps_only_the_locks_exact_verified_artifacts"
+            "test": "files/tests/test_uv_provisioning.py::test_a_sync_targets_only_the_base_or_an_engine_environment"
           },
           {
             "kind": "behavior",
-            "test": "files/tests/test_base_packages.py::test_the_lock_records_this_requirements_file_and_every_pin_of_it"
+            "test": "files/tests/test_uv_provisioning.py::test_a_sync_runs_offline_from_the_repair_cache_first_and_asks_nothing"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_uv_provisioning.py::test_a_yes_syncs_online_once"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_uv_provisioning.py::test_any_other_failure_is_not_a_reason_to_go_online"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_uv_provisioning.py::test_a_worker_thread_never_creates_tk_and_asks_through_the_window_that_owns_the_main_thread"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_uv_provisioning.py::test_a_successful_install_tidies_the_cache_once_and_only_after_a_real_sync"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_uv_provisioning.py::test_the_developer_profile_is_kept_by_every_sync"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_uv_provisioning.py::test_the_profile_switch_is_explicit_and_never_inferred_from_pytest"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_uv_provisioning.py::test_the_gate_reads_its_one_pytest_pin_from_the_base_projects_dev_group"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_uv_provisioning.py::test_bootstrap_runs_uv_only_through_the_one_wrapper"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_base_packages.py::test_uv_lock_carries_every_hash_locked_release_and_nothing_else"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_base_packages.py::test_the_base_project_pins_exactly_requirements_txt_with_pytest_in_the_dev_group"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_macos_foundation.py::test_a_mac_installs_only_hash_checked_files_from_the_one_lock"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_uv_provisioning.py::test_damaged_files_are_reinstalled_from_the_cache_then_fetched_again_then_refused"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_uv_provisioning.py::test_a_no_to_fetching_damaged_kept_files_again_removes_nothing"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_uv_provisioning.py::test_cleaning_the_cache_always_names_its_packages"
           }
         ]
       },
@@ -24247,7 +24445,7 @@
     {
       "id": "ACT.SETUP.REQUIREMENTS-STATE",
       "tool": "setup",
-      "title": "Requirements stamp, import proof and launch-time package reconcile",
+      "title": "Environment receipt, import proof and launch-time package reconcile",
       "release_required": true,
       "applicability": {
         "platforms": [
@@ -24270,21 +24468,35 @@
             "required_modules_present",
             "prove_required_imports",
             "validate_installed_packages",
-            "_interpreter_identity"
+            "_interpreter_identity",
+            "read_receipt",
+            "invalidate_receipt",
+            "receipt_distributions",
+            "_prove_and_record",
+            "prove_installed_files",
+            "_interpreter_record"
+          ]
+        },
+        {
+          "path": "scripts/shared/venv_integrity.py",
+          "symbols": [
+            "record_damage",
+            "installed_distributions"
           ]
         }
       ],
       "contracts": [
-        "A success stamp is written only when pip succeeded and every required import was proved; either failure writes nothing, so the next start retries",
-        "A changed requirements.txt or lock is reconciled once, in place, at launch; the environment is never deleted or recreated for it and no model is downloaded",
-        "A package missing despite matching pins is detected by a presence probe and repaired",
+        "The receipt (.venv/.act-environment.json) is withdrawn before anything is installed and written only after uv succeeded, every installed file matched its RECORD (a missing RECORD is damage) and every required import was proved; either failure writes nothing, so the next start retries",
+        "The receipt binds the base project and lock (line endings normalised), the interpreter build, the profile and the health; a change to any of them is reconciled once, in place, at launch; the environment is never deleted or recreated for it and no model is downloaded; a v0.8.1 stamp is not a receipt",
+        "A package missing despite a current receipt is detected by a presence probe and repaired",
         "A real import proof is re-established after 7 days or when the interpreter changes"
       ],
       "selection": [
         "files/tests/test_bootstrap_requirements_state.py",
         "files/tests/test_bootstrap_import_validation.py",
         "files/tests/test_launch_self_heal.py",
-        "files/tests/test_base_packages.py"
+        "files/tests/test_uv_provisioning.py",
+        "files/tests/test_venv_integrity.py"
       ],
       "journeys": [],
       "verification": {
@@ -24311,7 +24523,31 @@
           },
           {
             "kind": "behavior",
-            "test": "files/tests/test_base_packages.py::test_the_requirements_fingerprint_covers_the_lock"
+            "test": "files/tests/test_bootstrap_requirements_state.py::test_the_receipt_binds_the_lock_the_interpreter_and_the_profile"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_bootstrap_requirements_state.py::test_the_receipt_is_withdrawn_before_anything_is_installed"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_bootstrap_requirements_state.py::test_an_older_stamp_format_is_not_a_receipt"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_bootstrap_requirements_state.py::test_line_endings_alone_are_not_drift"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_uv_provisioning.py::test_files_repaired_from_the_cache_are_proved_before_anything_is_recorded"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_venv_integrity.py::test_a_missing_record_is_damage_not_nothing_to_check"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_venv_integrity.py::test_any_listed_file_that_is_missing_is_damage_not_only_the_launch_sample"
           }
         ]
       },
@@ -25729,7 +25965,7 @@
         }
       ],
       "contracts": [
-        "The archive holds only the platform launcher, README.md, config.toml, LICENSE (the complete, unmodified GNU GPL v3 text), git-tracked scripts/ and exactly the 18 named reference WAVs from files/Cloned-Voice-Uploads (six per cloned engine, each in its own engine folder)",
+        "The archive holds only the platform launcher, README.md, config.toml, LICENSE (the complete, unmodified GNU GPL v3 text), pyproject.toml and uv.lock (the base project uv syncs, byte for byte), git-tracked scripts/ and exactly the 18 named reference WAVs from files/Cloned-Voice-Uploads (six per cloned engine, each in its own engine folder)",
         "Developer-only entry points, the verification gate, development trees, environments, caches and runtime data never ship",
         "The packaged and committed config.toml ship [development] developer_mode = false, checked again in the finished archive",
         "A build refuses uncommitted changes and occupied destinations, validates every member against its source and publishes all or nothing",
@@ -25777,7 +26013,7 @@
           },
           {
             "kind": "behavior",
-            "test": "files/tests/test_release_packaging.py::test_the_packager_allowlist_names_the_license_and_no_other_root_file"
+            "test": "files/tests/test_release_packaging.py::test_the_packager_allowlist_names_the_license_the_base_project_and_no_other_root_file"
           },
           {
             "kind": "behavior",
@@ -25790,6 +26026,10 @@
           {
             "kind": "behavior",
             "test": "files/tests/test_release_packaging.py::test_the_license_cannot_be_missing_or_untracked[untrack]"
+          },
+          {
+            "kind": "behavior",
+            "test": "files/tests/test_release_packaging.py::test_each_archive_carries_the_uv_provisioning_inputs_byte_for_byte[Windows]"
           }
         ]
       },
@@ -27555,9 +27795,11 @@
       "dialog:scripts/mp3/mp3_tool.py::MP3ToolUI.clear_all_imports::messagebox.showerror:APP_TITLE": "ACT.MP3.CLEAR-IMPORTS",
       "dialog:scripts/mp3/mp3_tool.py::MP3ToolUI.retry_failed::messagebox.showerror:APP_TITLE": "ACT.MP3.RETRY",
       "dialog:scripts/mp3/mp3_tool.py::MP3ToolUI.retry_failed::messagebox.showerror:APP_TITLE#2": "ACT.MP3.RETRY",
+      "dialog:scripts/shared/bootstrap.py::_ask_download_consent::messagebox.askyesno:CONSENT_TITLE": "ACT.SETUP.DEPENDENCY-LOCK",
       "dialog:scripts/shared/bootstrap.py::run_with_gui.on_close_during_base::messagebox.askyesno:Stop setup?": "ACT.SETUP.FIRST-RUN.CANCEL",
       "dialog:scripts/shared/bootstrap.py::run_with_gui.optional_phase.on_close::messagebox.askyesno:Stop setup?": "ACT.SETUP.FIRST-RUN.CANCEL",
       "dialog:scripts/shared/bootstrap.py::run_with_gui.poll::messagebox.showerror:Setup did not complete": "ACT.SETUP.FIRST-RUN",
+      "dialog:scripts/shared/bootstrap.py::show_repair_dialog.poll::messagebox.askyesno:CONSENT_TITLE": "ACT.SETUP.DEPENDENCY-LOCK",
       "dialog:scripts/shared/bootstrap.py::show_warning_dialog::messagebox.showwarning:title": "ACT.SETUP.LAUNCH",
       "dialog:scripts/shared/job_ui.py::ask_confirm::messagebox.askyesno:title": "ACT.SHARED.CONFIRMATIONS",
       "dialog:scripts/shared/job_ui.py::ask_files::filedialog.askopenfilenames:title": "ACT.SHARED.IMPORTING",
@@ -28999,8 +29241,8 @@
     }
   ],
   "source_review": {
-    "Setup_and_Run-audiobook-creation-tool.bat": "2bfcc00f681f505a313efe107592abb3655c035f07fdbdc1d3ddad3f9b27e06e",
-    "Setup_and_Run-audiobook-creation-tool.command": "321814409658fd1ebdf655278a43a9a556bc3d721582cb7943fd8664ba6c1420",
+    "Setup_and_Run-audiobook-creation-tool.bat": "11f57d7a996d1ad7e49d5f90646e745dd1e317fb32a1a78b10b72d1300b2c3ec",
+    "Setup_and_Run-audiobook-creation-tool.command": "6cd08e79f9e89b5323367147b1d05b17353572e2613465db5053e492bee8ee18",
     "scripts/artwork/__init__.py": "f80bd6a1c3c51bd518d6aecc063e654d4c629de6dc85c627483bda87485fb400",
     "scripts/artwork/cover_resizer.py": "54e6a6242a774e63abdef4c499ca1665ece7395e8d744b6a4f7b5874262c6214",
     "scripts/artwork/m4b_artwork.py": "3e509b1be7fcf736bc1509042531dedb4eaeb566195e897e6f6adc0e3bbc1b81",
@@ -29042,21 +29284,23 @@
     "scripts/mp3/mp3_tool.py": "48b8b8e5d4495cf19f32c56e1b1a116e0c888c2789312cb04778c57ec79b64ff",
     "scripts/mp3/mp3_workflow.py": "84cfd92fa82b3c32468e8f38db083512eb830af32f8ff19ad7110edd0371fd11",
     "scripts/shared/__init__.py": "7cdb3a3d2a4b1c757d93646a31f9c8d2f64af265b4dfbd01e570a566ad4e72fc",
+    "scripts/shared/app_python.py": "92891f5dc7d397b00951cdc2e1adba107a165e99c94bf3ab70ec2f70b8b60fb0",
     "scripts/shared/appearance.py": "1083d4880cc44d146c4ee6682a3f00630f4ada1e1cfa298a33c04e5a502a2d71",
     "scripts/shared/artifact_store.py": "84ebb78a1787037d5feb64e5ffe0ef3a97edcda290c8ca8a359bffa3b306692c",
     "scripts/shared/artifact_transfer.py": "983713a2d2661a0ead741e83f3435363fb091567889ead3ee3fca9828f3c9ebf",
     "scripts/shared/base_packages.py": "488605d6f4dc545c1809c07fc6587810cbf1c272fdc65b5a3563c7052ff7729d",
     "scripts/shared/book_workspace.py": "1d9f91bf97d33ca45af9ee344286dfb803a790ccac683aeb03acaf042e35e43b",
     "scripts/shared/book_workspace_ui.py": "e6eca05cecd79854b412af6d4d9c3469dbcb5ac614d9fd44752b0cc7103fb553",
-    "scripts/shared/bootstrap.py": "bd4012351c1846a31b17cb4a0f824048f3c4211667a64698169db1954da3c5bf",
-    "scripts/shared/bootstrap_host.ps1": "44639fee2414dc7982bb4855e30cfbc24e9c3bc6ceedf614d69b1a7b990fd42a",
-    "scripts/shared/bootstrap_host_macos.sh": "71558a53a815a174c9866285a1e16c5164be82ee52b37918a8c4408e631f4c2e",
+    "scripts/shared/bootstrap.py": "2f663f904be74e2b0d2b31c23e5f7ab1e1735b643dac675a6d0fb145028dccf2",
+    "scripts/shared/bootstrap_host.ps1": "612bf139092e955f4b6ee16a3ee533a086fb68a0790f771311b1c768c83f4fd5",
+    "scripts/shared/bootstrap_host_fallback.cmd": "45e335ea28856ec4974e570cd41fb612b81f11bf617f217346fbf1411ed5f341",
+    "scripts/shared/bootstrap_host_macos.sh": "62d1fdae0c84438aee60da85ed5974652b0d4c80b87625c72ca92f5ffcecc973",
     "scripts/shared/cancellation.py": "d6e92845f45349af3de43516b415cf7235097fc8e45bb405fd54ea69f8f9ffac",
     "scripts/shared/child_entry.py": "58ba40911902e1b6a84914ef2cd2454aa316adf5e29d6cebc33aa5e2b3d49aaf",
     "scripts/shared/child_guardian.py": "dc3e031176923b7d8bffbb2baa0440605236c39c1498d0243376a297da58fb2e",
     "scripts/shared/child_launch.py": "207a47573bb9f5c627cb457a2cc9aa010fe2fd16d37f49ada0a8f41b8e8fdfe5",
     "scripts/shared/child_ownership.py": "d0aeed6c8aedfa1e2f7fe77e384812f4ebe21e17da498231aa093eaf42110abe",
-    "scripts/shared/cleanup_state.py": "26ac616b9105c8cd8ee30b4dd6e44ee0bedd9b2ee9d3d085658aabde6f86514c",
+    "scripts/shared/cleanup_state.py": "aeb4006bc20459b51af5c2626cb36a9ed5cdfb8da20cb0fcca2a883f61d6ba2d",
     "scripts/shared/cleanup_worker.py": "e259423a3b193817099c4caeff08ec66f2f152cedf16f4535bee4d08ddb768f9",
     "scripts/shared/close_terminal.py": "ebf6086b42f695bcb7ef59b605804677cd12ea0aa0b0ab1aa3f6fec8b05dc56f",
     "scripts/shared/config.py": "6a02527d142252815899d80d7701cb326edb77a30dfaed5f80e495f81a7a6401",
@@ -29083,7 +29327,7 @@
     "scripts/shared/optional_setup_exchange_v3.py": "103c21cc4ab7e4c4a40ace206626677a04cc264bd453f1e7a65084393708a042",
     "scripts/shared/optional_setup_panel.py": "d4329092d8aab5caeda4bfc95e03b0687f5b17ce54629257434b096b1eec9a01",
     "scripts/shared/optional_setup_planning_bridge_v3.py": "bd15e28228f79821e8ac819c60771abeb93e864f9ab3c99320791504d9df6c0e",
-    "scripts/shared/optional_setup_protocol.py": "0a8f2c6883431ad7a8c731ce644a34002f3f35dcf04e1f25c51187673e98eab6",
+    "scripts/shared/optional_setup_protocol.py": "029a83301b160fb7eece57126638a5e3ab5e2f07aeebe0cda895c6c96f9d748d",
     "scripts/shared/optional_setup_readonly_context_v3.py": "c7c2b189553b131743f91c494ff862e7209b8517c95181f1d353ef6e6bb475f0",
     "scripts/shared/optional_setup_resource_budget.py": "271a73b61458f77b439f7114ec2063511d14d2fe7fc07b588d48117c7598642b",
     "scripts/shared/optional_setup_supervisor_v3.py": "dce3016d8df5dd0750d25bf84014f1e05ab8190923e23e0a6a46dc663b2304fc",
@@ -29093,13 +29337,14 @@
     "scripts/shared/output_paths.py": "eba1ef6ddb1aa05f7d337785fe2b9aecd040b77794a956a1d9a54de37c0fdcca",
     "scripts/shared/paths.py": "9486c2afc0362d7b401da94b24d660ab5887ae581c97b754524a5524168f098f",
     "scripts/shared/preferences_ui.py": "a587859b3e8d0385baf8bf757c6bf669040d2edfa81bdb923375076377c62ef4",
-    "scripts/shared/release.py": "bfdf0c5fc1830bdf47a3a6e96a4d3e5a5e16345c32bb32abe1492a01b2aa67d3",
+    "scripts/shared/release.py": "ed922563b1c2f1cc1c777ca8e8a325ad433e4dfec754f64aa96631f10adffb5e",
     "scripts/shared/settings.py": "2f564a150ce9b5f0dce110d711e54e8c00f18dc59a017d59e31936bcc136f84f",
     "scripts/shared/source_readback.py": "73b639ed4777cc1047fc40b7893c9dd292a112fe6ec7fb50a4b51991af0712a8",
     "scripts/shared/spacy_store.py": "089d966bc82296250c97fa98014ea8a269945f1a237064b24d26a050dd4d42f2",
     "scripts/shared/subprocess_utils.py": "0448a626eb11ca69e6be944810c7c412b12d77787aa991809b49707b119d1a3d",
     "scripts/shared/ui_theme.py": "6c60ddc9dbc0768e4fef051c38daa7e9979d790471c560cf4a56c1b58d46d2ef",
-    "scripts/shared/venv_integrity.py": "f016c2d89c076903c8dd3b3a528e4bbd655424ead13ddd452a947b702042dd7e",
+    "scripts/shared/uv_runner.py": "ce3331911779eb647d8f7b8f61dac1ca820ac0e42c330767bd913e29dcd3fee9",
+    "scripts/shared/venv_integrity.py": "5230492addc4a0c00c37cc0e3b6094648b521a92f4791ec63aa7b55c35e1adec",
     "scripts/shared/venv_layout.py": "b474c32339b41b79025234bc22c07b286992e74c48572eeea357de473d1aa86b",
     "scripts/shared/version.py": "ebe5a97fa55cc98347f8a9d3a9d8e4238b36ea6373cac1cc08761ab98149a67f",
     "scripts/shared/work_area.py": "dcbcf2ef2c9691e1c22ad023ae6d985ca44c1cc53c9263255cbb858fbf4c0e97",
@@ -29121,7 +29366,7 @@
     "scripts/tts/local_engine_host.py": "77f970a15125f07c111370aa082b59adf5d4b561f350a13580ebff226d32883f",
     "scripts/tts/local_engine_worker.py": "0935955b240d134f48c17f15c625ca77557f056fc2e5198d394e7ef46d97cd6a",
     "scripts/tts/model_assets.py": "d2ffd3493fd459e10235bc96b8fa06ea70f23f84506b92122614ff446b3da013",
-    "scripts/tts/omnivoice_runtime.py": "2f27bc54fb792a70a30f14aefcc9691cdd53c6734abb272f8b584d9d7ae42883",
+    "scripts/tts/omnivoice_runtime.py": "2de21574370807c52d6b1996abfb4e5d93a9f839cc0b96fb5335bfabe407e034",
     "scripts/tts/omnivoice_setup.py": "bd4f7f1768402b0a58241219382a07d8c16230205f8b0cd2aef93a39a1de90f3",
     "scripts/tts/omnivoice_synth.py": "cd366c7bf9c2332c92d461e69d11a3a78dbacfe1e5a351204be6bd5b46259bd9",
     "scripts/tts/omnivoice_worker.py": "48b8c28c8858525e0ab372a07b1471015485adda70099fc1240cd8db7f5a92ca",
@@ -29144,7 +29389,7 @@
     "scripts/tts/qwen3_package_manifest.py": "ecbdbe80aabe6379741bb4070bd1e702fff85775236a31d8760d2bd50955a566",
     "scripts/tts/qwen3_packages.py": "5a5d9c75dd7f601e2a9d1de43bdca866dd2b67bafa99adde34b052aceecf306f",
     "scripts/tts/qwen3_process.py": "bd5f6b222e4b1a2eec8de7394eadcc1a81ce50db809401b4788ded09ee7c189c",
-    "scripts/tts/qwen3_runtime.py": "6c70484974d8035748d135d8071225e4708e425f92eccb8495e9e09b53d19889",
+    "scripts/tts/qwen3_runtime.py": "ab84362e428c498e5fb89f06769ad282276802069c1dc2b71040fa608367d01d",
     "scripts/tts/qwen3_setup.py": "f3d473baf481f4d1dd1a63f577b2cda52c684842281af66b1a71d1ca17d3bdd2",
     "scripts/tts/qwen3_synth.py": "5268d3b7e2a8096de6696d75c6056b04ca124ffd04d3773ee87f5aa3689687aa",
     "scripts/tts/qwen3_wheels.py": "8ca4bd0479b8b85cf78bd76270db4d8a1be928d6dabe707c4d4b464ae2439fa4",

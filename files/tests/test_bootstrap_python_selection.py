@@ -115,50 +115,9 @@ def test_no_candidate_needs_whitespace_splitting_to_be_understood():
         assert all(" " not in token for token in argv)
 
 
-@WINDOWS_ONLY
-def test_the_launcher_candidates_carry_their_version_as_a_separate_token():
-    argv_list = bootstrap._candidate_interpreters()
-    assert ["py", "-3.12"] in argv_list
-    assert ["py", "-3.11"] in argv_list
-
-
 # --------------------------------------------------------------------------- #
 # B. Paths containing spaces -- the actual defect
 # --------------------------------------------------------------------------- #
-@WINDOWS_ONLY
-def test_a_program_files_python_survives_the_space_in_its_path(
-        probe, monkeypatch, tmp_path):
-    """The headline case: C:\\Program Files\\Python312\\python.exe.
-
-    Pre-fix this candidate reached the probe as TWO argv elements, the spawn
-    failed, the error was swallowed, and a machine-scope 3.12 was invisible.
-    """
-    progfiles = tmp_path / "Program Files"
-    exe = _install(progfiles / "Python312")
-    monkeypatch.setenv("ProgramFiles", str(progfiles))
-    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "no-such-local"))
-    probe.versions[(str(exe),)] = (3, 12)
-
-    chosen = bootstrap.find_suitable_python(_Log())
-
-    assert chosen == [str(exe)]
-    assert [str(exe)] in probe.seen, (
-        "the spaced path never reached the probe as a single argv element")
-
-
-@WINDOWS_ONLY
-def test_a_user_profile_python_survives_a_space_in_the_account_name(
-        probe, monkeypatch, tmp_path):
-    """C:\\Users\\John Smith\\AppData\\Local\\... -- the realistic user hazard."""
-    local = tmp_path / "John Smith" / "AppData" / "Local"
-    exe = _install(local / "Programs" / "Python" / "Python312")
-    monkeypatch.setenv("LOCALAPPDATA", str(local))
-    monkeypatch.setenv("ProgramFiles", str(tmp_path / "no-such-progfiles"))
-    probe.versions[(str(exe),)] = (3, 12)
-
-    assert bootstrap.find_suitable_python(_Log()) == [str(exe)]
-
-
 def test_a_spaced_path_is_never_split_even_when_it_is_the_only_candidate(
         probe, monkeypatch, tmp_path):
     """Platform-independent statement of the same rule."""
@@ -174,41 +133,6 @@ def test_a_spaced_path_is_never_split_even_when_it_is_the_only_candidate(
 # --------------------------------------------------------------------------- #
 # C. The version contract
 # --------------------------------------------------------------------------- #
-@WINDOWS_ONLY
-def test_312_wins_when_312_and_313_are_both_installed(
-        probe, monkeypatch, tmp_path):
-    local = tmp_path / "Local"
-    exe312 = _install(local / "Programs" / "Python" / "Python312")
-    monkeypatch.setenv("LOCALAPPDATA", str(local))
-    monkeypatch.setenv("ProgramFiles", str(tmp_path / "none"))
-    probe.versions[(str(exe312),)] = (3, 12)
-    # A 3.13 that PATH would hand over first.
-    monkeypatch.setattr(bootstrap.shutil, "which",
-                        lambda name: "python-from-path" if name == "python" else None)
-    probe.versions[("python",)] = (3, 13)
-
-    assert bootstrap.find_suitable_python(_Log()) == [str(exe312)]
-
-
-@WINDOWS_ONLY
-def test_path_order_cannot_make_313_beat_a_compatible_312(
-        probe, monkeypatch, tmp_path):
-    """Selection is by version predicate, never by PATH order."""
-    local = tmp_path / "Local"
-    exe312 = _install(local / "Programs" / "Python" / "Python312")
-    monkeypatch.setenv("LOCALAPPDATA", str(local))
-    monkeypatch.setenv("ProgramFiles", str(tmp_path / "none"))
-    monkeypatch.setattr(bootstrap.shutil, "which", lambda name: f"/path/{name}")
-    probe.versions[("py", "-3.12")] = (3, 13)   # even a lying launcher
-    probe.versions[("python",)] = (3, 13)
-    probe.versions[(str(exe312),)] = (3, 12)
-
-    chosen = bootstrap.find_suitable_python(_Log())
-
-    assert chosen == [str(exe312)]
-    assert bootstrap.is_full_feature_python(probe.versions[tuple(chosen)])
-
-
 def test_a_compatible_311_is_accepted_when_no_312_exists(
         probe, monkeypatch, tmp_path):
     exe = _install(tmp_path / "py311")
@@ -271,18 +195,6 @@ def test_the_py_launcher_is_not_probed_when_it_is_absent(
     assert not any(argv and argv[0] == "py" for argv in probe.seen)
 
 
-@WINDOWS_ONLY
-def test_the_py_launcher_is_probed_when_it_is_present(
-        probe, monkeypatch, tmp_path):
-    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "none"))
-    monkeypatch.setenv("ProgramFiles", str(tmp_path / "none2"))
-    monkeypatch.setattr(bootstrap.shutil, "which",
-                        lambda name: r"C:\Windows\py.exe" if name == "py" else None)
-    probe.versions[("py", "-3.12")] = (3, 12)
-
-    assert bootstrap.find_suitable_python(_Log()) == ["py", "-3.12"]
-
-
 def test_a_candidate_path_that_does_not_exist_is_never_spawned(
         probe, monkeypatch, tmp_path):
     missing = tmp_path / "gone" / "python.exe"
@@ -320,3 +232,65 @@ def test_no_suitable_python_is_reported_truthfully(probe, monkeypatch):
 
     assert bootstrap.find_suitable_python(log) is None
     assert "no suitable python" in log.text.lower()
+
+
+
+# --------------------------------------------------------------------------- #
+# E. v0.8.2 Phase 4 (owner decision D-6): the app's own Python and nothing else
+#
+# Windows used to fall back to the py launcher, python.org's install folders and
+# PATH. That fallback is retired: the environment is built by uv on the app's own
+# managed CPython 3.12.15 only, and stage 0 (bootstrap_host.ps1, or the contained
+# curl/certutil/tar route when PowerShell cannot run) provides it. The tests that
+# pinned the old discovery (spaced Program Files paths, 3.12 over 3.13 on PATH,
+# py -3.12) were retired with it; the argv-shape rules above still hold.
+# --------------------------------------------------------------------------- #
+def test_the_only_candidate_on_every_platform_is_the_apps_own_python():
+    assert bootstrap._candidate_interpreters() == [[str(bootstrap.APP_PYTHON)]]
+    assert bootstrap.APP_PYTHON == bootstrap.uv_runner.managed_python(bootstrap.REPO_ROOT)
+
+
+def test_no_python_on_the_computer_is_ever_probed(probe, monkeypatch, tmp_path):
+    """A Program Files 3.12, a per-user 3.12, the py launcher and PATH's python are all present -- none is used."""
+    progfiles, local = tmp_path / "Program Files", tmp_path / "John Smith" / "AppData" / "Local"
+    machine = _install(progfiles / "Python312")
+    user = _install(local / "Programs" / "Python" / "Python312")
+    monkeypatch.setenv("ProgramFiles", str(progfiles))
+    monkeypatch.setenv("LOCALAPPDATA", str(local))
+    monkeypatch.setattr(bootstrap.shutil, "which", lambda name: f"/path/{name}")
+    for argv in ((str(machine),), (str(user),), ("py", "-3.12"), ("python",), ("python3",)):
+        probe.versions[argv] = (3, 12)
+    monkeypatch.setattr(bootstrap, "APP_PYTHON", tmp_path / "ACT" / "no-managed-python" / "python.exe")
+
+    assert bootstrap.find_suitable_python(_Log()) is None
+    assert probe.seen == [], "nothing outside the app's own folder was even started"
+
+
+def test_the_apps_own_managed_python_is_found_even_in_a_spaced_folder(probe, monkeypatch, tmp_path):
+    own = _install(tmp_path / "My Apps" / "ACT C1" / "files" / "runtime-data" / "uv" / "python"
+                   / "cpython-3.12.15-windows-x86_64-none")
+    monkeypatch.setattr(bootstrap, "APP_PYTHON", own)
+    monkeypatch.setattr(bootstrap, "_candidate_interpreters", lambda: [[str(bootstrap.APP_PYTHON)]])
+    probe.versions[(str(own),)] = (3, 12)
+
+    assert bootstrap.find_suitable_python(_Log()) == [str(own)]
+    assert probe.seen == [[str(own)]]
+
+
+def test_a_running_interpreter_that_is_not_the_apps_own_is_not_chosen(monkeypatch, tmp_path):
+    """A developer's ``python bootstrap.py`` on another 3.12 must not become the environment's base."""
+    monkeypatch.setattr(bootstrap, "APP_PYTHON", tmp_path / "absent" / "python.exe")
+    monkeypatch.setattr(bootstrap, "_tcl_tk_ok", lambda argv: True)
+    monkeypatch.setattr(bootstrap, "_interp_version_argv", lambda argv: None)
+    assert bootstrap.find_suitable_python(_Log()) is None
+    monkeypatch.setattr(bootstrap, "APP_PYTHON", Path(sys.executable))
+    assert bootstrap.find_suitable_python(_Log()) == [sys.executable], "the app's own one, running, is used"
+
+
+def test_creating_the_environment_refuses_any_other_base(monkeypatch, tmp_path):
+    monkeypatch.setattr(bootstrap, "VENV_DIR", tmp_path / ".venv")
+    monkeypatch.setattr(bootstrap.uv_runner, "uv_problem", lambda root, platform=None: "")
+    monkeypatch.setattr(bootstrap, "_uv", lambda *a, **k: pytest.fail("uv must not run for a foreign base"))
+    log = _Log()
+    assert bootstrap.create_venv([r"C:\Program Files\Python312\python.exe"], log) is False
+    assert "is not the app's own Python" in log.text
